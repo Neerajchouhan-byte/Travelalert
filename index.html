@@ -11,515 +11,480 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!--Navbar-->
-    <header class="header">
-      <nav class="navbar">
-        <a href="/" class="nav-logo">Travel<span>Wise</span></a>
-        <ul class="nav-links">
-          <li><a href="#features">Features</a></li>
-          <li><a href="#how-it-works">How it WORKS</a></li>
-          <li><a href="#pricing">Pricing</a></li>
+
+<!-- ── NAV ── -->
+<div class="nav-wrap">
+  <nav>
+    <div class="nav-logo">TravelWise</div>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how">How It Works</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+    </ul>
+    <div class="nav-right">
+      <a href="#" class="nav-login">Log in</a>
+      <a href="#pricing" class="btn btn-accent">Get Started Free</a>
+    </div>
+  </nav>
+</div>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-glow"></div>
+
+  <!-- PSYCHOLOGY: Social proof badge -->
+  <div class="hero-pill">
+    <span class="live-dot"></span>
+    Live data from 50,000+ travelers worldwide
+  </div>
+
+  <!-- PSYCHOLOGY: Loss aversion headline -->
+  <h1 class="hero-h1">
+    <span class="line-plain">Travel Smarter.</span>
+    <span class="line-grad">Never Get Scammed.</span>
+  </h1>
+
+  <!-- PSYCHOLOGY: Specificity — exact dollar amount -->
+  <p class="hero-sub">
+    The average tourist loses <strong>$180 to preventable scams</strong> on day one.
+    TravelWise gives you real-time alerts from live Reddit data and AI — so you know what's happening before you land.
+  </p>
+
+  <!-- Search bar -->
+  <div class="hero-search">
+    <div class="search-bar">
+      <span class="s-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+      </span>
+      <input class="s-input" type="text" placeholder="Search a destination — Bangkok, Bali, Rome..."/>
+      <button class="s-btn">Check for Scams</button>
+    </div>
+    <p class="search-hint">Checked today: Bangkok · Bali · Tokyo · Hanoi · Rome · Prague</p>
+  </div>
+
+  <div class="hero-cta-row">
+    <!-- PSYCHOLOGY: Identity CTA -->
+    <a href="#pricing" class="btn btn-accent btn-lg">Start Free — Smart Travelers Do This</a>
+    <a href="#features" class="btn-link">
+      See how it works
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    </a>
+  </div>
+
+  <!-- PSYCHOLOGY: Specific proof numbers -->
+  <div class="hero-proof">
+    <div class="proof-item">
+      <div class="proof-num danger-num">$180</div>
+      <div class="proof-lbl">Avg scam loss — SEA</div>
+    </div>
+    <div class="proof-item">
+      <div class="proof-num">2,400+</div>
+      <div class="proof-lbl">Scam patterns tracked</div>
+    </div>
+    <div class="proof-item">
+      <div class="proof-num">180+</div>
+      <div class="proof-lbl">Destinations covered</div>
+    </div>
+    <div class="proof-item">
+      <div class="proof-num">50K+</div>
+      <div class="proof-lbl">Travelers protected</div>
+    </div>
+    <div class="proof-item">
+      <div class="proof-num">98%</div>
+      <div class="proof-lbl">Say it was worth it</div>
+    </div>
+  </div>
+</section>
+
+<!-- MARQUEE -->
+<div class="marquee-section">
+  <div class="marquee-inner">
+    <span class="m-item"><span class="m-pip"></span>Tuk-Tuk Scam — Bangkok · avg loss $200</span>
+    <span class="m-item"><span class="m-pip"></span>Fake Parking — Bali · avg loss $15</span>
+    <span class="m-item"><span class="m-pip"></span>Gem Store Scam — Bangkok · avg loss $300</span>
+    <span class="m-item"><span class="m-pip"></span>Motorbike Damage — Bali · avg loss $150</span>
+    <span class="m-item"><span class="m-pip"></span>ATM Skimming — Prague · avg loss $400</span>
+    <span class="m-item"><span class="m-pip"></span>Bracelet Scam — Rome · avg loss $20</span>
+    <span class="m-item"><span class="m-pip"></span>Taxi No Meter — Hanoi · avg loss $25</span>
+    <span class="m-item"><span class="m-pip"></span>Fake Monk — Bangkok · avg loss $50</span>
+    <span class="m-item"><span class="m-pip"></span>Tuk-Tuk Scam — Bangkok · avg loss $200</span>
+    <span class="m-item"><span class="m-pip"></span>Fake Parking — Bali · avg loss $15</span>
+    <span class="m-item"><span class="m-pip"></span>Gem Store Scam — Bangkok · avg loss $300</span>
+    <span class="m-item"><span class="m-pip"></span>Motorbike Damage — Bali · avg loss $150</span>
+    <span class="m-item"><span class="m-pip"></span>ATM Skimming — Prague · avg loss $400</span>
+    <span class="m-item"><span class="m-pip"></span>Bracelet Scam — Rome · avg loss $20</span>
+    <span class="m-item"><span class="m-pip"></span>Taxi No Meter — Hanoi · avg loss $25</span>
+    <span class="m-item"><span class="m-pip"></span>Fake Monk — Bangkok · avg loss $50</span>
+  </div>
+</div>
+
+<!-- ── FEATURES ── -->
+<section class="sec-wrap" id="features">
+  <div class="container">
+    <div class="sec-header-center reveal">
+      <div class="sec-label">What We Cover</div>
+      <h2 class="sec-title grad">Everything a smart traveler needs</h2>
+      <p class="sec-sub">From scam warnings to hidden gems — we cover every aspect of your journey so you travel with total confidence.</p>
+    </div>
+    <div class="features-grid reveal">
+      <div class="feat-card">
+        <div class="feat-icon red">🚨</div>
+        <div class="feat-title">Live Scam Alerts</div>
+        <p class="feat-desc">Real-time warnings about active scams — taxi overcharging, fake tours, rigged ATMs, counterfeit tickets, and more. Updated daily from Reddit.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon purple">🏨</div>
+        <div class="feat-title">Accommodation Intel</div>
+        <p class="feat-desc">Know which areas to stay, hidden fees to watch for, and how to spot fake listings before you book. Save money, sleep safely.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon green">🍜</div>
+        <div class="feat-title">Food & Dining Tips</div>
+        <p class="feat-desc">Best local eats, tourist-trap restaurants to skip, food safety advice, and how to order without getting overcharged by 300%.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon amber">🚕</div>
+        <div class="feat-title">Transport Guidance</div>
+        <p class="feat-desc">Navigate airports, taxis, metros, and buses like a local. Know fair prices, legit apps, and which transport scams to watch for.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon blue">💱</div>
+        <div class="feat-title">Money & Currency</div>
+        <p class="feat-desc">Where to exchange, which ATMs to trust, dynamic currency conversion tricks, and how to avoid losing 20% on every transaction.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon teal">🌍</div>
+        <div class="feat-title">Destination Deep Dives</div>
+        <p class="feat-desc">Comprehensive guides for 180+ cities — culture, safety zones, seasonal tips, and local tricks only experienced regulars know.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── HOW IT WORKS ── -->
+<section class="steps-section" id="how">
+  <div class="container">
+    <div class="sec-header-center reveal">
+      <div class="sec-label">How It Works</div>
+      <h2 class="sec-title">Real data. <span class="grad">Not outdated guides.</span></h2>
+      <p class="sec-sub">TravelWise pulls fresh reports from real travelers every day — then AI organizes it so you can act on it in seconds.</p>
+    </div>
+    <div class="steps-grid reveal">
+      <div class="step-card">
+        <div class="step-num-wrap"><div class="step-num">01</div></div>
+        <div class="step-title">Search your destination</div>
+        <p class="step-desc">Type any city or country. We find it instantly from our database of 180+ destinations.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num-wrap"><div class="step-num">02</div></div>
+        <div class="step-title">We pull live Reddit data</div>
+        <p class="step-desc">Our system fetches the latest traveler reports from r/solotravel, r/travel, and 10+ subreddits in real time.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num-wrap"><div class="step-num">03</div></div>
+        <div class="step-title">AI organizes everything</div>
+        <p class="step-desc">Our AI reads hundreds of posts, extracts scam alerts, tips, and warnings — structured and severity rated.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num-wrap"><div class="step-num">04</div></div>
+        <div class="step-title">You travel with confidence</div>
+        <p class="step-desc">A clean, actionable briefing before you land. Know exactly what to watch for and how to avoid it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SCAM CARDS ── -->
+<section class="scam-section">
+  <div class="container">
+    <div class="sec-header-center reveal">
+      <div class="sec-label">Live Scam Intelligence</div>
+      <h2 class="sec-title">Active right now. <span class="grad-red">Updated daily.</span></h2>
+      <p class="sec-sub">Every alert below is sourced from real Reddit reports this week — not a 2019 blog post.</p>
+    </div>
+    <div class="scam-grid reveal">
+
+      <div class="scam-card">
+        <div class="sev-bar high"></div>
+        <div class="scam-top">
+          <div class="scam-meta"><div class="scam-dest">Bangkok, Thailand 🇹🇭</div><div class="scam-badge badge-h">High Risk</div></div>
+          <div class="scam-loss danger">$200</div>
+          <div class="scam-loss-lbl">Average victim loss</div>
+          <div class="scam-name">Tuk-Tuk Free Temple Tour</div>
+        </div>
+        <div class="scam-body">
+          <p class="scam-desc">A friendly local near Grand Palace offers a free tuk-tuk city tour. Drives you to gem/tailor shops with extreme pressure to buy overpriced items.</p>
+          <div class="scam-avoid">✓ Refuse all "free tour" offers. Use Grab app only.</div>
+          <div class="scam-src"><span class="src-dot"></span>r/solotravel · reported 4× this week · 847 upvotes</div>
+        </div>
+      </div>
+
+      <div class="scam-card">
+        <div class="sev-bar high"></div>
+        <div class="scam-top">
+          <div class="scam-meta"><div class="scam-dest">Bali, Indonesia 🇮🇩</div><div class="scam-badge badge-h">High Risk</div></div>
+          <div class="scam-loss danger">$150</div>
+          <div class="scam-loss-lbl">Average victim loss</div>
+          <div class="scam-name">Motorbike Damage Claim</div>
+        </div>
+        <div class="scam-body">
+          <p class="scam-desc">Rented motorbike returned with pre-existing scratches. Owner demands $100-200 cash claiming you caused damage. Refuses insurance.</p>
+          <div class="scam-avoid">✓ Photo every scratch before riding. Use reputable shops only.</div>
+          <div class="scam-src"><span class="src-dot"></span>r/Bali · reported 6× this week · 1.2k upvotes</div>
+        </div>
+      </div>
+
+      <div class="scam-card">
+        <div class="sev-bar medium"></div>
+        <div class="scam-top">
+          <div class="scam-meta"><div class="scam-dest">Prague, Czech Republic 🇨🇿</div><div class="scam-badge badge-m">Medium</div></div>
+          <div class="scam-loss danger">$400</div>
+          <div class="scam-loss-lbl">Average victim loss</div>
+          <div class="scam-name">ATM Skimming Device</div>
+        </div>
+        <div class="scam-body">
+          <p class="scam-desc">Card skimmer devices found on ATMs near Old Town Square. Cards cloned and drained within hours. Standalone ATMs most targeted.</p>
+          <div class="scam-avoid">✓ Use bank-branch ATMs only. Cover keypad when entering PIN.</div>
+          <div class="scam-src"><span class="src-dot"></span>r/travel · confirmed this week · 2.3k upvotes</div>
+        </div>
+      </div>
+
+      <div class="scam-card">
+        <div class="sev-bar medium"></div>
+        <div class="scam-top">
+          <div class="scam-meta"><div class="scam-dest">Hanoi, Vietnam 🇻🇳</div><div class="scam-badge badge-m">Medium</div></div>
+          <div class="scam-loss danger">$25</div>
+          <div class="scam-loss-lbl">Average victim loss</div>
+          <div class="scam-name">Taxi No Meter Scam</div>
+        </div>
+        <div class="scam-body">
+          <p class="scam-desc">Taxi driver claims meter is broken or "fixed price" is better. Charges 3-5× fair price. Most common at Noi Bai Airport late at night.</p>
+          <div class="scam-avoid">✓ Use Grab app. Agree price before entering. Walk away if pressured.</div>
+          <div class="scam-src"><span class="src-dot"></span>r/VietnamTravel · reported 9× this week</div>
+        </div>
+      </div>
+
+      <div class="scam-card">
+        <div class="sev-bar medium"></div>
+        <div class="scam-top">
+          <div class="scam-meta"><div class="scam-dest">Rome, Italy 🇮🇹</div><div class="scam-badge badge-m">Medium</div></div>
+          <div class="scam-loss danger">$20</div>
+          <div class="scam-loss-lbl">Average victim loss</div>
+          <div class="scam-name">Bracelet Gift Scam</div>
+        </div>
+        <div class="scam-body">
+          <p class="scam-desc">Man near Trevi Fountain ties a bracelet on your wrist calling it a gift, then demands aggressive payment. Grabs your hand if you try to leave.</p>
+          <div class="scam-avoid">✓ Keep hands in pockets. Say "No" firmly and keep walking.</div>
+          <div class="scam-src"><span class="src-dot"></span>r/solotravel · reported 11× this week</div>
+        </div>
+      </div>
+
+      <div class="scam-card">
+        <div class="sev-bar tip"></div>
+        <div class="scam-top">
+          <div class="scam-meta"><div class="scam-dest">Bangkok, Thailand 🇹🇭</div><div class="scam-badge badge-t">Tip</div></div>
+          <div class="scam-loss tip-col">$45</div>
+          <div class="scam-loss-lbl">Saved per airport trip using Grab</div>
+          <div class="scam-name">Best Transport from Airport</div>
+        </div>
+        <div class="scam-body">
+          <p class="scam-desc">Download Grab before landing. Book immediately on arrival. Fixed price ~280 THB vs street taxis charging 800-1200 THB. Available 24/7.</p>
+          <div class="scam-avoid">✓ Book Grab before leaving arrivals hall. 15 min wait average.</div>
+          <div class="scam-src"><span class="src-dot"></span>r/ThailandTourism · 3.4k upvotes · verified tip</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── STATS ── -->
+<div class="stats-strip">
+  <div class="container">
+    <div class="stats-row reveal">
+      <div class="stat-block">
+        <div class="stat-big grad-red">$9.2M</div>
+        <div class="stat-lbl">Lost to tourist scams annually in SEA</div>
+        <div class="stat-note">Source: traveler reports + incident data</div>
+      </div>
+      <div class="stat-div"></div>
+      <div class="stat-block">
+        <div class="stat-big grad">50,000+</div>
+        <div class="stat-lbl">Travelers protected by TravelWise</div>
+      </div>
+      <div class="stat-div"></div>
+      <div class="stat-block">
+        <div class="stat-big grad">2,400+</div>
+        <div class="stat-lbl">Scam patterns tracked live</div>
+        <div class="stat-note">Updated daily from Reddit</div>
+      </div>
+      <div class="stat-div"></div>
+      <div class="stat-block">
+        <div class="stat-big grad-green">98%</div>
+        <div class="stat-lbl">Say TravelWise was worth it</div>
+        <div class="stat-note">Pro subscriber survey</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── TESTIMONIALS ── -->
+<section class="test-section">
+  <div class="container">
+    <div class="sec-header-center reveal">
+      <div class="sec-label">Real Travelers</div>
+      <h2 class="sec-title">They checked. <span class="grad">They saved.</span></h2>
+    </div>
+    <div class="test-grid reveal">
+      <div class="test-card">
+        <div class="test-stars">⭐⭐⭐⭐⭐</div>
+        <div class="test-chip">✓ Avoided a $300 scam on day 1</div>
+        <p class="test-q">"Checked TravelWise before Bangkok. Avoided the gem shop scam on day one. My friend who didn't use it <strong>lost $300 to the exact scam</strong> I had been warned about."</p>
+        <div class="test-auth">
+          <div class="test-av">SK</div>
+          <div><div class="test-name">Sarah K.</div><div class="test-trip">Solo trip · Bangkok, Thailand</div></div>
+        </div>
+      </div>
+      <div class="test-card feat">
+        <div class="test-stars">⭐⭐⭐⭐⭐</div>
+        <div class="test-chip">✓ Saves ~$200 every trip on currency</div>
+        <p class="test-q">"I travel every month for work. TravelWise is the <strong>first thing I open when I book a new destination.</strong> The ATM skimming alert in Prague alone saved my card from being cloned."</p>
+        <div class="test-auth">
+          <div class="test-av">MR</div>
+          <div><div class="test-name">Marcus R.</div><div class="test-trip">Digital nomad · 14 countries · Pro subscriber</div></div>
+        </div>
+      </div>
+      <div class="test-card">
+        <div class="test-stars">⭐⭐⭐⭐⭐</div>
+        <div class="test-chip">✓ Reddit sourcing = actually trustworthy</div>
+        <p class="test-q">"Finally an app that gives <strong>real current information, not blog posts from 2019.</strong> When it says a scam was reported 4× this week — I believe it. That specificity matters."</p>
+        <div class="test-auth">
+          <div class="test-av">PL</div>
+          <div><div class="test-name">Priya L.</div><div class="test-trip">Backpacker · Southeast Asia · 3 months</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── PRICING ── -->
+<section class="pricing-section" id="pricing">
+  <div class="container">
+    <div class="sec-header-center reveal">
+      <div class="sec-label">Simple Pricing</div>
+      <h2 class="sec-title">Less than one coffee.</h2>
+    </div>
+    <!-- PSYCHOLOGY: Price anchoring -->
+    <div class="price-anchor reveal">
+      The average scam in Southeast Asia costs <strong>$180.</strong>
+      <span class="vs">vs</span>
+      TravelWise Pro costs <span class="good">$5/month.</span>
+      One prevented scam pays for <strong>36 months</strong> of the subscription.
+    </div>
+    <div class="pricing-grid">
+      <div class="price-card reveal">
+        <span class="plan-name">Explorer</span>
+        <div class="plan-price"><span class="p-cur">$</span><span class="p-amt">0</span><span class="p-per">/month</span></div>
+        <p class="plan-desc">Try it before your next trip. No credit card required.</p>
+        <ul class="plan-feats">
+          <li class="plan-feat"><span class="p-check">✓</span>3 destination searches/month</li>
+          <li class="plan-feat"><span class="p-check">✓</span>2 scam alerts per destination</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Basic food + transport tips</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Live currency rates</li>
+          <li class="plan-feat locked"><span class="p-lock">✕</span>Full alerts library</li>
+          <li class="plan-feat locked"><span class="p-lock">✕</span>Pre-trip email digest</li>
+          <li class="plan-feat locked"><span class="p-lock">✕</span>Offline access</li>
         </ul>
-        <div class="nav-actions">
-          <a href="#" class="btn-ghost">Log in</a>
-          <a href="#pricing" class="btn-primary">Get Started Free</a>
+        <a href="#" class="btn btn-glass btn-full">Start Free</a>
+        <!-- PSYCHOLOGY: Risk of NOT upgrading -->
+        <div class="risk-note">
+          <span>⚠</span>
+          Free users miss 80% of active scam alerts. Most scam victims had no protection.
+        </div>
+      </div>
+      <div class="price-card feat-card-p reveal">
+        <div class="pop-badge">Most Popular</div>
+        <span class="plan-name">Traveler Pro</span>
+        <div class="plan-price"><span class="p-cur">$</span><span class="p-amt">5</span><span class="p-per">/month</span></div>
+        <p class="plan-desc">Less than one street food meal. Protects your whole trip.</p>
+        <ul class="plan-feats">
+          <li class="plan-feat"><span class="p-check">✓</span>Unlimited destinations</li>
+          <li class="plan-feat"><span class="p-check">✓</span>All scam alerts — updated daily</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Full tips library — all categories</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Live currency + weather alerts</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Offline destination guides</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Pre-trip email 3 days before you fly</li>
+          <li class="plan-feat"><span class="p-check">✓</span>Reddit pulse — weekly scam report</li>
+        </ul>
+        <a href="#" class="btn btn-accent btn-full">Start 14-Day Free Trial</a>
+        <p class="plan-note">No credit card · Cancel anytime · Smart travelers never skip this</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FINAL CTA ── -->
+<section class="cta-section">
+  <div class="cta-glow"></div>
+  <div class="cta-inner reveal">
+    <!-- PSYCHOLOGY: Fear trigger -->
+    <div class="cta-chip">
+      <span class="live-dot"></span>
+      12 scams reported in the last 24 hours
+    </div>
+    <h2 class="cta-h2">
+      Don't be the tourist<br>
+      <span class="grad">who finds out after.</span>
+    </h2>
+    <p class="cta-sub">50,000 travelers have already checked their destination before landing. Takes 30 seconds. Could save you $180 on day one.</p>
+    <div class="cta-actions">
+      <a href="#" class="btn btn-accent btn-lg">Check My Destination — It's Free</a>
+      <div class="cta-note">
+        <span class="live-dot"></span>
+        Smart travelers check before they fly. Always.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-top">
+      <div>
+        <span class="footer-logo">TravelWise</span>
+        <p class="footer-tag">Real-time scam alerts powered by live Reddit data and AI. Updated daily.</p>
+      </div>
+      <nav class="footer-nav">
+        <div class="footer-col">
+          <span class="footer-col-title">Product</span>
+          <a href="#">Features</a>
+          <a href="#">Pricing</a>
+          <a href="#">Destinations</a>
+          <a href="#">API</a>
+        </div>
+        <div class="footer-col">
+          <span class="footer-col-title">Company</span>
+          <a href="#">About</a>
+          <a href="#">Blog</a>
+          <a href="#">Twitter</a>
+          <a href="#">Instagram</a>
+        </div>
+        <div class="footer-col">
+          <span class="footer-col-title">Legal</span>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">Cookies</a>
         </div>
       </nav>
-    </header>
-
-    <main>
-      <!--Hero Section-->
-      <section id="hero" class="hero-section">
-        <div class="hero-content">
-          <div class="hero-badge">
-            <span class="badge-dot"></span>
-            Real-time data from 50,000+ travelers
-          </div>
-          <h1 class="hero-title">
-            Travel Smarter.
-            <span class="hero-title-accent">Never Get Scammed.</span>
-          </h1>
-          <p class="hero-subtitle">
-            Real-time scam alerts and insider tips for 180+ destinations —
-            powered by live Reddit data and AI. Know what to avoid before you
-            land.
-          </p>
-          <div class="hero-search">
-            <div class="search-bar">
-              <input
-                type="text"
-                class="search-input"
-                placeholder="Search a destination — Bangkok, Bali, Paris..."
-                aria-label="Search destination"
-              />
-              <button class="search-btn">Search</button>
-            </div>
-            <p class="search-hint">
-              Popular: Bangkok · Bali · Vietnam · Tokyo · Rome
-            </p>
-          </div>
-          <div class="hero-actions">
-            <a href="#pricing" class="btn-primary btn-large"
-              >Start Free — No Credit Card</a
-            >
-            <a href="#how-it-works" class="btn-link">See how it works</a>
-          </div>
-        </div>
-        <div class="hero-stats">
-          <div class="stat-card">
-            <span class="stat-number">2,400+</span>
-            <span class="stat-label">Scam patterns tracked</span>
-          </div>
-          <div class="stat-card stat-card--offset">
-            <span class="stat-number">180+</span>
-            <span class="stat-label">Destinations covered</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-number">$180</span>
-            <span class="stat-label">Avg scam loss prevented</span>
-          </div>
-        </div>
-      </section>
-      <!-- ─── MARQUEE ─── -->
-      <div class="marquee-section" aria-hidden="true">
-        <div class="marquee-track">
-          <div class="marquee-content">
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Tuk-Tuk Scam — Bangkok</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Fake Parking — Bali</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Gem Store Scam — Bangkok</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Motorbike Damage — Bali</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>ATM Skimming — Prague</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Bracelet Scam — Rome</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Taxi No Meter — Hanoi</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Fake Monk — Bangkok</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Overpriced Hostel —
-              Amsterdam</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Pickpocket Zone —
-              Barcelona</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Tuk-Tuk Scam — Bangkok</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Fake Parking — Bali</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Gem Store Scam — Bangkok</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Motorbike Damage — Bali</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>ATM Skimming — Prague</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Bracelet Scam — Rome</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Taxi No Meter — Hanoi</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Fake Monk — Bangkok</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Overpriced Hostel —
-              Amsterdam</span
-            >
-            <span class="marquee-item"
-              ><span class="marquee-dot"></span>Pickpocket Zone —
-              Barcelona</span
-            >
-          </div>
-        </div>
-      </div>
-      <!-- ─── FEATURES ─── -->
-      <section id="features" class="features-section">
-        <div class="container">
-          <div class="section-header">
-            <span class="section-label">What We Cover </span>
-            <h2 class="section-title">Everything a smart traveler needs</h2>
-            <p class="section-subtitle">
-              From scam warnings to hidden gems — we cover every aspect of your
-              journey so you travel with total confidence.
-            </p>
-          </div>
-          <div class="features-grid">
-            <div class="feature-card feature-card--danger">
-              <h3 class="feature-title">Live Scam Alerts</h3>
-              <p class="feature-desc">
-                Real-time warnings about active scams — taxi overcharging, fake
-                tours, rigged ATMs, counterfeit tickets, and more.
-              </p>
-            </div>
-            <div class="feature-card feature-card--blue">
-              <h3 class="feature-title">Accommodation Intel</h3>
-              <p class="feature-desc">
-                Know which areas to stay, hidden fees to watch for, and how to
-                spot fake listings before you book.
-              </p>
-            </div>
-            <div class="feature-card feature-card--success">
-              <div class="feature-icon">=</div>
-              <h3 class="feature-title">Food &amp; Dining Tips</h3>
-              <p class="feature-desc">
-                Best local eats, tourist-trap restaurants to skip, food safety
-                advice, and how to order without getting overcharged.
-              </p>
-            </div>
-            <div class="feature-card feature-card--warning">
-              <div class="feature-icon"></div>
-              <h3 class="feature-title">Transport Guidance</h3>
-              <p class="feature-desc">
-                Navigate airports, taxis, metros and buses like a local. Know
-                fair prices, legit apps, and which transport scams to watch for.
-              </p>
-            </div>
-            <div class="feature-card feature-card--purple">
-              <div class="feature-icon"></div>
-              <h3 class="feature-title">Money &amp; Currency</h3>
-              <p class="feature-desc">
-                Where to exchange, which ATMs to trust, dynamic currency
-                conversion tricks, and how to avoid losing money on fees.
-              </p>
-            </div>
-            <div class="feature-card feature-card--teal">
-              <div class="feature-icon"></div>
-              <h3 class="feature-title">Destination Deep Dives</h3>
-              <p class="feature-desc">
-                Comprehensive guides for 180+ cities — culture, etiquette,
-                safety zones, seasonal tips, and local tricks only regulars
-                know.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-      <!-- ─── HOW IT WORKS ─── -->
-      <section id="how-it-works" class="how-section">
-        <div class="container">
-          <div class="section-header">
-            <span class="section-label">How It Works</span>
-            <h2 class="section-title">Real data. Not outdated guides.</h2>
-            <p class="section-subtitle">
-              TravelWise pulls fresh reports from real travelers every day —
-              then AI organizes it so you can act on it in seconds.
-            </p>
-          </div>
-          <div class="steps-grid">
-            <div class="step-card">
-              <div class="step-number">1</div>
-              <h3 class="step-title">You search a destination</h3>
-              <p class="step-desc">
-                Type any city or country. We find it instantly from our database
-                of 180+ destinations.
-              </p>
-            </div>
-            <div class="step-divider" aria-hidden="true">→</div>
-            <div class="step-card">
-              <div class="step-number">2</div>
-              <h3 class="step-title">We pull live Reddit data</h3>
-              <p class="step-desc">
-                Our system fetches the latest traveler reports from
-                r/solotravel, r/travel, and 10+ subreddits in real time.
-              </p>
-            </div>
-            <div class="step-divider" aria-hidden="true">→</div>
-            <div class="step-card">
-              <div class="step-number">3</div>
-              <h3 class="step-title">AI organizes everything</h3>
-              <p class="step-desc">
-                Our AI reads hundreds of posts and extracts scam alerts, tips,
-                and warnings — structured and severity rated.
-              </p>
-            </div>
-            <div class="step-divider" aria-hidden="true">→</div>
-            <div class="step-card">
-              <div class="step-number">4</div>
-              <h3 class="step-title">You travel with confidence</h3>
-              <p class="step-desc">
-                You get a clean, actionable briefing before you land. Know
-                exactly what to watch for and how to avoid it.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-      <!-- ─── SOCIAL PROOF ─── -->
-      <section class="proof-section">
-        <div class="container">
-          <div class="proof-grid">
-            <div class="proof-stat">
-              <span class="proof-number">50,000+</span>
-              <span class="proof-label">Travelers protected</span>
-            </div>
-            <div class="proof-divider"></div>
-            <div class="proof-stat">
-              <span class="proof-number">2,400+</span>
-              <span class="proof-label">Scam patterns in scanned</span>
-            </div>
-            <div class="proof-divider"></div>
-            <div class="proof-stat">
-              <span class="proof-number">180+</span>
-              <span class="proof-label">Destinations covered</span>
-            </div>
-            <div class="proof-divider"></div>
-            <div class="proof-stat">
-              <span class="proof-number">$180</span>
-              <span class="proof-label">Average loss prevented</span>
-            </div>
-          </div>
-        </div>
-      </section>
-      <!-- ─── TESTIMONIALS ─── -->
-      <section class="testimonials-section">
-        <div class="container">
-          <div class="testimonial-header">
-            <div class="testimonials-grid">
-              <article class="testimonial-card">
-                <div class="testimonial-stars">★★★★★</div>
-                <blockquote class="testimonial-text">
-                  "Checked TravelWise before Bangkok. Avoided the gem shop scam
-                  on day one. My friend who didn't use it lost $300 to the exact
-                  scam I had been warned about."
-                </blockquote>
-                <footer class="testimonial-author">
-                  <div class="author-avatar">SK</div>
-                  <div class="author-info">
-                    <span class="author-name">Sarah K.</span>
-                    <span class="author-trip"
-                      >Solo trip — Bangkok, Thailand</span
-                    >
-                  </div>
-                </footer>
-              </article>
-
-              <article class="testimonial-card testimonial-card--featured">
-                <div class="testimonial-stars">★★★★★</div>
-                <blockquote class="testimonial-text">
-                  "I travel every month for work. TravelWise is the first thing
-                  I open when I book a new destination. The currency rate
-                  warnings alone have saved me hundreds."
-                </blockquote>
-                <footer class="testimonial-author">
-                  <div class="author-avatar">MR</div>
-                  <div class="author-info">
-                    <span class="author-name">Marcus R.</span>
-                    <span class="author-trip"
-                      >Digital nomad — 14 countries</span
-                    >
-                  </div>
-                </footer>
-              </article>
-
-              <article class="testimonial-card">
-                <div class="testimonial-stars">★★★★★</div>
-                <blockquote class="testimonial-text">
-                  "Finally an app that gives real current information, not blog
-                  posts from 2019. The Reddit sourcing makes it feel trustworthy
-                  and up to date."
-                </blockquote>
-                <footer class="testimonial-author">
-                  <div class="author-avatar">PL</div>
-                  <div class="author-info">
-                    <span class="author-name">Priya L.</span>
-                    <span class="author-trip">Backpacker — Southeast Asia</span>
-                  </div>
-                </footer>
-              </article>
-            </div>
-          </div>
-        </div>
-      </section>
-      <!-- ─── PRICING ─── -->
-      <section id="pricing" class="pricing-section">
-        <div class="container">
-          <div class="section-header">
-            <span class="section-label">Pricing</span>
-            <h2 class="section-title">
-              Less than one coffee. Saves you hundreds.
-            </h2>
-            <p class="section-subtitle">
-              The average scam in Southeast Asia costs $180. We charge $5 a
-              month.
-            </p>
-          </div>
-          <div class="pricing-grid">
-            <div class="price-card">
-              <div class="price-card-header">
-                <span class="plan-name">Explorer</span>
-                <div class="plan-price">
-                  <span class="price-currency">$</span>
-                  <span class="price-amount">0</span>
-                  <span class="price-period">/month</span>
-                </div>
-                <p class="plan-desc">
-                  Perfect for trying out TravelWise before your next trip.
-                </p>
-              </div>
-              <ul class="plan-features">
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>3 destination searches per
-                  month
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>2 scam alerts per
-                  destination
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Basic tips — food and
-                  transport
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Live currency rates
-                </li>
-                <li class="plan-feature plan-feature--locked">
-                  <span class="feature-lock">✕</span>Full alerts library
-                </li>
-                <li class="plan-feature plan-feature--locked">
-                  <span class="feature-lock">✕</span>Offline access
-                </li>
-                <li class="plan-feature plan-feature--locked">
-                  <span class="feature-lock">✕</span>Pre-trip email digest
-                </li>
-              </ul>
-              <a href="#" class="btn-outline btn-full">Start Free</a>
-            </div>
-            <div class="price-card price-card--featured">
-              <div class="popular-badge">Most Popular</div>
-              <div class="price-card-header">
-                <span class="plan-name">Traveler</span>
-                <div class="plan-price">
-                  <span class="price-currency">$</span>
-                  <span class="price-amount">5</span>
-                  <span class="price-period">/month</span>
-                </div>
-                <p class="plan-desc">
-                  Everything you need to travel safe and smart, anywhere.
-                </p>
-              </div>
-              <ul class="plan-features">
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Unlimited destination
-                  searches
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>All scam alerts — real
-                  time
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Full tips library — all
-                  categories
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Live currency + weather
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Offline access to guides
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Pre-trip email digest
-                </li>
-                <li class="plan-feature">
-                  <span class="feature-check">✓</span>Reddit pulse — weekly
-                  reports
-                </li>
-              </ul>
-              <a href="#" class="btn-primary btn-full"
-                >Start 14-Day Free Trial</a
-              >
-              <p class="plan-note">No credit card required</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ─── FINAL CTA ─── -->
-      <section class="cta-section">
-        <div class="container">
-          <div class="cta-content">
-            <h2 class="cta-title">Ready to travel smarter?</h2>
-            <p class="cta-subtitle">
-              Join thousands of travelers who check TravelWise before every
-              trip. Start free — no credit card needed.
-            </p>
-            <div class="cta-actions">
-              <a href="#pricing" class="btn-primary btn-large"
-                >Get Started Free</a
-              >
-              <p class="cta-note">
-                <span class="cta-note-dot"></span>Takes 30 seconds to sign up
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <!-- ─── FOOTER ─── -->
-    <footer class="footer">
-      <div class="container">
-        <div class="footer-top">
-          <div class="footer-brand">
-            <a href="/" class="nav-logo">Travel<span>Wise</span></a>
-            <p class="footer-tagline">
-              Travel smarter with real intelligence, not just reviews.
-            </p>
-          </div>
-          <nav class="footer-nav">
-            <div class="footer-col">
-              <span class="footer-col-title">Product</span>
-              <ul>
-                <li><a href="#features">Features</a></li>
-                <li><a href="#pricing">Pricing</a></li>
-                <li><a href="#">Destinations</a></li>
-                <li><a href="#">API</a></li>
-              </ul>
-            </div>
-            <div class="footer-col">
-              <span class="footer-col-title">Company</span>
-              <ul>
-                <li><a href="#">About</a></li>
-                <li><a href="#">Blog</a></li>
-                <li><a href="#">Twitter</a></li>
-                <li><a href="#">Instagram</a></li>
-              </ul>
-            </div>
-            <div class="footer-col">
-              <span class="footer-col-title">Legal</span>
-              <ul>
-                <li><a href="#">Privacy</a></li>
-                <li><a href="#">Terms</a></li>
-                <li><a href="#">Cookies</a></li>
-              </ul>
-            </div>
-          </nav>
-        </div>
-        <div class="footer-bottom">
-          <p class="footer-copy">© 2026 TravelWise. All rights reserved.</p>
-          <p class="footer-data">
-            Data sourced from Reddit communities. Updated daily.
-          </p>
-        </div>
-      </div>
-    </footer>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-copy">© 2026 TravelWise. All rights reserved. Data sourced from Reddit communities.</p>
+      <p class="footer-copy">Built to help smart travelers — not to replace common sense.</p>
+    </div>
+  </div>
+</footer>
   </body>
 </html>
