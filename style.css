@@ -1,14 +1,38 @@
-* {
+/*Reset*/
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
+html {
+  scroll-behavior: smooth;
+}
 
 body {
-  background: #f5f7ff;
-  color: #0f172a;
-  font-family: sans-serif;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  background: #060810;
+  color: #e2e8f0;
+  overflow-x: hidden;
+  line-height: 1.6;
 }
+a {
+  text-decoration: none;
+  color: inherit;
+}
+ul {
+  list-style: none;
+}
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+image {
+  display: block;
+  max-width: 100%;
+}
+/* Design Tokens*/
 :root {
   --bg: #060810;
   --bg-2: #0a0d18;
@@ -255,15 +279,15 @@ nav {
   margin: 0 auto 2.2rem;
 }
 /* FOOTER */
-.footer{
+.footer {
   padding: 4rem 1.5rem 2rem;
 }
-.footer-inner{
-  margin:0 auto;
+.footer-inner {
+  margin: 0 auto;
 }
-.footer-logo{
-  margin-bottom: .6rem;
+.footer-logo {
+  margin-bottom: 0.6rem;
 }
-.footer-col-title{
-  margin-bottom:.2rem
+.footer-col-title {
+  margin-bottom: 0.2rem;
 }
