@@ -336,11 +336,21 @@ nav {
   max-width: 820px;
   animation: fadeUp 0.5s 0.08s ease both;
 }
-.hero-h1 .line-plain { display: block; color: var(--text); }
+.hero-h1 .line-plain {
+  display: block;
+  color: var(--text);
+}
 .hero-h1 .line-grad {
   display: block;
-  background: linear-gradient(135deg, #e2e8f0 0%, var(--accent-3) 40%, var(--accent) 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  background: linear-gradient(
+    135deg,
+    #e2e8f0 0%,
+    var(--accent-3) 40%,
+    var(--accent) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .hero-sub {
   font-size: 1.05rem;
@@ -471,35 +481,53 @@ nav {
 }
 /*  MARQUEE */
 .marquee-section {
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    background: rgba(255, 255, 255, .02);
-    padding: .8rem 0;
-    overflow: hidden;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.8rem 0;
+  overflow: hidden;
 }
 .marquee-inner {
-    display: flex;
-    width: max-content;
-    animation: scroll 30s linear infinite;
+  display: flex;
+  width: max-content;
+  animation: scroll 30s linear infinite;
 }
 .m-item {
-    display: inline-flex;
-    align-items: center;
-    gap: .6rem;
-    padding: 0 2rem;
-    font-size: .78rem;
-    font-weight: 600;
-    color: var(--text-3);
-    white-space: nowrap;
-}
-@keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.m-item {
-  display: inline-flex; align-items: center; gap: .6rem;
-  padding: 0 2rem; font-size: .78rem; font-weight: 600; color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-3);
   white-space: nowrap;
 }
-.m-pip { width: 4px; height: 4px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
- 
+@keyframes scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.m-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.m-pip {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+}
+
 /*FEATURES */
 .sec-wrap {
   padding: 6rem 0;
