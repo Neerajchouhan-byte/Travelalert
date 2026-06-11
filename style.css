@@ -574,6 +574,9 @@ nav {
   transition: background 0.2s;
   position: relative;
   overflow: hidden;
+  background: rgba(6, 8, 16, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 .features-grid {
   display: grid;
