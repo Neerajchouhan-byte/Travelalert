@@ -992,38 +992,159 @@ nav {
 }
 
 /* PRICING */
-.pricing-section {
-  padding: 6rem 0;
+
+.price-anchor {
+  max-width: 620px;
+  margin: 0 auto 3rem;
+  background: rgba(244, 63, 94, 0.07);
+  border: 1px solid rgba(244, 63, 94, 0.07);
+  border-radius: var(--r-lg);
+  padding: 1.1rem 1.8rem;
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.price-anchor strong {
+  color: #e01616d5;
 }
 .price-anchor .vs {
   color: var(--text-3);
   margin: 0 0.35rem;
 }
+.price-anchor .good {
+  color: var(--green);
+  font-weight: 800;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.2rem;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.price-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 2.2rem;
+  position: relative;
+  transition: transform 0.2s;
+}
+.price-card:hover {
+  transform: translateY(-4px);
+}
+.price-card.feat-card-p {
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.12),
+    rgba(139, 92, 246, 0.08)
+  );
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow:
+    0 0 60px rgba(99, 102, 241, 0.1),
+    0 20px 50px rgba(0, 0, 0, 0.4);
+}
+.pop-badge {
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: white;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.28rem 1.1rem;
+  border-radius: 0 0 10px 10px;
+  white-space: nowrap;
+}
 .plan-name {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
   margin-bottom: 0.6rem;
+  display: block;
 }
 .plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.1rem;
   margin-bottom: 0.6rem;
 }
 .p-cur {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-2);
+  align-self: flex-start;
   margin-top: 0.4rem;
 }
+.p-amt {
+  font-size: 3.2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text);
+}
+.p-per {
+  font-size: 0.8rem;
+  color: var(--text-3);
+}
 .plan-desc {
+  font-size: 0.82rem;
+  color: var(--text-2);
+  line-height: 1.6;
   margin-bottom: 1.6rem;
 }
 .plan-feats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
   margin-bottom: 1.8rem;
 }
-.risk-note {
-  padding: 0.65rem 0.85rem;
-  margin-top: 0.9rem;
+.plan-feat {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.83rem;
+  color: var(--text-2);
 }
-.pop-badge {
-  padding: 0.28rem 1.1rem;
+.p-check {
+  color: var(--green);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.plan-feat.locked {
+  opacity: 0.3;
+}
+.p-lock {
+  color: var(--text-3);
+  flex-shrink: 0;
 }
 .plan-note {
+  text-align: center;
+  font-size: 0.71rem;
+  color: var(--text-3);
   margin-top: 0.7rem;
 }
+/* PSYCHOLOGY: risk note below free plan */
+.risk-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  background: rgba(244, 63, 94, 0.06);
+  border: 1px solid rgba(244, 63, 94, 0.12);
+  border-radius: var(--r);
+  padding: 0.65rem 0.85rem;
+  font-size: 0.73rem;
+  color: #fda4af;
+  line-height: 1.5;
+  margin-top: 0.9rem;
+}
+
 /*FINALE CTA */
 .cta-section {
   padding: 7rem 1.5rem;
