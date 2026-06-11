@@ -568,16 +568,7 @@ nav {
   margin: 0 auto;
 }
 /*FEATURES */
-.feat-card {
-  padding: 2rem;
-  background: var(--bg-2);
-  transition: background 0.2s;
-  position: relative;
-  overflow: hidden;
-  background: rgba(6, 8, 16, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
+/* ── FEATURES GRID ── */
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -587,6 +578,23 @@ nav {
   overflow: hidden;
   border: 1px solid var(--border);
 }
+
+/* ── CARD BASE ── */
+.feat-card {
+  padding: 2rem;
+  position: relative;
+  overflow: hidden;
+  background: rgba(6, 8, 16, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: background 0.3s ease;
+
+  /* stagger animation start state */
+  opacity: 0;
+  transform: translateY(22px);
+}
+
+/* top accent line */
 .feat-card::before {
   content: "";
   position: absolute;
@@ -596,14 +604,38 @@ nav {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity 0.35s ease;
 }
+
 .feat-card:hover {
   background: var(--bg-3);
 }
+
 .feat-card:hover::before {
   opacity: 1;
 }
+
+/* ── SHINE SWEEP on hover ── */
+.feat-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  transition: transform 0s;
+  pointer-events: none;
+}
+
+.feat-card:hover .feat-shine {
+  transform: translateX(100%);
+  transition: transform 0.55s ease;
+}
+
+/* ── ICON ── */
 .feat-icon {
   width: 44px;
   height: 44px;
@@ -613,41 +645,70 @@ nav {
   justify-content: center;
   margin-bottom: 1.2rem;
   font-size: 1.3rem;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
-.feat-icon.red {
-  background: rgba(244, 63, 94, 0.1);
-  box-shadow: 0 0 20px rgba(244, 63, 94, 0.1);
+
+.feat-card:hover .feat-icon {
+  transform: scale(1.12);
 }
-.feat-icon.purple {
-  background: rgba(99, 102, 241, 0.1);
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
-}
-.feat-icon.green {
-  background: rgba(16, 185, 129, 0.1);
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
-}
-.feat-icon.amber {
-  background: rgba(245, 158, 11, 0.1);
-  box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);
-}
-.feat-icon.blue {
-  background: rgba(59, 130, 246, 0.1);
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
-}
-.feat-icon.teal {
-  background: rgba(20, 184, 166, 0.1);
-  box-shadow: 0 0 20px rgba(20, 184, 166, 0.1);
-}
+
+.feat-icon.red   { background: rgba(244, 63, 94, 0.1);  box-shadow: 0 0 20px rgba(244, 63, 94, 0.1); }
+.feat-icon.purple{ background: rgba(99, 102, 241, 0.1); box-shadow: 0 0 20px rgba(99, 102, 241, 0.1); }
+.feat-icon.green { background: rgba(16, 185, 129, 0.1); box-shadow: 0 0 20px rgba(16, 185, 129, 0.1); }
+.feat-icon.amber { background: rgba(245, 158, 11, 0.1); box-shadow: 0 0 20px rgba(245, 158, 11, 0.1); }
+.feat-icon.blue  { background: rgba(59, 130, 246, 0.1); box-shadow: 0 0 20px rgba(59, 130, 246, 0.1); }
+.feat-icon.teal  { background: rgba(20, 184, 166, 0.1); box-shadow: 0 0 20px rgba(20, 184, 166, 0.1); }
+
+/* hovered icon glow intensifies */
+.feat-card:hover .feat-icon.red   { box-shadow: 0 0 28px rgba(244, 63, 94, 0.35); }
+.feat-card:hover .feat-icon.purple{ box-shadow: 0 0 28px rgba(99, 102, 241, 0.35); }
+.feat-card:hover .feat-icon.green { box-shadow: 0 0 28px rgba(16, 185, 129, 0.35); }
+.feat-card:hover .feat-icon.amber { box-shadow: 0 0 28px rgba(245, 158, 11, 0.35); }
+.feat-card:hover .feat-icon.blue  { box-shadow: 0 0 28px rgba(59, 130, 246, 0.35); }
+.feat-card:hover .feat-icon.teal  { box-shadow: 0 0 28px rgba(20, 184, 166, 0.35); }
+
+/* ── TITLE & DESC ── */
 .feat-title {
   font-size: 0.97rem;
   font-weight: 700;
   color: var(--text);
   margin-bottom: 0.5rem;
 }
+
 .feat-desc {
   font-size: 0.83rem;
   color: var(--text-2);
   line-height: 1.65;
+}
+
+/* ── STAGGER SCROLL ANIMATION ── */
+.feat-stagger.is-visible {
+  animation: featReveal 0.5s ease forwards;
+}
+
+@keyframes featReveal {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* stagger delay per card position */
+.feat-stagger:nth-child(1) { animation-delay: 0.05s; }
+.feat-stagger:nth-child(2) { animation-delay: 0.13s; }
+.feat-stagger:nth-child(3) { animation-delay: 0.21s; }
+.feat-stagger:nth-child(4) { animation-delay: 0.29s; }
+.feat-stagger:nth-child(5) { animation-delay: 0.37s; }
+.feat-stagger:nth-child(6) { animation-delay: 0.45s; }
+
+/* ── RESPECT reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .feat-stagger {
+    opacity: 1;
+    transform: none;
+    animation: none !important;
+  }
+  .feat-shine { display: none; }
 }
 /*HOW IT WORKS */
 
