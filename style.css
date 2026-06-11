@@ -650,17 +650,81 @@ nav {
   line-height: 1.65;
 }
 /*HOW IT WORKS */
+
 .steps-section {
   padding: 6rem 0;
+}
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  position: relative;
+}
+/* connecting line between steps*/
+.steps-grid::before {
+  content: "";
+  position: absolute;
+  top: 28px;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--border),
+    var(--accent),
+    var(--border),
+    transparent
+  );
 }
 .step-card {
   padding: 1.5rem 1.5rem 0;
   text-align: center;
 }
+.step-num-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.2rem;
+  position: relative;
+  z-index: 1;
+}
+.step-num {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  background: linear-gradient(135deg, var(--accent-3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.step-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.step-desc {
+  font-size: 0.8rem;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
 /*SCAM CARDS */
 .scam-section {
   padding: 6rem 0;
 }
+.scam-grid{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
 .scam-top {
   padding: 1.3rem;
 }
