@@ -864,12 +864,40 @@ nav {
 /* STATS */
 .stats-strip {
   padding: 3.5rem 0;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+}
+.stat-block {
+  flex: 1;
+  min-height: 180px;
+  text-align: center;
+  padding: 1rem 2rem;
 }
 .stat-big {
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1;
   margin-bottom: 0.35rem;
+}
+.stat-lbl {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  font-weight: 600;
 }
 .stat-note {
   margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--text-3);
+  opacity: 0.6;
 }
 /* TESTTIMONIALS */
 .test-section {
