@@ -719,31 +719,147 @@ nav {
 .scam-section {
   padding: 6rem 0;
 }
-.scam-grid{
+.scam-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
 }
-
+.scam-card {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  overflow: hidden;
+  transition:
+    transform 0.22s,
+    border-color 0.22s,
+    box-shadow 0.22s;
+}
+.scam-card:hover {
+  transform: translateY(-6px);
+  border-color: var(--border-h);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
 .scam-top {
   padding: 1.3rem;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+/*Active style*/
+.sev-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+.sev-bar.high {
+  background: linear-gradient(90deg, transparent, var(--red), transparent);
+}
+.sev-bar.medium {
+  background: linear-gradient(90deg, transparent, var(--amber), transparent);
+}
+.sev-bar.tip {
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
 }
 .scam-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 0.8rem;
   margin-top: 0.3rem;
 }
+.scam-dest {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+.scam-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.18rem 0.6rem;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.badge-h {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.2);
+}
+.badge-m {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+.badge-t {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+.scam-loss {
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 0.2rem;
+}
+.scam-loss.danger {
+  background: linear-gradient(135deg, #fda4af, var(--red));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.scam-loss.tip-col {
+  background: linear-gradient(135deg, #6ee7b7, var(--green));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
 .scam-loss-lbl {
+  font-size: 0.68rem;
+  color: var(--text-3);
+  font-weight: 600;
   margin-bottom: 0.7rem;
+}
+.scam-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
 }
 .scam-body {
   padding: 1rem 1.3rem;
 }
 .scam-desc {
+  font-size: 0.78rem;
+  color: var(--text-2);
+  line-height: 1.6;
   margin-bottom: 0.6rem;
 }
+.scam-avoid {
+  font-size: 0.75rem;
+  color: #6ee7b7;
+  font-weight: 600;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
 .scam-src {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.67rem;
+  color: var(--text-3);
   padding-top: 0.7rem;
   margin-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+.src-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex-shrink: 0;
 }
 /* STATS */
 .stats-strip {
