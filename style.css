@@ -1394,3 +1394,13 @@ nav {
   font-size: 0.75rem;
   color: var(--text-3);
 }
+/*ANIMATION*/
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Apply the animation directly on load */
+.reveal {
+  animation: fadeUp 0.6s ease forwards;
+}
