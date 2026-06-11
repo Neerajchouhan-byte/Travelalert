@@ -529,19 +529,44 @@ nav {
 }
 
 /*FEATURES */
-.sec-wrap {
-  padding: 6rem 0;
-}
-
 .feat-card {
   padding: 2rem;
 }
+/* Section Headers*/
+.sec-wrap {
+  padding: 6rem 0;
+}
 .sec-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-3);
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   padding: 0.3rem 0.8rem;
+  border-radius: 50px;
   margin-bottom: 1rem;
 }
 .sec-title {
+  font-size: clamp(1.9rem, 3.5vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
   margin-bottom: 1rem;
+}
+.sec-sub {
+  font-size: 0.95rem;
+  color: var(--text-2);
+  line-height: 1.75;
+  max-width: 540px;
+}
+.sec-header-center {
+  text-align: center;
+  margin-bottom: 3.5rem;
 }
 .sec-header-center .sec-sub {
   margin: 0 auto;
