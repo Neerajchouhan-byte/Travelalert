@@ -33,7 +33,7 @@ button {
   cursor: pointer;
   font-family: inherit;
 }
-image {
+img {
   display: block;
   max-width: 100%;
 }
@@ -211,7 +211,10 @@ body::after {
 .btn-link:hover svg {
   transform: translateX(4px);
 }
-
+.btn-lg{
+  font-size: 0.95rem;
+  padding: 0.9rem 2rem;
+}
 /* NAV */
 .nav-wrap {
   position: fixed;
@@ -232,16 +235,6 @@ nav {
   border: 1px solid var(--border);
   border-radius: 50px;
   padding: 0.75rem 1rem 0.75rem 1.5rem;
-}
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 2rem;
-}
-.nav-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 .nav-logo {
   font-size: 1.15rem;
@@ -491,16 +484,6 @@ nav {
   display: flex;
   width: max-content;
   animation: scroll 30s linear infinite;
-}
-.m-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0 2rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-3);
-  white-space: nowrap;
 }
 @keyframes scroll {
   from {
@@ -1006,6 +989,12 @@ nav {
   color: var(--text-3);
   opacity: 0.6;
 }
+.stat-div {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  flex-shrink: 0;
+}
 /* TESTTIMONIALS */
 .test-section {
   padding: 6rem 0;
@@ -1401,6 +1390,4 @@ nav {
 }
 
 /* Apply the animation directly on load */
-.reveal {
-  animation: fadeUp 0.6s ease forwards;
-}
+/* REPLACE the existing .reveal rule with these two */
