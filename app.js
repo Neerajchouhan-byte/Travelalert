@@ -1,61 +1,45 @@
-// DATA — top level, outside everything
-const sampleScams = [
-  {
-    id: 1,
-    destination: "bangkok",
-    name: "Tuk-Tuk Free Tour",
-    description: "Driver offers a free city tour...",
-    avoid: "Refuse all free tour offers. Use Grab.",
-    severity: "high",
-    loss: 200,
-  },
-  {
-    id: 2,
-    destination: "bangkok",
-    name: "Taxi No Meter",
-    description: "Driver claims meter is broken...",
-    avoid: "Insist on meter or book through Grab.",
-    severity: "medium",
-    loss: 25,
-  },
-  {
-    id: 3,
-    destination: "bali",
-    name: "Motorbike Damage Claim",
-    description: "Rental shop claims pre-existing scratches...",
-    avoid: "Photograph every angle before riding.",
-    severity: "high",
-    loss: 150,
-  },
-];
+function filterScamCards(query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const cards = document.querySelectorAll(".scam-grid .scam-card");
 
-function getScamsForDestination(destination) {
-  return sampleScams.filter(
-    (scam) => scam.destination === destination.toLowerCase(),
-  );
+  cards.forEach((card) => {
+    const cardText = card.textContent.toLowerCase();
+    const matches =
+      normalizedQuery === "" || cardText.includes(normalizedQuery);
+
+    card.style.display = matches ? "" : "none";
+  });
 }
 
 // DOM — inside DOMContentLoaded, ONE time
 document.addEventListener("DOMContentLoaded", function () {
   const searchInput = document.querySelector(".s-input");
   const searchBtn = document.querySelector(".s-btn");
+  const scamSection = document.querySelector(".scam-section");
 
   function handleSearch() {
     const destination = searchInput.value;
+    filterScamCards(destination);
 
-    if (destination === "") {
-      alert("Please enter a destination");
-      return;
+    if (destination.trim() !== "" && scamSection) {
+      const rect = scamSection.getBoundingClientRect();
+      const isNearViewport =
+        rect.top <= window.innerHeight + 180 && rect.bottom >= 0;
+
+      if (!isNearViewport) {
+        scamSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     }
-
-    const resultsTitle = document.querySelector("#destination-name");
-    if (resultsTitle) {
-      resultsTitle.textContent = destination;
-    }
-
-    const scams = getScamsForDestination(destination);
-    console.log("Scams found:", scams);
   }
 
   searchBtn.addEventListener("click", handleSearch);
+
+  searchInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleSearch();
+    }
+  });
+
+  filterScamCards("");
 });
