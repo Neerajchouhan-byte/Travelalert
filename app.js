@@ -17,9 +17,8 @@ document.addEventListener("DOMContentLoaded", function () {
   const searchBtn = document.querySelector(".s-btn");
   const scamSection = document.querySelector(".scam-section");
 
-  function handleSearch() {
+ async function handleSearch() {
     const destination = searchInput.value;
-    filterScamCards(destination);
 
     if (destination.trim() !== "" && scamSection) {
       const rect = scamSection.getBoundingClientRect();
@@ -30,6 +29,9 @@ document.addEventListener("DOMContentLoaded", function () {
         scamSection.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }
+    console.log('Fetching Reddit data...')
+    const posts = await fetchRedditScams(destination);
+    console.log('Fetched posts:', posts.length);
   }
 
   searchBtn.addEventListener("click", handleSearch);
@@ -43,3 +45,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
   filterScamCards("");
 });
+async function fetchRedditScams(destination) {
+  try {
+    const response = await fetch(`https://www.reddit.com/r/solotravel/search.json?q=${destination}+scam&sort=new&limit=10`
+    )
+ const data = await response.json();
+ const posts = data.data.children.map(post => ({
+  title: post.data.title,
+  text: post.data.selftext,
+  upvotes: post.data.ups,
+ }))
+ console.log('Reddit posts:', posts);
+ return posts;
+  } catch (error) {
+    console.error("Error fetching Reddit:", error);
+    return [];
+  }
+}
