@@ -9,7 +9,7 @@ export default function Navbar() {
           <li><a href="#pricing">Pricing</a></li>
         </ul>
         <div className="nav-right">
-          <a href="#" className="nav-login">Log in</a>
+         <a href="#" className="nav-login">Log in</a>
           <a href="#pricing" className="btn btn-accent">Get Started Free</a>
         </div>
       </nav>

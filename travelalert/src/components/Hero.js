@@ -1,8 +1,8 @@
+import Searchbar from "./Searchbar";
 export default function Hero() {
   return (
     <section className="hero" id="hero">
       <div className="hero-glow"></div>
-      {/* <!-- PSYCHOLOGY: Social proof badge --> */}
       <div className="hero-pill">
         <span className="live-dot"></span>
         Live data from 50,000+ travelers worldwide
@@ -19,33 +19,8 @@ export default function Hero() {
         day one. TravelRadar gives you real-time alerts from live Reddit data
         and AI — so you know what's happening before you land.
       </p>
-      {/* <!-- Search bar --> */}
-      <div className="hero-search">
-        <div className="search-bar">
-          <span className="s-icon">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.35-4.35" />
-            </svg>
-          </span>
-          <input
-            className="s-input"
-            type="text"
-            placeholder="Search a destination — Bangkok, Bali, Rome..."
-          />
-          <button className="s-btn">Check for Scams</button>
-        </div>
-        <p className="search-hint">
-          Checked today: Bangkok · Bali · Tokyo · Hanoi · Rome · Prague
-        </p>
-      </div>
+      <Searchbar />
+      
 
       <div className="hero-cta-row">
         {/* <!-- PSYCHOLOGY: Identity CTA --> */}
@@ -60,7 +35,7 @@ export default function Hero() {
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="2"
+            strokeWidth="2"
           >
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
