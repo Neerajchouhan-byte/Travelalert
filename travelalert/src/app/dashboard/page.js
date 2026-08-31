@@ -1,26 +1,12 @@
 "use client";
 
-import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import AlertCard from "@/components/AlertCard";
 import { FAKE_ALERTS } from "@/lib/fakeAlerts";
 
 export default function DashboardPage() {
-  return (
-    <Suspense
-      fallback={
-        <div style={{ minHeight: "100vh", background: "#0a0a0c", color: "#f3f3f2", display: "grid", placeItems: "center" }}>
-          Loading dashboard...
-        </div>
-      }
-    >
-      <DashboardContent />
-    </Suspense>
-  );
-}
-
-function DashboardContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "Bangkok";
   const [query, setQuery] = useState("");
