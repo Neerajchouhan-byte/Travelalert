@@ -1,41 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function SearchBar() {
   const [city, setCity] = useState("");
-  const router = useRouter();
 
   function handleSubmit(e) {
     e.preventDefault();
     if (!city.trim()) return;
-    router.push("/login?city=" + encodeURIComponent(city.trim()));
+    setCity("");
   }
 
   return (
     <div className="hero-search">
       <form onSubmit={handleSubmit} className="search-bar">
-        <span className="s-icon" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8" />
-            <path d="M21 21l-4.3-4.3" />
-          </svg>
-        </span>
+        <i className="fa-solid fa-magnifying-glass"></i>
         <input
-          className="s-input"
           type="text"
           value={city}
           onChange={(e) => setCity(e.target.value)}
-          placeholder="Search a destination — Bangkok, Bali, Rome..."
+          placeholder="Bangkok, Bali, Rome..."
         />
-        <button type="submit" className="s-btn">
-          Check for Scams
-        </button>
+        <button type="submit" className="btn-primary"><span>Scan now</span><span className="icw"><i className="fa-solid fa-arrow-right" style={{ fontSize: '.72rem' }}></i></span></button>
       </form>
-      <p className="search-hint">
-        Checked today: Bangkok · Bali · Tokyo · Hanoi · Rome · Prague
-      </p>
+      <p className="search-hint">CHECKED TODAY: BANGKOK &middot; BALI &middot; TOKYO &middot; ROME &middot; PRAGUE</p>
     </div>
   );
 }

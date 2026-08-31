@@ -2,112 +2,75 @@ import ScamCard from "@/components/ScamCard";
 
 const scams = [
   {
-    destination: "Bangkok, Thailand 🇹🇭",
-    badge: "High Risk",
+    destination: "Bangkok, Thailand",
+    badge: "High risk",
     sevClass: "high",
-    badgeClass: "badge-h",
-    lossClass: "danger",
     loss: "$200",
-    lossLabel: "Average victim loss",
     name: "Tuk-Tuk Free Temple Tour",
-    description:
-      "A friendly local near Grand Palace offers a free tuk-tuk city tour. Drives you to gem/tailor shops with extreme pressure to buy overpriced items.",
-    avoidanceTip: '✓ Refuse all "free tour" offers. Use Grab app only.',
-    sourceInfo: "reported 4× this week · 847 upvotes",
+    description: "A friendly local near the Grand Palace offers a free tuk-tuk tour, then drives you to gem shops with heavy pressure to buy.",
+    avoidanceTip: "Refuse all 'free tour' offers. Use the Grab app only.",
+    sourceInfo: "REPORTED 4X THIS WEEK &middot; 847 UPVOTES",
+    image: "https://picsum.photos/seed/bangkok-tuktuk/500/300",
+    wide: true,
   },
   {
-    destination: "Bali, Indonesia 🇮🇩",
-    badge: "High Risk",
+    destination: "Bali, Indonesia",
+    badge: "High risk",
     sevClass: "high",
-    badgeClass: "badge-h",
-    lossClass: "danger",
     loss: "$150",
-    lossLabel: "Average victim loss",
     name: "Motorbike Damage Claim",
-    description:
-      "Rented motorbike returned with pre-existing scratches. Owner demands $100-200 cash claiming you caused damage. Refuses insurance.",
-    avoidanceTip:
-      "✓ Photo every scratch before riding. Use reputable shops only.",
-    sourceInfo: "reported 6× this week · 1.2k upvotes",
+    description: "Rental returned, owner claims new damage and demands cash, refusing insurance.",
+    avoidanceTip: "Photo every scratch before riding.",
+    sourceInfo: "REPORTED 6X THIS WEEK",
+    image: "https://picsum.photos/seed/bali-scooter/500/300",
   },
   {
-    destination: "Prague, Czech Republic 🇨🇿",
+    destination: "Prague, Czechia",
     badge: "Medium",
     sevClass: "medium",
-    badgeClass: "badge-m",
-    lossClass: "danger",
     loss: "$400",
-    lossLabel: "Average victim loss",
     name: "ATM Skimming Device",
-    description:
-      "Card skimmer devices found on ATMs near Old Town Square. Cards cloned and drained within hours. Standalone ATMs most targeted.",
-    avoidanceTip:
-      "✓ Use bank-branch ATMs only. Cover keypad when entering PIN.",
-    sourceInfo: "confirmed this week · 2.3k upvotes",
+    description: "Skimmers found on standalone ATMs near Old Town Square. Cards cloned within hours.",
+    avoidanceTip: "Use bank-branch ATMs. Cover the keypad.",
+    sourceInfo: "CONFIRMED THIS WEEK",
+    image: "https://picsum.photos/seed/prague-atm/500/300",
   },
   {
-    destination: "Hanoi, Vietnam 🇻🇳",
+    destination: "Hanoi, Vietnam",
     badge: "Medium",
     sevClass: "medium",
-    badgeClass: "badge-m",
-    lossClass: "danger",
     loss: "$25",
-    lossLabel: "Average victim loss",
-    name: "Taxi No Meter Scam",
-    description:
-      'Taxi driver claims meter is broken or "fixed price" is better. Charges 3-5× fair price. Most common at Noi Bai Airport late at night.',
-    avoidanceTip:
-      "✓ Use Grab app. Agree price before entering. Walk away if pressured.",
-    sourceInfo: "reported 9× this week",
+    name: "Taxi No-Meter Scam",
+    description: "Driver claims a broken meter, then charges 3 to 5x fare, common late night at Noi Bai.",
+    avoidanceTip: "Use Grab. Agree the price first.",
+    sourceInfo: "REPORTED 9X THIS WEEK",
+    image: "https://picsum.photos/seed/hanoi-taxi/500/300",
   },
   {
-    destination: "Rome, Italy 🇮🇹",
-    badge: "Medium",
-    sevClass: "medium",
-    badgeClass: "badge-m",
-    lossClass: "danger",
-    loss: "$20",
-    lossLabel: "Average victim loss",
-    name: "Bracelet Gift Scam",
-    description:
-      "Man near Trevi Fountain ties a bracelet on your wrist calling it a gift, then demands aggressive payment. Grabs your hand if you try to leave.",
-    avoidanceTip: "✓ Keep hands in pockets. Say 'No' firmly and keep walking.",
-    sourceInfo: "reported 11× this week",
-  },
-  {
-    destination: "Bangkok, Thailand 🇹🇭",
+    destination: "Bangkok, Thailand",
     badge: "Tip",
     sevClass: "tip",
-    badgeClass: "badge-t",
-    lossClass: "tip-col",
     loss: "$45",
-    lossLabel: "Saved per airport trip using Grab",
-    name: "Best Transport from Airport",
-    description:
-      "Download Grab before landing. Book immediately on arrival. Fixed price ~280 THB vs street taxis charging 800-1200 THB. Available 24/7.",
-    avoidanceTip:
-      "✓ Book Grab before leaving arrivals hall. 15 min wait average.",
-    sourceInfo: "3.4k upvotes · verified tip",
+    name: "Best Transport From the Airport",
+    description: "Download Grab before landing. Fixed price around 280 THB, versus street taxis charging 800 to 1200 THB.",
+    avoidanceTip: "Book Grab before leaving the arrivals hall.",
+    sourceInfo: "3.4K UPVOTES &middot; VERIFIED TIP",
+    image: "https://picsum.photos/seed/bangkok-airport/500/300",
+    wide: true,
   },
 ];
- 
+
 export default function Scamcards() {
   return (
-    <section className="scam-section">
+    <section id="scams" style={{ background: 'var(--bg-soft)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
       <div className="container">
-        <div className="sec-header-center reveal">
-          <div className="sec-label">Live Scam Intelligence</div>
-          <h2 className="sec-title">
-            Active right now. <span className="grad-red">Updated daily.</span>
-          </h2>
-          <p className="sec-sub">
-            Every alert below is sourced from real Travelers reports this week —
-            not a 2019 blog post.
-          </p>
+        <div className="sec-head reveal">
+          <h2>Active right now. <span className="grad-accent">Updated daily.</span></h2>
+          <p className="sec-sub">Every alert below is sourced from real traveler reports this week, not a 2019 blog post.</p>
         </div>
-        <div className="scam-grid reveal">
+        <div className="scam-grid">
           {scams.map((scam, index) => (
-            <ScamCard key={index} {...scam} />
+            <ScamCard key={index} {...scam} index={index} />
           ))}
         </div>
       </div>

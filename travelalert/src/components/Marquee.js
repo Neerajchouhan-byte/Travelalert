@@ -1,56 +1,26 @@
+const items = [
+  ['Tuk-Tuk Scam', 'Bangkok', '$200'],
+  ['Fake Parking', 'Bali', '$15'],
+  ['Gem Store Scam', 'Bangkok', '$300'],
+  ['Motorbike Damage', 'Bali', '$150'],
+  ['ATM Skimming', 'Prague', '$400'],
+  ['Bracelet Scam', 'Rome', '$20'],
+  ['Taxi No Meter', 'Hanoi', '$25'],
+  ['Fake Monk', 'Bangkok', '$50'],
+];
+
+const trackItems = [...items, ...items];
+
 export default function Marquee() {
   return (
-    // {/* <!-- MARQUEE --> */}
-    <div className="marquee-section">
-      <div className="marquee-inner">
-        <span className="m-item">
-          <span className="m-pip"></span>Tuk-Tuk Scam — Bangkok · avg loss $200
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Fake Parking — Bali · avg loss $15
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Gem Store Scam — Bangkok · avg loss $300
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Motorbike Damage — Bali · avg loss $150
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>ATM Skimming — Prague · avg loss $400
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Bracelet Scam — Rome · avg loss $20
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Taxi No Meter — Hanoi · avg loss $25
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Fake Monk — Bangkok · avg loss $50
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Tuk-Tuk Scam — Bangkok · avg loss $200
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Fake Parking — Bali · avg loss $15
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Gem Store Scam — Bangkok · avg loss $300
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Motorbike Damage — Bali · avg loss $150
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>ATM Skimming — Prague · avg loss $400
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Bracelet Scam — Rome · avg loss $20
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Taxi No Meter — Hanoi · avg loss $25
-        </span>
-        <span className="m-item">
-          <span className="m-pip"></span>Fake Monk — Bangkok · avg loss $50
-        </span>
+    <div className="marquee">
+      <div className="marquee-track">
+        {trackItems.map(([name, city, amount], index) => (
+          <span key={`${name}-${city}-${index}`} className="m-item">
+            <span className="live-dot"></span>
+            <b>{name}</b> &middot; {city} &middot; avg loss <span className="amt">{amount}</span>
+          </span>
+        ))}
       </div>
     </div>
   );

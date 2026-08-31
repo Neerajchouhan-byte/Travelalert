@@ -1,23 +1,27 @@
 export default function ScamCard(props) {
+  const wide = props.wide ? "wide" : "";
+  const content = (
+    <>
+      <div className="s-thumb">
+        <span className={`sev ${props.sevClass}`}>{props.badge}</span>
+        <img src={props.image} alt={props.name} />
+      </div>
+      <div className="s-content">
+        <div className="s-top-row">
+          <span className="s-dest">{props.destination}</span>
+          <span className="s-loss">{props.loss}</span>
+        </div>
+        <div className="s-name">{props.name}</div>
+        <p className="s-desc">{props.description}</p>
+        <div className="s-avoid"><i className="fa-solid fa-shield-halved"></i>{props.avoidanceTip}</div>
+        <div className="s-src">{props.sourceInfo}</div>
+      </div>
+    </>
+  );
+
   return (
-    <div className="scam-card">
-      <div className={`sev-bar ${props.sevClass}`}></div>
-      <div className="scam-top">
-        <div className="scam-meta">
-          <div className="scam-dest">{props.destination}</div>
-          <div className={`scam-badge ${props.badgeClass}`}>{props.badge}</div>
-        </div>
-        <div className={`scam-loss ${props.lossClass}`}>{props.loss}</div>
-        <div className="scam-loss-lbl">{props.lossLabel}</div>
-        <div className="scam-name">{props.name}</div>
-      </div>
-      <div className="scam-body">
-        <p className="scam-desc">{props.description}</p>
-        <div className="scam-avoid">{props.avoidanceTip}</div>
-        <div className="scam-src">
-          <span className="src-dot"></span>· {props.sourceInfo}
-        </div>
-      </div>
+    <div className={`s-card ${wide} reveal`} style={{ '--i': props.index ?? 0 }}>
+      {props.wide ? <div className="s-body-row">{content}</div> : content}
     </div>
   );
 }

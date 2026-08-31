@@ -1,68 +1,30 @@
 import Searchbar from "./Searchbar";
+
 export default function Hero() {
   return (
     <section className="hero" id="hero">
-      <div className="hero-glow"></div>
-      <div className="hero-pill">
-        <span className="live-dot"></span>
-        Live data from 50,000+ travelers worldwide
-      </div>
-      {/* <!-- PSYCHOLOGY: Loss aversion headline --> */}
-      <h1 className="hero-h1">
-        <span className="line-plain">Travel Smarter.</span>
-        <span className="line-grad">Never Get Scammed.</span>
-      </h1>
+      <div className="container hero-grid">
+        <div className="hero-left reveal in">
+          <span className="eyebrow"><span className="live-dot"></span>LIVE &middot; 50,000+ TRAVELERS TRACKED</span>
+          <h1><span>Know before you go.</span><span className="grad-accent">Not after you're scammed.</span></h1>
+          <p className="hero-sub">The average tourist loses $180 to scams on day one. Real traveler reports, organized by AI, before you land.</p>
+          <Searchbar />
+        </div>
 
-      {/* <!-- PSYCHOLOGY: Specificity — exact dollar amount --> */}
-      <p className="hero-sub">
-        The average tourist loses <strong>$180 to preventable scams</strong> on
-        day one. TravelRadar gives you real-time alerts from live Reddit data
-        and AI — so you know what's happening before you land.
-      </p>
-      <Searchbar />
-      
-
-      <div className="hero-cta-row">
-        {/* <!-- PSYCHOLOGY: Identity CTA --> */}
-        <a href="#pricing" className="btn btn-accent btn-lg">
-          Start Free — Smart Travelers Do This
-        </a>
-        <a href="#how" className="btn-link">
-          See how it works
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
-        </a>
-      </div>
-
-      {/* <!-- PSYCHOLOGY: Specific proof numbers --> */}
-      <div className="hero-proof">
-        <div className="proof-item">
-          <div className="proof-num danger-num">$180</div>
-          <div className="proof-lbl">Avg scam loss — SEA</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">2,400+</div>
-          <div className="proof-lbl">Scam patterns tracked</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">180+</div>
-          <div className="proof-lbl">Destinations covered</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">50K+</div>
-          <div className="proof-lbl">reports analyzed</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">98%</div>
-          <div className="proof-lbl">Say it was worth it</div>
+        <div className="hero-right reveal in" style={{ transitionDelay: '150ms' }}>
+          <div className="radar-wrap">
+            <div className="radar-ring"></div>
+            <div className="radar-ring r2"></div>
+            <div className="radar-ring r3"></div>
+            <div className="radar-ring r4"></div>
+            <div className="radar-crosshair" style={{ position: 'absolute', inset: 0 }}></div>
+            <div className="radar-sweep"></div>
+            <div className="radar-core"></div>
+            <div className="blip b1"><span className="dot"></span><span className="lbl">Bangkok</span></div>
+            <div className="blip b2"><span className="dot"></span><span className="lbl">Bali</span></div>
+            <div className="blip b3"><span className="dot"></span><span className="lbl">Rome</span></div>
+            <div className="blip b4"><span className="dot"></span><span className="lbl">Prague</span></div>
+          </div>
         </div>
       </div>
     </section>
