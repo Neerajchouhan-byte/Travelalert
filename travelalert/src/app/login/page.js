@@ -1,16 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-screen place-items-center bg-[#0a0a0c] text-zinc-200">
+          Loading...
+        </main>
+      }
+    >
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const searchParams = useSearchParams();
-  const city = searchParams.get("city") || "";
+  const city = searchParams.get("city") || "Bangkok";
   const router = useRouter();
 
-  const [mode, setMode] = useState("login"); // login | signup
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,31 +34,37 @@ export default function LoginPage() {
     setError("");
     setBusy(true);
 
-    if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) {
-        setError(error.message);
-        setBusy(false);
-        return;
-      }
-    } else {
-      // Step 16 — existing users log in here
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) {
-        setError(error.message);
-        setBusy(false);
-        return;
-      }
-    }
+    try {
+      if (mode === "signup") {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+        });
 
-    // Step 17 — after success, go to dashboard with city
-    const next = city
-      ? "/dashboard?city=" + encodeURIComponent(city)
-      : "/dashboard";
-    router.push(next);
+        if (signUpError) {
+          setError(signUpError.message);
+          setBusy(false);
+          return;
+        }
+      } else {
+        const { error: loginError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (loginError) {
+          setError(loginError.message);
+          setBusy(false);
+          return;
+        }
+      }
+
+      const next = city ? "/dashboard?city=" + encodeURIComponent(city) : "/dashboard";
+      router.push(next);
+    } catch (submitError) {
+      setError("Something went wrong. Please try again.");
+      setBusy(false);
+    }
   }
 
   return (
