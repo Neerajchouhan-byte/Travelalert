@@ -24,6 +24,12 @@ function LoginContent() {
     setBusy(true);
 
     try {
+      if (!supabase) {
+        setError("Authentication is not configured yet. Add your Supabase environment variables.");
+        setBusy(false);
+        return;
+      }
+
       if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
