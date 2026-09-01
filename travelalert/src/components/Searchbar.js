@@ -1,14 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function SearchBar() {
+  const router = useRouter();
   const [city, setCity] = useState("");
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (!city.trim()) return;
-    setCity("");
+    const trimmedCity = city.trim();
+    if (!trimmedCity) return;
+
+    router.push(`/login?city=${encodeURIComponent(trimmedCity)}`);
   }
 
   return (
