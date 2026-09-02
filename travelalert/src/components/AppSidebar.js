@@ -26,6 +26,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 const main = [
   { label: "Dashboard", icon: LayoutGrid, href: "/dashboard", active: true },
@@ -51,6 +53,7 @@ const account = [
 ];
 
 export function AppSidebar() {
+  const pathname = usePathname();
   return (
     <Sidebar className="border-r border-white/10 bg-[#0d0d10] text-[#f3f3f2]">
       <SidebarHeader className="border-b border-white/10 px-4 py-4">
@@ -64,9 +67,9 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <NavGroup label="Main" items={main} />
-        <NavGroup label="Discover" items={discover} />
-        <NavGroup label="Account" items={account} />
+        <NavGroup label="Main" items={main} pathname={pathname} />
+        <NavGroup label="Discover" items={discover} pathname={pathname} />
+        <NavGroup label="Account" items={account} pathname={pathname} />
       </SidebarContent>
 
       <SidebarFooter className="border-t border-white/10">
@@ -88,7 +91,7 @@ export function AppSidebar() {
   );
 }
 
-function NavGroup({ label, items }) {
+function NavGroup({ label, items, pathname }) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#68686f]">
@@ -98,11 +101,11 @@ function NavGroup({ label, items }) {
         <SidebarMenu>
           {items.map((item) => (
             <SidebarMenuItem key={item.label}>
-              <SidebarMenuButton asChild isActive={item.active}>
-                <a href={item.href}>
+              <SidebarMenuButton asChild isActive={pathname === item.href}>
+                <Link href={item.href}>
                   <item.icon />
                   <span>{item.label}</span>
-                </a>
+                </Link>
               </SidebarMenuButton>
               {item.badge && (
                 <SidebarMenuBadge className="bg-[#e5484a]/15 text-[#e5484a]">

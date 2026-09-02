@@ -1,12 +1,8 @@
 import { Panel } from "./Panel";
-import { destinationMeta } from "@/lib/dashboard-data";
+import { getDestination } from "@/lib/dashboard-data";
 
 export function DestinationHeader({ city }) {
-  const d = destinationMeta[city] || {
-    ...destinationMeta.Bangkok,
-    name: city,
-    flag: "🌍",
-  };
+  const d = getDestination(city);
 
   const stats = [
     { label: "Safety score", value: d.safety, color: "text-[#e5484a]" },
@@ -36,9 +32,14 @@ export function DestinationHeader({ city }) {
         </div>
         <div className="relative flex flex-wrap items-center gap-3">
           {stats.map((s) => (
-            <div key={s.label} className="min-w-[82px] rounded-lg border border-white/10 bg-[#141418] px-4 py-2.5 text-center">
+            <div
+              key={s.label}
+              className="min-w-[82px] rounded-lg border border-white/10 bg-[#141418] px-4 py-2.5 text-center"
+            >
               <div className={`font-mono text-xl font-bold ${s.color}`}>{s.value}</div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[#68686f]">{s.label}</div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-[#68686f]">
+                {s.label}
+              </div>
             </div>
           ))}
         </div>

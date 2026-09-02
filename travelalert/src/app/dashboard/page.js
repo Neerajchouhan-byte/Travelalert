@@ -11,11 +11,13 @@ import { ScamRadar } from "@/components/dashboard/ScamRadar";
 import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
+import { RequireAuth } from "@/components/dashboard/RequireAuth";
 
 function DashboardContent() {
   const city = useSearchParams().get("city") || "Bangkok";
 
   return (
+    <RequireAuth>
     <>
       <Topbar city={city} />
       <div className="space-y-4 p-8 max-md:p-4">
@@ -33,6 +35,7 @@ function DashboardContent() {
         <DestinationChips active={city} />
       </div>
     </>
+    </RequireAuth>
   );
 }
 

@@ -34,7 +34,17 @@
   --info-line: rgba(91,157,238,0.38);
 }
 
-*{margin:0;padding:0;box-sizing:border-box;}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
 html{scroll-behavior:smooth;}
 body{
   background:var(--bg);
