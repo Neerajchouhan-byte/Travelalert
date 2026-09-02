@@ -1,15 +1,18 @@
-'use client';
+"use client";
 
 import {
   Bell,
-  ChartNoAxesCombined,
-  MapPinned,
+  Earth,
+  LayoutGrid,
+  Luggage,
   Search,
   Settings,
-  ShieldAlert,
-  Sparkles,
+  TriangleAlert,
+  ArrowLeftRight,
+  Users,
+  Radar,
 } from "lucide-react";
-
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Sidebar,
   SidebarContent,
@@ -19,94 +22,97 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-const navItems = [
-  { label: "Overview", icon: ChartNoAxesCombined, active: true },
-  { label: "Search Destinations", icon: Search },
-  { label: "Scam Alerts", icon: ShieldAlert },
-  { label: "Travel Planner", icon: MapPinned },
+const main = [
+  { label: "Dashboard", icon: LayoutGrid, href: "/dashboard", active: true },
+  { label: "Search destinations", icon: Search, href: "/" },
+  {
+    label: "Scam alerts",
+    icon: TriangleAlert,
+    href: "/dashboard",
+    badge: "12",
+  },
+  { label: "My trips", icon: Luggage, href: "/dashboard" },
+];
+
+const discover = [
+  { label: "Destinations", icon: Earth, href: "/" },
+  { label: "Currency rates", icon: ArrowLeftRight, href: "/dashboard" },
+  { label: "Community", icon: Users, href: "/dashboard" },
+];
+
+const account = [
+  { label: "Settings", icon: Settings, href: "/dashboard" },
+  { label: "Notifications", icon: Bell, href: "/dashboard" },
 ];
 
 export function AppSidebar() {
   return (
-    <Sidebar className="border-r border-white/10 bg-[#0b0f1a] text-slate-100">
-      <SidebarHeader className="border-b border-white/10 px-4 py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-sm font-bold text-emerald-400 ring-1 ring-emerald-500/20">
-            T
-          </div>
-          <div>
-            <div className="text-lg font-semibold tracking-tight text-white">
-              Travel<span className="text-emerald-400">Wise</span>
-            </div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
-              Safety radar
-            </div>
-          </div>
+    <Sidebar className="border-r border-white/10 bg-[#0d0d10] text-[#f3f3f2]">
+      <SidebarHeader className="border-b border-white/10 px-4 py-4">
+        <div className="flex items-center gap-2 text-[1.05rem] font-bold">
+          <Radar className="size-4 text-[#e5484a]" />
+          TravelRadar
+        </div>
+        <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.09em] text-[#68686f]">
+          Live scam intel
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-3 py-4">
-        <SidebarGroup>
-          <SidebarGroupLabel className="px-2 text-slate-400">Main</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map(({ label, icon: Icon, active }) => (
-                <SidebarMenuItem key={label}>
-                  <SidebarMenuButton
-                    isActive={active}
-                    className={active ? "bg-white/5 text-white" : "text-slate-300 hover:bg-white/5 hover:text-white"}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="px-2 text-slate-400">Quick tools</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton className="text-slate-300 hover:bg-white/5 hover:text-white">
-                  <Sparkles className="h-4 w-4" />
-                  <span>Trip insights</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton className="text-slate-300 hover:bg-white/5 hover:text-white">
-                  <Bell className="h-4 w-4" />
-                  <span>Alerts</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton className="text-slate-300 hover:bg-white/5 hover:text-white">
-                  <Settings className="h-4 w-4" />
-                  <span>Settings</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent>
+        <NavGroup label="Main" items={main} />
+        <NavGroup label="Discover" items={discover} />
+        <NavGroup label="Account" items={account} />
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-white/10 p-3">
-        <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+      <SidebarFooter className="border-t border-white/10">
+        <div className="flex items-center gap-3 rounded-md px-2 py-2">
+          <Avatar className="size-8 border border-white/16">
+            <AvatarFallback className="bg-[#141418] font-mono text-[11px] font-bold text-[#e5484a]">
+              NR
+            </AvatarFallback>
+          </Avatar>
           <div>
-            <div className="text-sm font-medium text-white">Free plan</div>
-            <div className="text-xs text-slate-400">2/3 searches left</div>
-          </div>
-          <div className="rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-300">
-            Live
+            <div className="text-[13px] font-bold">Neeraj</div>
+            <div className="text-[11px] text-[#68686f]">
+              Free plan · 2/3 searches
+            </div>
           </div>
         </div>
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+function NavGroup({ label, items }) {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#68686f]">
+        {label}
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.label}>
+              <SidebarMenuButton asChild isActive={item.active}>
+                <a href={item.href}>
+                  <item.icon />
+                  <span>{item.label}</span>
+                </a>
+              </SidebarMenuButton>
+              {item.badge && (
+                <SidebarMenuBadge className="bg-[#e5484a]/15 text-[#e5484a]">
+                  {item.badge}
+                </SidebarMenuBadge>
+              )}
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }
