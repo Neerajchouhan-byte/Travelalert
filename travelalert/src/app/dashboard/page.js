@@ -16,15 +16,16 @@ import { RequireAuth } from "@/components/dashboard/RequireAuth";
 function DashboardContent() {
   const city = useSearchParams().get("city") || "Bangkok";
 
-const [posts, setPosts] = useState([]);
-const [alerts, setAlerts] = useState([]);
-const [loading, setLoading] = useState(false);
-const [error, setError] = useState("");
-
+  const [alerts, setAlerts] = useState([]);
+  const [tips, setTips] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   useEffect(() => {
     async function load() {
       setLoading(true);
       setError("");
+      setAlerts([]);
+      setTips([]);
       try {
         const redditRes = await fetch(
           "/api/reddit?city=" + encodeURIComponent(city),
@@ -41,19 +42,37 @@ const [error, setError] = useState("");
         });
         const orgData = await orgRes.json();
 
-        if (orgData.error && (!orgData.alerts || orgData.alerts.length === 0)) {
-          setError(orgData.error);
-        }
-        setAlerts(orgData.alerts || []);
+        const all = orgData.alerts || [];
+        setAlerts(all.filter((a) => a.severity !== "tip"));
+        setTips(
+          orgData.tips?.length
+            ? orgData.tips
+            : all.filter((a) => a.severity === "tip"),
+        );
+
+        if (orgData.error && all.length === 0) setError(orgData.error);
       } catch {
-        setError("Could not organize alerts");
+        setError("Could not load this destination");
       } finally {
         setLoading(false);
       }
     }
+
     load();
   }, [city]);
 
+  const [brief, setBrief] = useState(null);
+
+  useEffect(() => {
+    let on = true;
+    setBrief(null);
+    fetch("/api/city-brief?city=" + encodeURIComponent(city))
+      .then((r) => r.json())
+      .then((d) => on && setBrief(d));
+    return () => {
+      on = false;
+    };
+  }, [city]);
   return (
     <RequireAuth>
       <>
@@ -61,30 +80,20 @@ const [error, setError] = useState("");
         <div className="space-y-4 p-8 max-md:p-4">
           <DestinationHeader city={city} />
 
-          {/* Step 25 — temporary proof that Reddit works */}
-          {loading && (
-            <p className="text-sm text-[#a6a6ad]">Loading Reddit reports…</p>
+          {error && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {error}
+            </p>
           )}
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <ul className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
-            {posts.map((p, i) => (
-              <li
-                key={i}
-                className="border-b border-white/5 py-2 last:border-0"
-              >
-                r/{p.sub}: {p.title}
-              </li>
-            ))}
-          </ul>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <ScamAlerts alerts={alerts} loading={loading} />
-            <InsiderTips />
+            <InsiderTips tips={tips} loading={loading} city={city} />
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <CurrencyCard />
+            <CurrencyCard brief={brief} />
             <ScamRadar />
-            <WeatherCard />
+            <WeatherCard brief={brief} />
           </div>
           <RecentActivity />
           <DestinationChips active={city} />
