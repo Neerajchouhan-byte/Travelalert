@@ -78,7 +78,7 @@ function DashboardContent() {
       <>
         <Topbar city={city} />
         <div className="space-y-4 p-8 max-md:p-4">
-          <DestinationHeader city={city} />
+          <DestinationHeader city={city} brief={brief} />
 
           {error && (
             <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -92,10 +92,10 @@ function DashboardContent() {
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <CurrencyCard brief={brief} />
-            <ScamRadar />
+            <ScamRadar city={city} alertCount={alerts.length} tipCount={tips.length} />
             <WeatherCard brief={brief} />
           </div>
-          <RecentActivity />
+        <RecentActivity city={city} alerts={alerts} loading={loading} />
           <DestinationChips active={city} />
         </div>
       </>

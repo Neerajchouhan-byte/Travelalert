@@ -1,123 +1,146 @@
-export async function POST(request) {
-  const { city, posts } = await request.json();
-  const key = process.env.GEMINI_API_KEY;
+const CURRENCY_BY_COUNTRY = {
+  TH: "THB", ID: "IDR", VN: "VND", JP: "JPY", KH: "KHR",
+  IT: "EUR", ES: "EUR", FR: "EUR", DE: "EUR", GR: "EUR",
+  PT: "EUR", NL: "EUR", AT: "EUR", IE: "EUR",
+  MY: "MYR", SG: "SGD", CZ: "CZK", NP: "NPR", LK: "LKR",
+  IN: "INR", US: "USD", GB: "GBP", AU: "AUD", NZ: "NZD",
+  AE: "AED", TR: "TRY", KR: "KRW", CN: "CNY", HK: "HKD",
+  TW: "TWD", PH: "PHP", LA: "LAK", MM: "MMK", BD: "BDT",
+  PK: "PKR", BR: "BRL", MX: "MXN", CA: "CAD", CH: "CHF",
+  SE: "SEK", NO: "NOK", DK: "DKK", PL: "PLN", HU: "HUF",
+  RO: "RON", ZA: "ZAR", EG: "EGP", KE: "KES", MA: "MAD",
+  PE: "PEN", AR: "ARS", CL: "CLP", CO: "COP",
+};
 
-  if (!city) {
-    return Response.json({ error: "city required", alerts: [] }, { status: 400 });
-  }
-
-  if (!key) {
-    return Response.json(
-      { error: "AI not configured — add GEMINI_API_KEY to .env.local then restart", alerts: [] },
-      { status: 503 }
+async function getUsdRates() {
+  try {
+    const res = await fetch(
+      "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json",
+      { cache: "no-store" }
     );
+    const json = await res.json();
+    const usd = json?.usd;
+    if (usd && typeof usd === "object") {
+      const upper = {};
+      for (const [k, v] of Object.entries(usd)) upper[k.toUpperCase()] = v;
+      return upper;
+    }
+  } catch {}
+
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD", {
+      cache: "no-store",
+    });
+    const json = await res.json();
+    return json?.rates || {};
+  } catch {
+    return {};
   }
-
-  const digest = (posts || [])
-    .slice(0, 8)
-    .map((p, i) => `${i + 1}. r/${p.sub}: ${p.title}\n${p.text}`)
-    .join("\n\n")
-    .slice(0, 3500);
-
-    const prompt = `City: ${city}
-From these Reddit posts, extract scams AND local tips for THIS city only.
-Never mention a different city. If the posts are thin, use common traveler knowledge for ${city}.
-
-Return ONLY valid JSON, no markdown:
-{
-  "alerts":[{"name":"","severity":"high","description":"","avoid":""}],
-  "tips":[{"name":"","description":"","avoid":""}]
 }
 
-Rules:
-- alerts: 3 to 6 items, severity high or medium, about ${city} only
-- tips: exactly 3 items, useful local advice for ${city} (transport, food, money)
-- every name/description/avoid must include or clearly be about ${city}
+export async function GET(request) {
+  const city =
+    request.nextUrl?.searchParams.get("city") ||
+    new URL(request.url).searchParams.get("city") ||
+    "";
 
-Posts:
-${digest || "(no posts — invent common tourist scams and tips for " + city + ")"}`;
+  if (city.length < 2) {
+    return Response.json({ error: "city required" }, { status: 400 });
+  }
 
-  const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
-
-  let lastError = "";
-  let text = "";
-
-  for (const model of models) {
-              const res = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=" +
-        key,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3 },
-        }),
-      }
+  try {
+    const geoRes = await fetch(
+      "https://geocoding-api.open-meteo.com/v1/search?count=1&name=" +
+        encodeURIComponent(city),
+      { cache: "no-store" }
     );
+    const geo = await geoRes.json();
+    const hit = geo?.results?.[0];
+    if (!hit) return Response.json({ error: "city not found" }, { status: 404 });
 
-    const body = await res.json();
+    let weather = { temp: null, feels: null, humidity: null, uv: null, code: 0 };
+    try {
+      const wxRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,uv_index`,
+        { cache: "no-store" }
+      );
+      const wx = await wxRes.json();
+      const cur = wx.current || {};
+      weather = {
+        temp: Math.round(cur.temperature_2m ?? 0),
+        feels: Math.round(cur.apparent_temperature ?? 0),
+        humidity: cur.relative_humidity_2m ?? null,
+        uv: cur.uv_index ?? null,
+        code: cur.weather_code ?? 0,
+      };
+    } catch {}
 
-    if (!res.ok) {
-      lastError =
-        body?.error?.message ||
-        `HTTP ${res.status} on ${model}`;
-      continue;
+    const cc = String(hit.country_code || "").toUpperCase();
+    const code = CURRENCY_BY_COUNTRY[cc] || "USD";
+
+    const rates = await getUsdRates();
+    const usd = rates[code] ?? (code === "USD" ? 1 : null);
+    const inrUsd = rates.INR;
+    const eurUsd = rates.EUR;
+    const inr = usd != null && inrUsd ? usd / inrUsd : null;
+    const eur = usd != null && eurUsd ? usd / eurUsd : null;
+
+    let money_avoid = "Skip airport desks — worst spread.";
+    let money_best = "Use a bank ATM. Decline dynamic currency conversion.";
+    let weather_headline =
+      weather.code >= 50 ? "Rain likely" : "Check heat and UV";
+    let weather_note = `${weather.temp ?? "—"}°C in ${hit.name} right now.`;
+
+    const key = process.env.GEMINI_API_KEY;
+    if (key) {
+      try {
+        const prompt = `City: ${hit.name}, ${hit.country}
+Currency ${code}. 1 USD = ${usd} ${code}.
+Weather ${weather.temp}°C, feels ${weather.feels}, humidity ${weather.humidity}%, UV ${weather.uv}.
+Return ONLY JSON:
+{"money_avoid":"one sentence","money_best":"one sentence","weather_headline":"3-6 words","weather_note":"1-2 sentences"}`;
+
+        const gRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${key}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+            }),
+          }
+        );
+        const text =
+          (await gRes.json())?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const a = text.indexOf("{");
+        const b = text.lastIndexOf("}");
+        if (a >= 0 && b > a) {
+          const p = JSON.parse(text.slice(a, b + 1));
+          money_avoid = p.money_avoid || money_avoid;
+          money_best = p.money_best || money_best;
+          weather_headline = p.weather_headline || weather_headline;
+          weather_note = p.weather_note || weather_note;
+        }
+      } catch {}
     }
 
-    text = body?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    if (text) break;
-    lastError = `empty response from ${model}`;
-  }
-
-  if (!text) {
     return Response.json({
-      city,
-      alerts: [],
-      error: lastError || "gemini failed",
+      city: hit.name,
+      country: hit.country,
+      code,
+      usd,
+      inr,
+      eur,
+      weather,
+      money_avoid,
+      money_best,
+      weather_headline,
+      weather_note,
     });
+  } catch (err) {
+    return Response.json(
+      { error: err.message || "city-brief failed" },
+      { status: 500 }
+    );
   }
-
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-
-  let alerts = [];
-  try {
-    if (start >= 0 && end > start) {
-      const parsed = JSON.parse(text.slice(start, end + 1));
-      alerts = Array.isArray(parsed.alerts) ? parsed.alerts : [];
-    }
-  } catch {
-    alerts = [];
-  }
-
-  alerts = alerts
-    .filter((a) => a && a.name)
-    .slice(0, 6)
-    .map((a) => ({
-      name: String(a.name),
-      severity: ["high", "medium", "tip"].includes(a.severity)
-        ? a.severity
-        : "medium",
-      description: String(a.description || ""),
-      avoid: String(a.avoid || ""),
-    }));
-      let tips = [];
-  try {
-    const parsed = JSON.parse(text.slice(start, end + 1));
-    tips = Array.isArray(parsed.tips) ? parsed.tips : [];
-  } catch {
-    tips = [];
-  }
-
-  tips = tips
-    .filter((t) => t && (t.name || t.title))
-    .slice(0, 3)
-    .map((t) => ({
-      name: String(t.name || t.title),
-      description: String(t.description || t.desc || ""),
-      avoid: String(t.avoid || t.saving || ""),
-    }));
-
-  return Response.json({ city, alerts, tips });
 }

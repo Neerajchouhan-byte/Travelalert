@@ -101,5 +101,6 @@ Return ONLY JSON:
     money_best,
     weather_headline,
     weather_note,
+    currencyName,
   });
 }

@@ -1,14 +1,22 @@
 import { Panel } from "./Panel";
 import { getDestination } from "@/lib/dashboard-data";
 
-export function DestinationHeader({ city }) {
+export function DestinationHeader({ city, brief }) {
   const d = getDestination(city);
+  const liveTemp =
+    brief?.weather?.temp != null ? `${brief.weather.temp}°C` : d.temp;
+  const liveCurrency = brief?.code
+    ? `${brief.currencyName || brief.code} (${brief.code})`
+    : d.currency;
+  const liveName = brief?.city
+    ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
+    : d.name;
 
   const stats = [
     { label: "Safety score", value: d.safety, color: "text-[#e5484a]" },
     { label: "Active alerts", value: d.alerts, color: "text-[#f0a63d]" },
     { label: "Cost of living", value: d.cost, color: "text-[#3ecf8e]" },
-    { label: "Right now", value: d.temp, color: "text-[#f3f3f2]" },
+    { label: "Right now", value: liveTemp, color: "text-[#f3f3f2]" },
   ];
 
   return (
@@ -18,11 +26,11 @@ export function DestinationHeader({ city }) {
         <div className="relative flex items-center gap-4">
           <span className="text-4xl">{d.flag}</span>
           <div>
-            <h1 className="text-[1.45rem] font-bold tracking-tight">{d.name}</h1>
+            <h1 className="text-[1.45rem] font-bold tracking-tight">{liveName}</h1>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#a6a6ad]">
-              {d.region}
+              {d.region !== "Unknown" ? d.region : brief?.country || "—"}
               <span className="size-0.5 rounded-full bg-[#68686f]" />
-              {d.currency}
+              {liveCurrency}
               <span className="size-0.5 rounded-full bg-[#68686f]" />
               {d.tz}
               <span className="size-0.5 rounded-full bg-[#68686f]" />

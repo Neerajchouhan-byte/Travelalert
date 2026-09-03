@@ -1,11 +1,11 @@
 import { Panel } from "./Panel";
 
-export function ScamRadar() {
+export function ScamRadar({ city, alertCount = 0, tipCount = 0 }) {
   return (
     <Panel>
       <div className="p-5">
         <div className="mb-3 font-mono text-[11px] font-semibold uppercase tracking-widest text-[#68686f]">
-          Live scam radar, last 7 days
+          Live scam radar · {city}
         </div>
         <div className="relative mx-auto mb-4 aspect-square w-[118px]">
           <div className="absolute inset-0 rounded-full border border-white/10" />
@@ -15,9 +15,13 @@ export function ScamRadar() {
           <div className="absolute inset-[44%] rounded-full border border-white/16 bg-[#101013]" />
         </div>
         <div className="space-y-2 text-xs text-[#a6a6ad]">
-          <Row color="bg-[#e5484a]" label="Scam reports" count="18" />
-          <Row color="bg-[#f0a63d]" label="Warnings" count="12" />
-          <Row color="bg-[#3ecf8e]" label="Positive tips" count="17" />
+          <Row color="bg-[#e5484a]" label="Scam reports" count={String(alertCount)} />
+          <Row
+            color="bg-[#f0a63d]"
+            label="Warnings"
+            count={String(Math.max(0, alertCount - 1))}
+          />
+          <Row color="bg-[#3ecf8e]" label="Positive tips" count={String(tipCount)} />
         </div>
       </div>
     </Panel>
