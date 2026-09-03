@@ -8,7 +8,7 @@ export async function POST(request) {
 
   if (!key) {
     return Response.json(
-      { error: "AI not configured", alerts: [] },
+      { error: "AI not configured — add GEMINI_API_KEY to .env.local then restart", alerts: [] },
       { status: 503 }
     );
   }
@@ -29,24 +29,47 @@ severity must be one of: high, medium, tip
 Posts:
 ${digest || "(no posts — invent 3 common tourist scams for this city based on typical traveler reports)"}`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3 },
-      }),
-    }
-  );
+  const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
 
-  if (!res.ok) {
-    return Response.json({ city, alerts: [], error: "gemini failed" });
+  let lastError = "";
+  let text = "";
+
+  for (const model of models) {
+              const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=" +
+        key,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3 },
+        }),
+      }
+    );
+
+    const body = await res.json();
+
+    if (!res.ok) {
+      lastError =
+        body?.error?.message ||
+        `HTTP ${res.status} on ${model}`;
+      continue;
+    }
+
+    text = body?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (text) break;
+    lastError = `empty response from ${model}`;
   }
 
-  const body = await res.json();
-  const text = body?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  if (!text) {
+    return Response.json({
+      city,
+      alerts: [],
+      error: lastError || "gemini failed",
+    });
+  }
+
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
 

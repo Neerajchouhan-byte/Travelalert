@@ -16,9 +16,10 @@ import { RequireAuth } from "@/components/dashboard/RequireAuth";
 function DashboardContent() {
   const city = useSearchParams().get("city") || "Bangkok";
 
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+const [posts, setPosts] = useState([]);
+const [alerts, setAlerts] = useState([]);
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -77,7 +78,7 @@ function DashboardContent() {
           </ul>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <ScamAlerts />
+            <ScamAlerts alerts={alerts} loading={loading} />
             <InsiderTips />
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

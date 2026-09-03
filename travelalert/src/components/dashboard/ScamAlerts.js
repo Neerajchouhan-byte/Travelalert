@@ -2,21 +2,25 @@ import { ArrowRight, Lock, ShieldHalf } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "./Panel";
-import { alerts } from "@/lib/dashboard-data";
 
 const styles = {
   high: "bg-[rgba(229,72,74,0.14)] border-l-[#e5484a]",
   medium: "bg-[rgba(240,166,61,0.13)] border-l-[#f0a63d]",
+  tip: "bg-[rgba(62,207,142,0.13)] border-l-[#3ecf8e]",
   low: "bg-[rgba(62,207,142,0.13)] border-l-[#3ecf8e]",
 };
 
 const badges = {
   high: "bg-[rgba(229,72,74,0.18)] text-[#e5484a]",
   medium: "bg-[rgba(240,166,61,0.18)] text-[#f0a63d]",
+  tip: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]",
   low: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]",
 };
 
-export function ScamAlerts() {
+export function ScamAlerts({ alerts = [], loading }) {
+  const visible = alerts.slice(0, 2);
+  const lockedCount = Math.max(0, alerts.length - 2);
+
   return (
     <Panel>
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -24,33 +28,61 @@ export function ScamAlerts() {
           <span className="size-1.5 rounded-full bg-[#e5484a]" />
           Active scam alerts
         </div>
-        <span className="font-mono text-[11px] text-[#68686f]">12 ALERTS THIS WEEK</span>
+        <span className="font-mono text-[11px] text-[#68686f]">
+          {alerts.length} ALERTS
+        </span>
       </div>
 
       <div className="space-y-2 p-3">
-        {alerts.map((a) => (
-          <article key={a.name} className={`rounded-lg border-l-[3px] p-3 ${styles[a.level]}`}>
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold">{a.name}</h3>
-              <Badge className={`${badges[a.level]} font-mono text-[10px] uppercase`}>{a.badge}</Badge>
-            </div>
-            <p className="mb-2 text-xs leading-relaxed text-[#a6a6ad]">{a.desc}</p>
-            <p className="flex items-start gap-2 text-xs font-semibold">
-              <ShieldHalf className="mt-0.5 size-3 shrink-0 text-[#3ecf8e]" />
-              {a.avoid}
-            </p>
-            <span className="mt-2 inline-flex rounded-full border border-white/10 px-2 py-0.5 font-mono text-[10px] text-[#68686f]">
-              {a.source}
-            </span>
-          </article>
-        ))}
+        {loading && (
+          <p className="px-1 py-2 text-xs text-[#a6a6ad]">Loading alerts…</p>
+        )}
 
-        <LockedRow />
-        <LockedRow />
+        {!loading && visible.length === 0 && (
+          <p className="px-1 py-2 text-xs text-[#a6a6ad]">No live alerts yet.</p>
+        )}
+
+        {visible.map((a, i) => {
+          const level = a.severity || a.level || "medium";
+          return (
+            <article
+              key={a.name + i}
+              className={`rounded-lg border-l-[3px] p-3 ${styles[level] || styles.medium}`}
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-bold">{a.name}</h3>
+                <Badge
+                  className={`${badges[level] || badges.medium} font-mono text-[10px] uppercase`}
+                >
+                  {a.badge || level}
+                </Badge>
+              </div>
+              <p className="mb-2 text-xs leading-relaxed text-[#a6a6ad]">
+                {a.description || a.desc}
+              </p>
+              <p className="flex items-start gap-2 text-xs font-semibold">
+                <ShieldHalf className="mt-0.5 size-3 shrink-0 text-[#3ecf8e]" />
+                {a.avoid}
+              </p>
+            </article>
+          );
+        })}
+
+        {lockedCount > 0 && (
+          <>
+            <LockedRow />
+            <LockedRow />
+          </>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5">
-          <span className="text-xs font-semibold text-[#5b9dee]">Unlock 9 more alerts for Bangkok</span>
-          <Button size="sm" className="h-7 rounded-full bg-[#5b9dee] text-[#071426] hover:bg-[#5b9dee]/90">
+          <span className="text-xs font-semibold text-[#5b9dee]">
+            Unlock full alerts
+          </span>
+          <Button
+            size="sm"
+            className="h-7 rounded-full bg-[#5b9dee] text-[#071426] hover:bg-[#5b9dee]/90"
+          >
             Upgrade Pro <ArrowRight className="size-3" />
           </Button>
         </div>
