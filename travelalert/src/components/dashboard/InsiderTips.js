@@ -1,6 +1,10 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { Lock, ShieldHalf, Wallet } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Panel } from "./Panel";
+import { supabase } from "@/lib/supabase";
+import { checkoutUrl } from "@/lib/checkout";
 
 export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
   const isPro = plan === "pro" || plan === "lifetime";
@@ -12,6 +16,24 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
   const visible = isPro ? rows : rows.slice(0, 3);
   const locked = isPro ? [] : rows.slice(3);
 
+  const [upgradeHref, setUpgradeHref] = useState(
+    process.env.NEXT_PUBLIC_CHECKOUT_PRO || "/login"
+  );
+
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      if (!supabase) return;
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!on || !user) return;
+      setUpgradeHref(checkoutUrl("pro", user.id, user.email));
+    })();
+    return () => {
+      on = false;
+    };
+  }, []);
+
   return (
     <Panel>
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -20,9 +42,7 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
           Insider tips
         </div>
         <span className="font-mono text-[11px] text-[#68686f]">
-          {loading
-            ? "LOADING"
-            : `${(city || "").toUpperCase()} · ${rows.length} TIPS`}
+          {loading ? "LOADING" : `${(city || "").toUpperCase()} · ${rows.length} TIPS`}
         </span>
       </div>
 
@@ -85,12 +105,12 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
             <span className="text-xs font-semibold text-[#5b9dee]">
               {locked.length} more tips on Pro
             </span>
-            <Button
-              size="sm"
-              className="h-7 rounded-full bg-[#5b9dee] text-[#071426]"
+            <a
+              href={upgradeHref}
+              className="inline-flex h-7 items-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]"
             >
               Upgrade Pro
-            </Button>
+            </a>
           </div>
         )}
       </div>
