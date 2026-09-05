@@ -74,7 +74,7 @@ function DashboardContent() {
   return (
     <RequireAuth>
       <>
-        <Topbar city={city} />
+        <Topbar key={city} city={city} />
         <div className="space-y-4 p-8 max-md:p-4">
           <DestinationHeader city={city} brief={brief} />
 

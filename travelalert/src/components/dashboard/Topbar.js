@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Search } from "lucide-react";
+import Link from "next/link";
+import { Bell, Search, UserRound } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { destinationMeta } from "@/lib/dashboard-data";
 
 export function Topbar({ city }) {
@@ -13,10 +13,6 @@ export function Topbar({ city }) {
   const meta = destinationMeta[city];
   const label = meta?.name || city;
   const [query, setQuery] = useState(label);
-
-  useEffect(() => {
-    setQuery(label);
-  }, [label]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -27,7 +23,6 @@ export function Topbar({ city }) {
 
   return (
     <header className="sticky top-0 z-50 flex items-center gap-4 border-b border-white/10 bg-[#0a0a0c]/85 px-8 py-3 backdrop-blur-md max-md:px-4">
-      <SidebarTrigger className="text-[#f3f3f2]" />
       <form
         onSubmit={handleSubmit}
         className="flex max-w-md flex-1 items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-4"
@@ -58,6 +53,14 @@ export function Topbar({ city }) {
           <Bell className="size-3.5" />
           <span className="absolute top-1.5 right-2 size-1.5 rounded-full bg-[#e5484a]" />
         </Button>
+        <Link
+          href="/profile"
+          aria-label="Open profile and settings"
+          title="Profile and settings"
+          className="flex size-8 items-center justify-center rounded-full border border-[#e5484a]/40 bg-[#e5484a]/15 text-[#e5484a] transition-colors hover:bg-[#e5484a]/25"
+        >
+          <UserRound className="size-3.5" />
+        </Link>
       </div>
     </header>
   );
