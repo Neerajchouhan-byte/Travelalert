@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import CommandPalette from "./CommandPalette";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   return (
     <div className="nav-island">
@@ -21,13 +23,13 @@ export default function Navbar() {
           className="btn-primary nav-cta-mobile"
           onClick={() => setOpen(false)}
         >
-          <span>Get started</span>
+          <span>Scan now</span>
         </a>
       </div>
 
       <div className="nav-right">
         <a href="/login" className="btn-primary">
-          <span>Get started</span>
+          <span>Scan now</span>
           <span className="icw">
             <i className="fa-solid fa-arrow-right" style={{ fontSize: ".72rem" }}></i>
           </span>
@@ -45,6 +47,7 @@ export default function Navbar() {
           style={{ fontSize: ".85rem" }}
         ></i>
       </button>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }

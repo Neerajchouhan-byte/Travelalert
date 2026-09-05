@@ -13,14 +13,20 @@ const trackItems = [...items, ...items];
 
 export default function Marquee() {
   return (
-    <div className="marquee">
-      <div className="marquee-track">
-        {trackItems.map(([name, city, amount], index) => (
-          <span key={`${name}-${city}-${index}`} className="m-item">
-            <span className="live-dot"></span>
-            <b>{name}</b> &middot; {city} &middot; avg loss <span className="amt">{amount}</span>
-          </span>
-        ))}
+    <div className="marquee-shell">
+      <div className="container marquee-label">
+        <span className="live-dot"></span>
+        <span>Live scam reports</span>
+        <span className="marquee-update">Updated hourly</span>
+      </div>
+      <div className="marquee">
+        <div className="marquee-track">
+          {trackItems.map(([name, city, amount], index) => (
+            <span key={`${name}-${city}-${index}`} className="m-item">
+              <b>{name}</b> &middot; {city} &middot; avg loss <span className="amt">{amount}</span>
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,47 @@
+"use client";
+
+import { useState } from "react";
 import Searchbar from "./Searchbar";
 
+const fieldNotes = [
+  {
+    id: "07",
+    city: "Bangkok",
+    code: "TH / BKK",
+    live: "LIVE / 04:28",
+    risk: "HIGH RISK",
+    reports: "4 REPORTS / 7D",
+    change: "+18%",
+    summary: "Gem-store pressure reported four times this week near the Grand Palace.",
+    detail: "Refuse free tuk-tuk offers and use the Grab app for fixed fares.",
+  },
+  {
+    id: "08",
+    city: "Prague",
+    code: "CZ / PRG",
+    live: "UPDATED / 12M",
+    risk: "WATCH",
+    reports: "3 REPORTS / 7D",
+    change: "+9%",
+    summary: "Standalone ATM skimmers spotted around Old Town Square.",
+    detail: "Use an ATM inside a bank branch and cover the keypad while entering your PIN.",
+  },
+  {
+    id: "09",
+    city: "Bali",
+    code: "ID / DPS",
+    live: "UPDATED / 31M",
+    risk: "ELEVATED",
+    reports: "6 REPORTS / 7D",
+    change: "+14%",
+    summary: "Motorbike renters reporting fresh damage claims after returning vehicles.",
+    detail: "Photograph every panel and the odometer before leaving the rental shop.",
+  },
+];
+
 export default function Hero() {
+  const [activeNote, setActiveNote] = useState(0);
+
   return (
     <section className="hero" id="hero">
       <div className="container hero-grid">
@@ -51,6 +92,35 @@ export default function Hero() {
               <span className="dot"></span>
               <span className="lbl">Prague</span>
             </div>
+          </div>
+          <div className="hero-intel-deck">
+            {fieldNotes.map((note, index) => {
+              const isActive = activeNote === index;
+              return (
+                <button
+                  type="button"
+                  className={`hero-intel ${isActive ? "is-active" : ""}`}
+                  key={note.id}
+                  onClick={() => setActiveNote(index)}
+                  aria-expanded={isActive}
+                  style={{ "--stack-index": index }}
+                >
+                  <span className="hero-intel-head">
+                    <span>FIELD NOTE {note.id}</span>
+                    <span className="hero-intel-live"><span className="live-dot"></span>{note.live}</span>
+                  </span>
+                  <span className="hero-intel-place"><span>{note.city}</span><small>{note.code}</small></span>
+                  <span className="hero-intel-summary">{note.summary}</span>
+                  <span className="hero-intel-detail">{note.detail}</span>
+                  <span className="hero-intel-foot">
+                    <span><i className="hero-risk-dot"></i>{note.risk}</span>
+                    <span>{note.reports}</span>
+                    <b>{note.change}</b>
+                  </span>
+                  <span className="hero-intel-open" aria-hidden="true">{isActive ? "-" : "+"}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

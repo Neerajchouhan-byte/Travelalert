@@ -10,7 +10,7 @@ import Test from "@/components/Test";
 import Cta from "@/components/Cta";
 import Howitwork from "@/components/Howitwork";
 import Pricing from "@/components/Pricing";
-import Stats from "@/components/Stats";
+import SignalOverview from "@/components/SignalOverview";
 import Scamcards from "@/components/Scamcards";
 
 export default function Home() {
@@ -34,7 +34,7 @@ export default function Home() {
       <Marquee />
       <Features />
       <Howitwork />
-      <Stats />
+      <SignalOverview />
       <Scamcards />
       <Pricing />
       <Test />
