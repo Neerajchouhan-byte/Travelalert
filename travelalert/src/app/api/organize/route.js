@@ -16,38 +16,69 @@ function cleanList(arr, n) {
     }));
 }
 
+const GEMINI_MODELS = [
+  process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-2.5-flash",
+];
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function askGemini(key, prompt) {
-  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-  const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/" +
-    model +
-    ":generateContent";
+  let lastErr = "no model tried";
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": key,
-    },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-    }),
-  });
+  for (const model of GEMINI_MODELS) {
+    const url =
+      "https://generativelanguage.googleapis.com/v1beta/models/" +
+      model +
+      ":generateContent";
 
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(
-      model + " " + res.status + " " + (json?.error?.message || "")
-    );
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": key,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (res.status === 503 || res.status === 429) {
+        lastErr = model + " " + res.status + " " + (json?.error?.message || "busy");
+        await sleep(1500 * attempt);
+        continue;
+      }
+
+      if (!res.ok) {
+        lastErr = model + " " + res.status + " " + (json?.error?.message || "");
+        break;
+      }
+
+      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start < 0 || end <= start) {
+        lastErr = model + " returned no JSON";
+        break;
+      }
+
+      try {
+        return JSON.parse(text.slice(start, end + 1));
+      } catch {
+        lastErr = model + " JSON parse failed";
+        break;
+      }
+    }
   }
 
-  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    throw new Error(model + " returned no JSON");
-  }
-  return JSON.parse(text.slice(start, end + 1));
+  throw new Error(lastErr);
 }
 
 export async function POST(request) {
