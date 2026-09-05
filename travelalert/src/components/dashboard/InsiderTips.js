@@ -1,4 +1,5 @@
-import { Lock, Moon, ShieldHalf, Wallet } from "lucide-react";
+import { Lock, ShieldHalf, Wallet } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Panel } from "./Panel";
 
 export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
@@ -10,6 +11,7 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
   }));
   const visible = isPro ? rows : rows.slice(0, 3);
   const locked = isPro ? [] : rows.slice(3);
+
   return (
     <Panel>
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -18,7 +20,9 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
           Insider tips
         </div>
         <span className="font-mono text-[11px] text-[#68686f]">
-          {loading ? "LOADING" : `${city.toUpperCase()} · ${rows.length} TIPS`}
+          {loading
+            ? "LOADING"
+            : `${(city || "").toUpperCase()} · ${rows.length} TIPS`}
         </span>
       </div>
 
@@ -36,7 +40,7 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
         )}
 
         {!loading &&
-          rows.map((t) => (
+          visible.map((t) => (
             <div
               key={t.title}
               className="flex items-start gap-3 border-b border-white/10 px-4 py-3"
@@ -59,15 +63,36 @@ export function InsiderTips({ tips = [], loading, city, plan = "free" }) {
             </div>
           ))}
 
-        <div className="relative flex items-center gap-3 border-t border-white/10 px-4 py-3 opacity-40">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-white/10">
-            <Moon className="size-3.5" />
+        {!loading &&
+          locked.map((t) => (
+            <div
+              key={t.title}
+              className="relative flex items-start gap-3 border-b border-white/10 px-4 py-3"
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-white/10 opacity-40">
+                <Lock className="size-3.5" />
+              </div>
+              <div className="flex-1 select-none blur-[3px]">
+                <div className="text-[13px] font-bold">{t.title}</div>
+                <p className="mt-0.5 text-xs text-[#a6a6ad]">{t.desc}</p>
+              </div>
+              <Lock className="absolute right-4 top-4 size-3.5 text-[#68686f]" />
+            </div>
+          ))}
+
+        {!isPro && locked.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-xs font-semibold text-[#5b9dee]">
+              {locked.length} more tips on Pro
+            </span>
+            <Button
+              size="sm"
+              className="h-7 rounded-full bg-[#5b9dee] text-[#071426]"
+            >
+              Upgrade Pro
+            </Button>
           </div>
-          <p className="flex-1 text-xs text-[#a6a6ad] blur-[2.5px]">
-            More {city} tips unlock on Pro.
-          </p>
-          <Lock className="absolute right-4 size-3.5 text-[#68686f]" />
-        </div>
+        )}
       </div>
     </Panel>
   );

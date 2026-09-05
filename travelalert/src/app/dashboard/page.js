@@ -7,7 +7,6 @@ import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
 import { ScamAlerts } from "@/components/dashboard/ScamAlerts";
 import { InsiderTips } from "@/components/dashboard/InsiderTips";
 import { CurrencyCard } from "@/components/dashboard/CurrencyCard";
-import { ScamRadar } from "@/components/dashboard/ScamRadar";
 import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
@@ -107,13 +106,8 @@ function DashboardContent() {
               plan={plan}
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <CurrencyCard brief={brief} />
-            <ScamRadar
-              city={city}
-              alertCount={alerts.length}
-              tipCount={tips.length}
-            />
             <WeatherCard brief={brief} />
           </div>
           <RecentActivity city={city} alerts={alerts} loading={loading} />
