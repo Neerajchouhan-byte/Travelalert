@@ -11,10 +11,17 @@ import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
+import { useRouter, useSearchParams } from "next/navigation";
 
+async function authHeaders() {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  return token ? { Authorization: "Bearer " + token } : {};
+}
 function DashboardContent() {
   const city = useSearchParams().get("city") || "Bangkok";
-
+  const router = useRouter();
   const [alerts, setAlerts] = useState([]);
   const [tips, setTips] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -23,6 +30,8 @@ function DashboardContent() {
   const [brief, setBrief] = useState(null);
   const [briefCity, setBriefCity] = useState("");
   const [plan, setPlan] = useState("free");
+  const [lockedAlerts, setLockedAlerts] = useState(0);
+  const [lockedTips, setLockedTips] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,31 +42,48 @@ function DashboardContent() {
       setAlerts([]);
       setTips([]);
       setSource("");
+
       try {
+        let headers = {};
+        if (supabase) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
+          if (token) headers = { Authorization: "Bearer " + token };
+        }
+
         const res = await fetch(
           "/api/briefing?city=" + encodeURIComponent(city),
-          { cache: "no-store" },
+          { cache: "no-store", headers },
         );
+
+        if (res.status === 401) {
+          router.replace("/login?city=" + encodeURIComponent(city));
+          return;
+        }
+
         const data = await res.json();
         if (cancelled) return;
 
         setAlerts(data.alerts || []);
         setTips(data.tips || []);
         setSource(data.source || "");
+        setPlan(data.plan || "free");
+        setLockedAlerts(data.lockedAlerts || 0);
+        setLockedTips(data.lockedTips || 0);
 
         if (data.error && !(data.alerts || []).length) {
           setError(data.error);
         }
 
-        if (supabase) {
-          const { data: sessionData } = await supabase.auth.getSession();
-          const token = sessionData?.session?.access_token;
-          if (token) {
-            const me = await fetch("/api/me", {
-              headers: { Authorization: "Bearer " + token },
-            });
-            const meData = await me.json();
-            if (!cancelled) setPlan(meData.plan || "free");
+        const briefRes = await fetch(
+          "/api/city-brief?city=" + encodeURIComponent(city),
+          { cache: "no-store", headers },
+        );
+        if (briefRes.ok) {
+          const briefData = await briefRes.json();
+          if (!cancelled) {
+            setBrief(briefData);
+            setBriefCity(city);
           }
         }
       } catch {
@@ -77,7 +103,7 @@ function DashboardContent() {
     <RequireAuth>
       <>
         <Topbar key={city} city={city} />
-        <div className="space-y-4 p-8 max-md:p-4">
+        <div className="space-y-4 px-4 py-4 sm:p-6 lg:p-8">
           <DestinationHeader
             city={city}
             brief={briefCity === city ? brief : null}
@@ -98,12 +124,18 @@ function DashboardContent() {
           )}
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <ScamAlerts alerts={alerts} loading={loading} plan={plan} />
+            <ScamAlerts
+              alerts={alerts}
+              loading={loading}
+              plan={plan}
+              lockedCount={lockedAlerts}
+            />
             <InsiderTips
               tips={tips}
               loading={loading}
               city={city}
               plan={plan}
+              lockedCount={lockedTips}
             />
           </div>
           <div className="grid gap-4 md:grid-cols-2">

@@ -26,7 +26,9 @@ export function DestinationHeader({ city, brief }) {
         <div className="relative flex items-center gap-4">
           <span className="text-4xl">{d.flag}</span>
           <div>
-            <h1 className="text-[1.45rem] font-bold tracking-tight">{liveName}</h1>
+            <h1 className="text-xl font-bold tracking-tight sm:text-[1.45rem]">
+              {liveName}
+            </h1>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#a6a6ad]">
               {d.region !== "Unknown" ? d.region : brief?.country || "—"}
               <span className="size-0.5 rounded-full bg-[#68686f]" />
@@ -42,9 +44,11 @@ export function DestinationHeader({ city, brief }) {
           {stats.map((s) => (
             <div
               key={s.label}
-              className="min-w-[82px] rounded-lg border border-white/10 bg-[#141418] px-4 py-2.5 text-center"
+              className="min-w-[72px] flex-1 rounded-lg border border-white/10 bg-[#141418] px-3 py-2 text-center sm:min-w-[82px] sm:px-4 sm:py-2.5"
             >
-              <div className={`font-mono text-xl font-bold ${s.color}`}>{s.value}</div>
+              <div className={`font-mono text-lg font-bold sm:text-xl ${s.color}`}>
+                {s.value}
+              </div>
               <div className="text-[10px] font-semibold uppercase tracking-wide text-[#68686f]">
                 {s.label}
               </div>

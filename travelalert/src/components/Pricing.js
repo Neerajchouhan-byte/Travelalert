@@ -6,10 +6,10 @@ import { checkoutUrl } from "@/lib/checkout";
 
 export default function Pricing() {
   const [proHref, setProHref] = useState(
-    process.env.NEXT_PUBLIC_CHECKOUT_PRO || "/login"
+    process.env.NEXT_PUBLIC_CHECKOUT_PRO || "/login",
   );
   const [lifeHref, setLifeHref] = useState(
-    process.env.NEXT_PUBLIC_CHECKOUT_LIFE || "/login"
+    process.env.NEXT_PUBLIC_CHECKOUT_LIFE || "/login",
   );
 
   useEffect(() => {
@@ -32,7 +32,11 @@ export default function Pricing() {
       <div className="container">
         <div
           className="sec-head reveal"
-          style={{ marginLeft: "auto", marginRight: "auto", textAlign: "center" }}
+          style={{
+            marginLeft: "auto",
+            marginRight: "auto",
+            textAlign: "center",
+          }}
         >
           <span className="eyebrow">Simple pricing</span>
           <h2>Less than one coffee.</h2>
@@ -49,22 +53,21 @@ export default function Pricing() {
               <span className="amt">$0</span>
               <span className="per">/month</span>
             </div>
-            <p className="p-desc">Try it before your next trip. No card required.</p>
+            <p className="p-desc">
+              Try it before your next trip. No card required.
+            </p>
             <ul className="p-feats">
+              {/* Explorer */}
               <li>
-                <i className="fa-solid fa-check"></i>3 destination searches / month
+                <i className="fa-solid fa-check"></i>3 destination searches /
+                month
               </li>
               <li>
-                <i className="fa-solid fa-check"></i>2 scam alerts per destination
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Basic food and transport tips
+                <i className="fa-solid fa-check"></i>2 scam alerts + 3 tips per
+                city
               </li>
               <li className="locked">
-                <i className="fa-solid fa-xmark"></i>Full alerts library
-              </li>
-              <li className="locked">
-                <i className="fa-solid fa-xmark"></i>Offline access
+                <i className="fa-solid fa-xmark"></i>Full alert library
               </li>
             </ul>
             <a href="/login" className="btn-ghost btn-block">
@@ -83,20 +86,20 @@ export default function Pricing() {
               Less than one street food meal. Protects the whole trip.
             </p>
             <ul className="p-feats">
+              {/* Pro */}
               <li>
                 <i className="fa-solid fa-check"></i>Unlimited destinations
               </li>
               <li>
-                <i className="fa-solid fa-check"></i>All scam alerts, updated daily
+                <i className="fa-solid fa-check"></i>All scam alerts, refreshed
+                daily
               </li>
               <li>
-                <i className="fa-solid fa-check"></i>Full tips library, every category
+                <i className="fa-solid fa-check"></i>Full tips library
               </li>
               <li>
-                <i className="fa-solid fa-check"></i>Offline destination guides
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Pre-trip email 3 days out
+                <i className="fa-solid fa-check"></i>Live weather and currency
+                for the city
               </li>
             </ul>
             <a
@@ -129,7 +132,8 @@ export default function Pricing() {
                 <i className="fa-solid fa-check"></i>Priority support
               </li>
               <li>
-                <i className="fa-solid fa-check"></i>Monthly intelligence reports
+                <i className="fa-solid fa-check"></i>Monthly intelligence
+                reports
               </li>
             </ul>
             <a href={lifeHref} className="btn-ghost btn-block">

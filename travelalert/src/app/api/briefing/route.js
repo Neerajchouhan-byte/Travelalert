@@ -1,54 +1,99 @@
 import { getFreshCache, saveCache } from "@/lib/cache";
+import { organizeCity } from "@/lib/organize";
+import { normalizeCity } from "@/lib/city";
+import { getRequestProfile, sliceForPlan, isPaid } from "@/lib/auth-server";
+import { adminDb } from "@/lib/supabase-admin";
+
 export const maxDuration = 60;
 
-export async function GET(request) {
-  const url = new URL(request.url);
-  const city = (url.searchParams.get("city") || "").trim();
+function monthKey() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
-  if (city.length < 2) {
+export async function GET(request) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) {
+    return Response.json({ error: "sign in required" }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const city = normalizeCity(url.searchParams.get("city") || "");
+  if (!city) {
     return Response.json(
-      { error: "city required", alerts: [], tips: [] },
+      { error: "valid city required", alerts: [], tips: [] },
       { status: 400 }
     );
   }
 
+  const month = monthKey();
+  let count = profile.search_count || 0;
+  if (profile.search_month !== month) count = 0;
+
+  if (!isPaid(profile.plan) && count >= 3) {
+    return Response.json(
+      {
+        error: "Free plan allows 3 destination searches per month. Upgrade for unlimited.",
+        city,
+        alerts: [],
+        tips: [],
+        plan: profile.plan,
+        searchesLeft: 0,
+      },
+      { status: 402 }
+    );
+  }
+
+  let payload;
   const cached = await getFreshCache(city);
   if (
     cached &&
-    (cached.alerts || []).length >= 12 &&
-    (cached.tips || []).length >= 10
+    (cached.alerts || []).length >= 8 &&
+    (cached.tips || []).length >= 6
   ) {
-    return Response.json({
+    payload = {
       city,
       alerts: cached.alerts,
       tips: cached.tips,
       source: "cache",
       fetchedAt: cached.fetchedAt || null,
-    });
+    };
+  } else {
+    const org = await organizeCity(city);
+    payload = {
+      city,
+      alerts: org.alerts || [],
+      tips: org.tips || [],
+      source: org.source || "live",
+      fetchedAt: new Date().toISOString(),
+      error: org.error,
+    };
+    if (payload.alerts.length >= 8 && payload.tips.length >= 6) {
+      await saveCache(city, payload);
+    }
   }
 
-  const orgRes = await fetch(url.origin + "/api/organize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ city, posts: [] }),
-    cache: "no-store",
-  });
-  const orgData = await orgRes.json();
+  await adminDb()
+    .from("profiles")
+    .update({
+      search_count: count + 1,
+      search_month: month,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", profile.user.id);
 
-  const payload = {
-    city,
-    alerts: orgData.alerts || [],
-    tips: orgData.tips || [],
-    fetchedAt: new Date().toISOString(),
-  };
-
-  if (payload.alerts.length >= 12 && payload.tips.length >= 10) {
-    await saveCache(city, payload);
-  }
+  const sliced = sliceForPlan(profile.plan, payload.alerts, payload.tips);
 
   return Response.json({
-    ...payload,
-    source: orgData.source || "live",
-    error: orgData.error,
+    city: payload.city,
+    alerts: sliced.alerts,
+    tips: sliced.tips,
+    lockedAlerts: sliced.lockedAlerts,
+    lockedTips: sliced.lockedTips,
+    source: payload.source,
+    fetchedAt: payload.fetchedAt,
+    error: payload.error,
+    plan: profile.plan,
+    searchesLeft: isPaid(profile.plan) ? null : Math.max(0, 3 - (count + 1)),
   });
 }

@@ -1,21 +1,74 @@
 "use client";
-import { ensureFreeProfile } from "@/lib/profile";
-import { Suspense, useState } from "react";
+
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { ensureFreeProfile } from "@/lib/profile";
+
+function GoogleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#EA4335" d="M12 10.2v3.6h5.1c-.2 1.2-1.5 3.6-5.1 3.6-3.1 0-5.6-2.5-5.6-5.6S8.9 6.2 12 6.2c1.7 0 2.9.7 3.5 1.3l2.4-2.3C16.4 3.7 14.4 2.8 12 2.8 6.9 2.8 2.8 6.9 2.8 12S6.9 21.2 12 21.2c5.2 0 8.6-3.6 8.6-8.7 0-.6-.1-1-.2-1.5H12z" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M18.9 2H22l-6.8 7.8L23 22h-6.3l-4.9-6.4L6.2 22H3.1l7.3-8.3L1 2h6.5l4.4 5.8L18.9 2zm-1.1 18h1.7L6.3 3.9H4.5L17.8 20z"
+      />
+    </svg>
+  );
+}
 
 function LoginContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "";
   const router = useRouter();
 
-  const [mode, setMode] = useState("signup"); // "signup" | "login"
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const afterLogin = useMemo(() => {
+    return city
+      ? "/dashboard?city=" + encodeURIComponent(city)
+      : "/dashboard";
+  }, [city]);
+
+  function oauthRedirect() {
+    const origin = window.location.origin;
+    const next = city
+      ? `/auth/callback?city=${encodeURIComponent(city)}`
+      : "/auth/callback";
+    return origin + next;
+  }
+
+  async function handleOAuth(provider) {
+    setError("");
+    setMessage("");
+    if (!supabase) {
+      setError("Authentication is not configured yet.");
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: oauthRedirect(),
+      },
+    });
+    if (error) {
+      setError(error.message);
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -25,9 +78,7 @@ function LoginContent() {
 
     try {
       if (!supabase) {
-        setError(
-          "Authentication is not configured yet. Add your Supabase environment variables.",
-        );
+        setError("Authentication is not configured yet.");
         setBusy(false);
         return;
       }
@@ -42,9 +93,8 @@ function LoginContent() {
           setBusy(false);
           return;
         }
-        // If email confirmation is ON in Supabase, user must confirm first
         if (data?.user && !data.session) {
-          setMessage("Check your email to confirm your account, then log in.");
+          setMessage("Check your email to confirm your account, then sign in.");
           setBusy(false);
           return;
         }
@@ -59,196 +109,133 @@ function LoginContent() {
           return;
         }
       }
-      await ensureFreeProfile(supabase);
 
-      const next = city
-        ? "/dashboard?city=" + encodeURIComponent(city)
-        : "/dashboard";
-      router.push(next);
+      await ensureFreeProfile(supabase);
+      router.push(afterLogin);
     } catch (err) {
       setError(err.message || "Something went wrong");
       setBusy(false);
     }
   }
 
+  async function handleReset() {
+    setError("");
+    setMessage("");
+    if (!supabase) {
+      setError("Authentication is not configured yet.");
+      return;
+    }
+    if (!email.trim()) {
+      setError("Enter your email first.");
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin + "/login",
+    });
+    setBusy(false);
+    if (error) setError(error.message);
+    else setMessage("Check your email for the reset link.");
+  }
+
+  const isSignup = mode === "signup";
+
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#060810",
-        color: "#e2e8f0",
-        display: "grid",
-        placeItems: "center",
-        padding: "1.5rem",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: "28rem",
-          borderRadius: "20px",
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(255,255,255,0.04)",
-          padding: "2rem",
-        }}
-      >
-        <Link href="/" style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-          ← Back
-        </Link>
-
-        <h1
-          style={{
-            marginTop: "1rem",
-            fontSize: "1.75rem",
-            fontWeight: 800,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {mode === "signup" ? "Create account" : "Sign in"}
+    <main className="flex min-h-svh items-center justify-center bg-[#07070a] px-4 py-8 text-[#f3f3f2]">
+      <div className="w-full max-w-[420px]">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#e5484a]">
+          {isSignup ? "Create account" : "Welcome back"}
+        </p>
+        <h1 className="mt-2 text-[1.85rem] font-bold leading-tight tracking-tight sm:text-[2rem]">
+          {isSignup ? "Create your briefing account." : "Sign in to your briefing."}
         </h1>
-
-        <p
-          style={{ marginTop: "0.5rem", color: "#94a3b8", fontSize: "0.95rem" }}
-        >
+        <p className="mt-2 text-sm text-[#9a9aa3]">
           {city
-            ? `City waiting: ${city}`
-            : "Start free. Scan destinations in seconds."}
+            ? `We'll open ${city} after you sign in.`
+            : "Search a city after you sign in."}
         </p>
 
-        <form onSubmit={handleSubmit} style={{ marginTop: "1.75rem" }}>
-          <label
-            style={{
-              display: "block",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "#94a3b8",
-              marginBottom: "0.35rem",
-            }}
+        <div className="mt-7 space-y-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => handleOAuth("google")}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-transparent text-sm font-semibold text-[#f3f3f2] transition hover:bg-white/[0.04] disabled:opacity-60"
           >
-            Email
-          </label>
+            <GoogleIcon />
+            Continue with Google
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => handleOAuth("twitter")}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-transparent text-sm font-semibold text-[#f3f3f2] transition hover:bg-white/[0.04] disabled:opacity-60"
+          >
+            <XIcon />
+            Continue with X
+          </button>
+        </div>
+
+        <div className="my-6 flex items-center gap-3">
+          <div className="h-px flex-1 bg-white/10" />
+          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#6f6f78]">
+            Or email
+          </span>
+          <div className="h-px flex-1 bg-white/10" />
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
           <input
             type="email"
             required
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@email.com"
-            style={{
-              width: "100%",
-              borderRadius: "50px",
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.06)",
-              color: "#e2e8f0",
-              padding: "0.85rem 1.2rem",
-              marginBottom: "1rem",
-              outline: "none",
-              fontFamily: "inherit",
-              fontSize: "0.9rem",
-            }}
+            placeholder="Email"
+            className="h-12 w-full rounded-full border border-white/12 bg-white/[0.04] px-5 text-sm text-[#f3f3f2] outline-none placeholder:text-[#6f6f78] focus:border-white/30"
           />
-
-          <label
-            style={{
-              display: "block",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "#94a3b8",
-              marginBottom: "0.35rem",
-            }}
-          >
-            Password
-          </label>
           <input
             type="password"
             required
             minLength={8}
+            autoComplete={isSignup ? "new-password" : "current-password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            style={{
-              width: "100%",
-              borderRadius: "50px",
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.06)",
-              color: "#e2e8f0",
-              padding: "0.85rem 1.2rem",
-              marginBottom: "1rem",
-              outline: "none",
-              fontFamily: "inherit",
-              fontSize: "0.9rem",
-            }}
+            placeholder="Password · 8+ characters"
+            className="h-12 w-full rounded-full border border-white/12 bg-white/[0.04] px-5 text-sm text-[#f3f3f2] outline-none placeholder:text-[#6f6f78] focus:border-white/30"
           />
 
-          {error && (
-            <p
-              style={{
-                color: "#fda4af",
-                fontSize: "0.85rem",
-                marginBottom: "0.75rem",
-              }}
-            >
-              {error}
-            </p>
-          )}
-          {message && (
-            <p
-              style={{
-                color: "#6ee7b7",
-                fontSize: "0.85rem",
-                marginBottom: "0.75rem",
-              }}
-            >
-              {message}
-            </p>
-          )}
+          {error && <p className="px-1 text-sm text-[#fda4af]">{error}</p>}
+          {message && <p className="px-1 text-sm text-emerald-300">{message}</p>}
 
           <button
             type="submit"
             disabled={busy}
-            style={{
-              width: "100%",
-              borderRadius: "50px",
-              border: "none",
-              padding: "0.9rem 1.5rem",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              cursor: busy ? "not-allowed" : "pointer",
-              opacity: busy ? 0.6 : 1,
-              background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-              color: "white",
-              fontFamily: "inherit",
-            }}
+            className="flex h-12 w-full items-center justify-center rounded-full bg-[#f3f3f2] text-sm font-semibold text-[#111] transition hover:bg-white disabled:opacity-60"
           >
-            {busy
-              ? "Working..."
-              : mode === "signup"
-                ? "Sign up free"
-                : "Log in"}
+            {busy ? "Working..." : isSignup ? "Create account" : "Sign in"}
           </button>
         </form>
 
         <button
           type="button"
+          onClick={handleReset}
+          disabled={busy}
+          className="mt-3 flex h-10 w-full items-center justify-center text-sm text-[#9a9aa3] hover:text-white"
+        >
+          Forgot password?
+        </button>
+
+        <button
+          type="button"
           onClick={() => {
-            setMode(mode === "signup" ? "login" : "signup");
+            setMode(isSignup ? "login" : "signup");
             setError("");
             setMessage("");
           }}
-          style={{
-            marginTop: "1.25rem",
-            background: "none",
-            border: "none",
-            color: "#94a3b8",
-            fontSize: "0.85rem",
-            cursor: "pointer",
-            fontFamily: "inherit",
-            width: "100%",
-            textAlign: "center",
-          }}
+          className="mt-1 flex h-10 w-full items-center justify-center text-sm text-[#9a9aa3] hover:text-white"
         >
-          {mode === "signup"
-            ? "Already have an account? Log in"
-            : "New here? Create account"}
+          {isSignup ? "Already have an account? Sign in" : "New here? Create an account"}
         </button>
       </div>
     </main>
@@ -259,29 +246,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main
-          style={{
-            minHeight: "100vh",
-            background: "#060810",
-            color: "#e2e8f0",
-            display: "grid",
-            placeItems: "center",
-            padding: "1.5rem",
-          }}
-        >
-          <div
-            style={{
-              width: "100%",
-              maxWidth: "28rem",
-              borderRadius: "20px",
-              border: "1px solid rgba(255,255,255,0.08)",
-              background: "rgba(255,255,255,0.04)",
-              padding: "2rem",
-              textAlign: "center",
-            }}
-          >
-            Loading...
-          </div>
+        <main className="grid min-h-svh place-items-center bg-[#07070a] text-[#9a9aa3]">
+          Loading...
         </main>
       }
     >
