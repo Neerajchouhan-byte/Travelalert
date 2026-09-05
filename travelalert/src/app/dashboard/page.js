@@ -20,48 +20,45 @@ function DashboardContent() {
   const [tips, setTips] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [source, setSource] = useState("");
+  const [brief, setBrief] = useState(null);
+
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
       setLoading(true);
       setError("");
       setAlerts([]);
       setTips([]);
+      setSource("");
       try {
-        const redditRes = await fetch(
-          "/api/reddit?city=" + encodeURIComponent(city),
+        const res = await fetch(
+          "/api/briefing?city=" + encodeURIComponent(city),
+          { cache: "no-store" }
         );
-        const redditData = await redditRes.json();
+        const data = await res.json();
+        if (cancelled) return;
 
-        const orgRes = await fetch("/api/organize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            city,
-            posts: redditData.posts || [],
-          }),
-        });
-        const orgData = await orgRes.json();
+        setAlerts(data.alerts || []);
+        setTips(data.tips || []);
+        setSource(data.source || "");
 
-        const all = orgData.alerts || [];
-        setAlerts(all.filter((a) => a.severity !== "tip"));
-        setTips(
-          orgData.tips?.length
-            ? orgData.tips
-            : all.filter((a) => a.severity === "tip"),
-        );
-
-        if (orgData.error && all.length === 0) setError(orgData.error);
+        if (data.error && !(data.alerts || []).length) {
+          setError(data.error);
+        }
       } catch {
-        setError("Could not load this destination");
+        if (!cancelled) setError("Could not load this destination");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [city]);
-
-  const [brief, setBrief] = useState(null);
 
   useEffect(() => {
     let on = true;
@@ -73,12 +70,21 @@ function DashboardContent() {
       on = false;
     };
   }, [city]);
+
   return (
     <RequireAuth>
       <>
         <Topbar city={city} />
         <div className="space-y-4 p-8 max-md:p-4">
           <DestinationHeader city={city} brief={brief} />
+
+          {source && (
+            <p className="text-xs text-[#a6a6ad]">
+              {source === "cache"
+                ? "Served from cache (under 24 hours)"
+                : "Fresh scan"}
+            </p>
+          )}
 
           {error && (
             <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -92,10 +98,14 @@ function DashboardContent() {
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <CurrencyCard brief={brief} />
-            <ScamRadar city={city} alertCount={alerts.length} tipCount={tips.length} />
+            <ScamRadar
+              city={city}
+              alertCount={alerts.length}
+              tipCount={tips.length}
+            />
             <WeatherCard brief={brief} />
           </div>
-        <RecentActivity city={city} alerts={alerts} loading={loading} />
+          <RecentActivity city={city} alerts={alerts} loading={loading} />
           <DestinationChips active={city} />
         </div>
       </>

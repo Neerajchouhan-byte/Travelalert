@@ -1,5 +1,5 @@
 "use client";
-
+import { ensureFreeProfile } from "@/lib/profile";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -25,7 +25,9 @@ function LoginContent() {
 
     try {
       if (!supabase) {
-        setError("Authentication is not configured yet. Add your Supabase environment variables.");
+        setError(
+          "Authentication is not configured yet. Add your Supabase environment variables.",
+        );
         setBusy(false);
         return;
       }
@@ -57,6 +59,7 @@ function LoginContent() {
           return;
         }
       }
+      await ensureFreeProfile(supabase);
 
       const next = city
         ? "/dashboard?city=" + encodeURIComponent(city)
@@ -104,7 +107,9 @@ function LoginContent() {
           {mode === "signup" ? "Create account" : "Sign in"}
         </h1>
 
-        <p style={{ marginTop: "0.5rem", color: "#94a3b8", fontSize: "0.95rem" }}>
+        <p
+          style={{ marginTop: "0.5rem", color: "#94a3b8", fontSize: "0.95rem" }}
+        >
           {city
             ? `City waiting: ${city}`
             : "Start free. Scan destinations in seconds."}
@@ -175,12 +180,24 @@ function LoginContent() {
           />
 
           {error && (
-            <p style={{ color: "#fda4af", fontSize: "0.85rem", marginBottom: "0.75rem" }}>
+            <p
+              style={{
+                color: "#fda4af",
+                fontSize: "0.85rem",
+                marginBottom: "0.75rem",
+              }}
+            >
               {error}
             </p>
           )}
           {message && (
-            <p style={{ color: "#6ee7b7", fontSize: "0.85rem", marginBottom: "0.75rem" }}>
+            <p
+              style={{
+                color: "#6ee7b7",
+                fontSize: "0.85rem",
+                marginBottom: "0.75rem",
+              }}
+            >
               {message}
             </p>
           )}
