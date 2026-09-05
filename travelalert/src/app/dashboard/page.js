@@ -22,6 +22,7 @@ function DashboardContent() {
   const [error, setError] = useState("");
   const [source, setSource] = useState("");
   const [brief, setBrief] = useState(null);
+  const [briefCity, setBriefCity] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -62,10 +63,13 @@ function DashboardContent() {
 
   useEffect(() => {
     let on = true;
-    setBrief(null);
     fetch("/api/city-brief?city=" + encodeURIComponent(city))
       .then((r) => r.json())
-      .then((d) => on && setBrief(d));
+      .then((d) => {
+        if (!on) return;
+        setBrief(d);
+        setBriefCity(city);
+      });
     return () => {
       on = false;
     };
@@ -76,7 +80,10 @@ function DashboardContent() {
       <>
         <Topbar key={city} city={city} />
         <div className="space-y-4 p-8 max-md:p-4">
-          <DestinationHeader city={city} brief={brief} />
+          <DestinationHeader
+            city={city}
+            brief={briefCity === city ? brief : null}
+          />
 
           {source && (
             <p className="text-xs text-[#a6a6ad]">

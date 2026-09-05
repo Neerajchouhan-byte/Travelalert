@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowLeft, LogOut, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -81,8 +82,12 @@ function ProfileContent() {
 
 export default function ProfilePage() {
   return (
-    <RequireAuth>
-      <ProfileContent />
-    </RequireAuth>
+    <Suspense
+      fallback={<div className="min-h-svh bg-[#0a0a0c] p-8 text-[#a6a6ad]">Checking session...</div>}
+    >
+      <RequireAuth>
+        <ProfileContent />
+      </RequireAuth>
+    </Suspense>
   );
 }
