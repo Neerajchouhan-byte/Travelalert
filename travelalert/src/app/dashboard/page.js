@@ -1,5 +1,5 @@
 "use client";
-
+import { supabase } from "@/lib/supabase";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Topbar } from "@/components/dashboard/Topbar";
@@ -23,6 +23,7 @@ function DashboardContent() {
   const [source, setSource] = useState("");
   const [brief, setBrief] = useState(null);
   const [briefCity, setBriefCity] = useState("");
+  const [plan, setPlan] = useState("free");
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +37,7 @@ function DashboardContent() {
       try {
         const res = await fetch(
           "/api/briefing?city=" + encodeURIComponent(city),
-          { cache: "no-store" }
+          { cache: "no-store" },
         );
         const data = await res.json();
         if (cancelled) return;
@@ -48,6 +49,18 @@ function DashboardContent() {
         if (data.error && !(data.alerts || []).length) {
           setError(data.error);
         }
+
+        if (supabase) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
+          if (token) {
+            const me = await fetch("/api/me", {
+              headers: { Authorization: "Bearer " + token },
+            });
+            const meData = await me.json();
+            if (!cancelled) setPlan(meData.plan || "free");
+          }
+        }
       } catch {
         if (!cancelled) setError("Could not load this destination");
       } finally {
@@ -58,20 +71,6 @@ function DashboardContent() {
     load();
     return () => {
       cancelled = true;
-    };
-  }, [city]);
-
-  useEffect(() => {
-    let on = true;
-    fetch("/api/city-brief?city=" + encodeURIComponent(city))
-      .then((r) => r.json())
-      .then((d) => {
-        if (!on) return;
-        setBrief(d);
-        setBriefCity(city);
-      });
-    return () => {
-      on = false;
     };
   }, [city]);
 
@@ -100,8 +99,13 @@ function DashboardContent() {
           )}
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <ScamAlerts alerts={alerts} loading={loading} />
-            <InsiderTips tips={tips} loading={loading} city={city} />
+            <ScamAlerts alerts={alerts} loading={loading} plan={plan} />
+            <InsiderTips
+              tips={tips}
+              loading={loading}
+              city={city}
+              plan={plan}
+            />
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <CurrencyCard brief={brief} />

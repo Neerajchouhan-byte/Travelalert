@@ -17,9 +17,10 @@ const badges = {
   low: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]",
 };
 
-export function ScamAlerts({ alerts = [], loading }) {
-  const visible = alerts.slice(0, 2);
-  const lockedCount = Math.max(0, alerts.length - 2);
+export function ScamAlerts({ alerts = [], loading, plan = "free" }) {
+  const isPro = plan === "pro" || plan === "lifetime";
+  const visible = isPro ? alerts : alerts.slice(0, 2);
+  const lockedCount = isPro ? 0 : Math.max(0, alerts.length - 2);
 
   return (
     <Panel>
@@ -75,17 +76,19 @@ export function ScamAlerts({ alerts = [], loading }) {
           </>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5">
-          <span className="text-xs font-semibold text-[#5b9dee]">
-            Unlock full alerts
-          </span>
-          <Button
-            size="sm"
-            className="h-7 rounded-full bg-[#5b9dee] text-[#071426] hover:bg-[#5b9dee]/90"
-          >
-            Upgrade Pro <ArrowRight className="size-3" />
-          </Button>
-        </div>
+        {!isPro && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5">
+            <span className="text-xs font-semibold text-[#5b9dee]">
+              Unlock full alerts
+            </span>
+            <Button
+              size="sm"
+              className="h-7 rounded-full bg-[#5b9dee] text-[#071426] hover:bg-[#5b9dee]/90"
+            >
+              Upgrade Pro <ArrowRight className="size-3" />
+            </Button>
+          </div>
+        )}
       </div>
     </Panel>
   );
