@@ -6,7 +6,9 @@ export function InsiderTips({ tips = [], loading, city }) {
     title: t.name || t.title,
     desc: t.description || t.desc,
     saving: t.avoid || t.saving,
-  })).slice(0, 3);
+  }));
+  const visible = rows.slice(0, 3);
+  const locked = rows.slice(3);
   return (
     <Panel>
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">

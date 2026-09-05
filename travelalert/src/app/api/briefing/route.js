@@ -1,4 +1,5 @@
 import { getFreshCache, saveCache } from "@/lib/cache";
+export const maxDuration = 60;
 
 export async function GET(request) {
   const url = new URL(request.url);

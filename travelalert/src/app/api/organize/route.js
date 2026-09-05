@@ -1,5 +1,7 @@
 import { fetchLivePosts } from "@/lib/live-posts";
 
+export const maxDuration = 60;
+
 function cleanList(arr, n) {
   return (arr || [])
     .filter((x) => x && (x.name || x.title))
@@ -13,59 +15,53 @@ function cleanList(arr, n) {
       avoid: String(x.avoid || x.saving || ""),
     }));
 }
-const GEMINI_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-3.5-flash",
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-];
 
 async function askGemini(key, prompt) {
-  let lastErr = "no model tried";
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/" +
+    model +
+    ":generateContent";
 
-  for (const model of GEMINI_MODELS) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": key,
+    },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+    }),
+  });
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": key,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    });
-
-    const json = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      lastErr = `${model} ${res.status} ${json?.error?.message || ""}`;
-      continue;
-    }
-
-    const text =
-      json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start < 0 || end <= start) {
-      lastErr = `${model} returned no JSON`;
-      continue;
-    }
-
-    try {
-      return JSON.parse(text.slice(start, end + 1));
-    } catch {
-      lastErr = `${model} JSON parse failed`;
-    }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      model + " " + res.status + " " + (json?.error?.message || "")
+    );
   }
 
-  throw new Error(lastErr);
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    throw new Error(model + " returned no JSON");
+  }
+  return JSON.parse(text.slice(start, end + 1));
 }
 
 export async function POST(request) {
-  const { city = "", posts: inputPosts = [] } = await request.json().catch(() => ({}));
-  let posts = Array.isArray(inputPosts) ? inputPosts : [];
+  const body = await request.json().catch(() => ({}));
+  const city = (body.city || "").trim();
+  let posts = Array.isArray(body.posts) ? body.posts : [];
+
+  if (city.length < 2) {
+    return Response.json(
+      { error: "city required", alerts: [], tips: [] },
+      { status: 400 }
+    );
+  }
+
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
     return Response.json(
@@ -95,9 +91,8 @@ export async function POST(request) {
 
   const prompt = `You are building a live travel-safety briefing for "${city}".
 
-Use:
-1) the traveler posts below (if any)
-2) Google Search for recent "${city} tourist scam", "${city} taxi scam", "${city} ATM", "${city} tourist trap" reports
+Use the traveler posts below if any exist.
+Also use well-known recent tourist risks and tips for ${city}.
 
 Return ONLY JSON (no markdown):
 {
@@ -109,32 +104,17 @@ Hard rules:
 - exactly 12 alerts, severity "high" or "medium"
 - exactly 10 tips
 - every item must be about ${city} only
-- prefer incidents from the last 24 months
 - description = what happens (1-2 sentences)
 - avoid = what the traveler should do
 - do not return empty arrays
 
 Posts:
-${digest || "(no posts — search the web for current traveler reports)"}`;
+${digest || "(no posts)"}`;
 
   try {
     const parsed = await askGemini(key, prompt);
-    let alerts = cleanList(parsed.alerts, 12);
-    let tips = cleanList(parsed.tips, 10);
-
-    if (alerts.length < 12 || tips.length < 10) {
-      const fill = await askGemini(
-        key,
-        `Expand this ${city} briefing to EXACTLY 12 alerts and 10 tips.
-Keep existing items. Add more current ${city} tourist risks and tips from web reports.
-Return ONLY JSON: {"alerts":[...],"tips":[...]}
-
-Current:
-${JSON.stringify({ alerts, tips })}`
-      );
-      alerts = cleanList([...(alerts || []), ...(fill.alerts || [])], 12);
-      tips = cleanList([...(tips || []), ...(fill.tips || [])], 10);
-    }
+    const alerts = cleanList(parsed.alerts, 12);
+    const tips = cleanList(parsed.tips, 10);
 
     return Response.json({
       city,
@@ -144,14 +124,14 @@ ${JSON.stringify({ alerts, tips })}`
       source: posts.length ? "reddit+gemini" : "gemini-search",
     });
   } catch (err) {
-  return Response.json(
-    {
-      city,
-      alerts: [],
-      tips: [],
-      error: err.message || "organize failed",
-    },
-    { status: 500 }
-  );
-}
+    return Response.json(
+      {
+        city,
+        alerts: [],
+        tips: [],
+        error: err.message || "organize failed",
+      },
+      { status: 500 }
+    );
+  }
 }
