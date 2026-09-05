@@ -1,10 +1,21 @@
+import Image from "next/image";
+
 export default function ScamCard(props) {
   const wide = props.wide ? "wide" : "";
   const content = (
     <>
       <div className="s-thumb">
         <span className={`sev ${props.sevClass}`}>{props.badge}</span>
-        <img src={props.image} alt={props.name} />
+        {props.image ? (
+          <Image
+            src={props.image}
+            alt=""
+            fill
+            sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
+          />
+        ) : (
+          <div style={{ height: "100%", background: "var(--surface-inner)" }} />
+        )}
       </div>
       <div className="s-content">
         <div className="s-top-row">

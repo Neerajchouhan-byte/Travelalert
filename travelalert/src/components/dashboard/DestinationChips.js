@@ -14,7 +14,9 @@ export function DestinationChips({ active }) {
           <span className="size-1.5 rounded-full bg-[#5b9dee]" />
           Popular destinations
         </div>
-        <span className="font-mono text-[11px] text-[#68686f]">SORTED BY TRAVELER SEARCHES</span>
+        <span className="hidden font-mono text-[11px] text-[#68686f] sm:inline">
+          POPULAR
+        </span>
       </div>
       <div className="flex flex-wrap gap-2 p-4">
         {cities.map((c) => {

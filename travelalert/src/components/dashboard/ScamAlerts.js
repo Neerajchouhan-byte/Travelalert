@@ -1,3 +1,10 @@
+import { useEffect, useState } from "react";
+import { ShieldHalf } from "lucide-react";
+import { Panel } from "./Panel";
+import { ExpandableCard } from "./ExpandableCard";
+import { supabase } from "@/lib/supabase";
+import { checkoutUrl } from "@/lib/checkout";
+
 export function ScamAlerts({
   alerts = [],
   loading,
@@ -7,7 +14,23 @@ export function ScamAlerts({
   const isPro = plan === "pro" || plan === "lifetime";
   const locked = isPro ? 0 : lockedCount;
 
-  // ... upgrade href effect stays the same ...
+  const [upgradeHref, setUpgradeHref] = useState(
+    process.env.NEXT_PUBLIC_CHECKOUT_PRO || "/login"
+  );
+
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      if (!supabase) return;
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!on || !user) return;
+      setUpgradeHref(checkoutUrl("pro", user.id, user.email));
+    })();
+    return () => {
+      on = false;
+    };
+  }, []);
 
   return (
     <Panel>

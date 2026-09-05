@@ -3,6 +3,21 @@ import { getRequestProfile } from "@/lib/auth-server";
 
 export const maxDuration = 30;
 
+const currencyByCountry = {
+  KH: ["KHR", "Cambodian Riel"],
+  CZ: ["CZK", "Czech Koruna"],
+  ID: ["IDR", "Indonesian Rupiah"],
+  IT: ["EUR", "Euro"],
+  JP: ["JPY", "Japanese Yen"],
+  LK: ["LKR", "Sri Lankan Rupee"],
+  MY: ["MYR", "Malaysian Ringgit"],
+  NP: ["NPR", "Nepalese Rupee"],
+  SG: ["SGD", "Singapore Dollar"],
+  TH: ["THB", "Thai Baht"],
+  VN: ["VND", "Vietnamese Dong"],
+  US: ["USD", "US Dollar"],
+};
+
 export async function GET(request) {
   const profile = await getRequestProfile(request);
   if (!profile.user) {
@@ -30,36 +45,30 @@ export async function GET(request) {
     return Response.json({ error: "city not found" }, { status: 404 });
   }
 
-  let cur = {};
+  let cur = null;
   try {
     const wxRes = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,uv_index`
     );
+    if (!wxRes.ok) throw new Error("weather request failed");
     const wx = await wxRes.json();
-    cur = wx.current || {};
+    cur = wx.current || null;
   } catch {
-    cur = {};
+    cur = null;
   }
 
-  let code = "USD";
-  let currencyName = "US Dollar";
-  try {
-    const cr = await fetch(
-      `https://restcountries.com/v3.1/alpha/${hit.country_code}?fields=currencies`
-    );
-    const cj = await cr.json();
-    const keys = Object.keys(cj?.currencies || {});
-    if (keys[0]) {
-      code = keys[0];
-      currencyName = cj.currencies[code]?.name || code;
-    }
-  } catch {}
+  let code = null;
+  let currencyName = null;
+  const currency = currencyByCountry[hit.country_code];
+  if (currency) [code, currencyName] = currency;
 
   let usd = null;
   let inr = null;
   let eur = null;
   try {
+    if (!code) throw new Error("currency unavailable");
     const rr = await fetch("https://open.er-api.com/v6/latest/USD");
+    if (!rr.ok) throw new Error("exchange-rate request failed");
     const rates = (await rr.json())?.rates || {};
     usd = rates[code] ?? null;
     inr = usd != null && rates.INR ? usd / rates.INR : null;
@@ -67,17 +76,22 @@ export async function GET(request) {
   } catch {}
 
   const weather = {
-    temp: Math.round(cur.temperature_2m ?? 0),
-    feels: Math.round(cur.apparent_temperature ?? 0),
-    humidity: cur.relative_humidity_2m ?? null,
-    uv: cur.uv_index ?? null,
-    code: cur.weather_code ?? 0,
+    temp: cur?.temperature_2m != null ? Math.round(cur.temperature_2m) : null,
+    feels:
+      cur?.apparent_temperature != null
+        ? Math.round(cur.apparent_temperature)
+        : null,
+    humidity: cur?.relative_humidity_2m ?? null,
+    uv: cur?.uv_index ?? null,
+    code: cur?.weather_code ?? null,
   };
 
   let money_avoid = "Skip airport desks — worst spread.";
   let money_best = "Bank ATM. Decline DCC.";
   let weather_headline = weather.code >= 50 ? "Rain likely" : "Pack for the heat";
-  let weather_note = `${weather.temp}°C in ${hit.name} right now.`;
+  let weather_note = weather.temp != null
+    ? `${weather.temp}°C in ${hit.name} right now.`
+    : "Live weather is temporarily unavailable.";
 
   const key = process.env.GEMINI_API_KEY;
   if (key) {

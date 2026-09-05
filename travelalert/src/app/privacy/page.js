@@ -1,7 +1,12 @@
+import Link from "next/link";
+
 export default function PrivacyPage() {
   return (
-    <main className="container" style={{ maxWidth: 720, padding: "80px 20px" }}>
-      <h1>Privacy Policy</h1>
+    <main className="container" style={{ maxWidth: 720, padding: "96px 20px 64px" }}>
+      <Link href="/" style={{ color: "#a6a6ad", fontSize: 14 }}>
+        ← Home
+      </Link>
+      <h1 style={{ marginTop: 16, letterSpacing: "-0.03em" }}>Privacy Policy</h1>
       <p>Last updated: September 5, 2026</p>
       <p>
         TravelRadar (“we”) provides destination safety briefings. This page

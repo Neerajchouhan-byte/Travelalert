@@ -1,6 +1,11 @@
+import Link from "next/link";
+
 export default function TermsPage() {
   return (
-    <main className="container" style={{ maxWidth: 720, padding: "80px 20px" }}>
+    <main className="container" style={{ maxWidth: 720, padding: "96px 20px 64px" }}>
+      <Link href="/" style={{ color: "#a6a6ad", fontSize: 14 }}>
+        ← Home
+      </Link>
       <h1>Terms of Use</h1>
       <p>Last updated: September 5, 2026</p>
       <p>

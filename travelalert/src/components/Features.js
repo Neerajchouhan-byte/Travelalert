@@ -14,9 +14,9 @@ export default function Features() {
             <p className="b-desc">Real-time warnings on taxi overcharging, fake tours, rigged ATMs, and counterfeit tickets. Pulled fresh from Reddit every day.</p>
           </div>
           <div className="b-card reveal" style={{ '--i': 1 }}>
-            <div className="b-icon"><i className="fa-solid fa-bed"></i></div>
-            <div className="b-title">Accommodation intel</div>
-            <p className="b-desc">Which areas to stay, hidden fees to watch, and how to spot fake listings before you book.</p>
+            <div className="b-icon"><i className="fa-solid fa-cloud-sun"></i></div>
+            <div className="b-title">Weather on the ground</div>
+            <p className="b-desc">Current temperature, UV, and a short note on what to wear the day you land.</p>
           </div>
           <div className="b-card reveal" style={{ '--i': 2 }}>
             <div className="b-icon"><i className="fa-solid fa-bowl-food"></i></div>
@@ -29,14 +29,9 @@ export default function Features() {
             <p className="b-desc">Fair prices, legit apps, and which transport scams to watch for, city by city.</p>
           </div>
           <div className="b-card reveal" style={{ '--i': 4 }}>
-            <div className="b-icon"><i className="fa-solid fa-money-bill-transfer"></i></div>
-            <div className="b-title">Money &amp; currency</div>
-            <p className="b-desc">Where to exchange, which ATMs to trust, and how to avoid losing 20% on every transaction.</p>
-          </div>
-          <div className="b-card reveal" style={{ '--i': 5 }}>
-            <div className="b-icon"><i className="fa-solid fa-earth-asia"></i></div>
-            <div className="b-title">Destination deep dives</div>
-            <p className="b-desc">Guides for 180+ cities: safety zones, seasonal tips, and local tricks only regulars know.</p>
+            <div className="b-icon"><i className="fa-solid fa-coins"></i></div>
+            <div className="b-title">Live currency check</div>
+            <p className="b-desc">Local rate vs USD plus ATM and DCC advice so you do not lose a silent cut at the airport desk.</p>
           </div>
         </div>
       </div>

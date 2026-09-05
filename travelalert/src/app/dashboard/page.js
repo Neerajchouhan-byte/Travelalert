@@ -1,7 +1,7 @@
 "use client";
 import { supabase } from "@/lib/supabase";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
 import { ScamAlerts } from "@/components/dashboard/ScamAlerts";
@@ -13,12 +13,6 @@ import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import { useRouter, useSearchParams } from "next/navigation";
 
-async function authHeaders() {
-  if (!supabase) return {};
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token;
-  return token ? { Authorization: "Bearer " + token } : {};
-}
 function DashboardContent() {
   const city = useSearchParams().get("city") || "Bangkok";
   const router = useRouter();
@@ -97,16 +91,17 @@ function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [city]);
+  }, [city, router]);
 
   return (
     <RequireAuth>
       <>
         <Topbar key={city} city={city} />
-        <div className="space-y-4 px-4 py-4 sm:p-6 lg:p-8">
+        <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-4 sm:p-6 lg:p-8">
           <DestinationHeader
             city={city}
             brief={briefCity === city ? brief : null}
+            alertCount={(alerts?.length || 0) + (lockedAlerts || 0)}
           />
 
           {source && (
@@ -114,6 +109,13 @@ function DashboardContent() {
               {source === "cache"
                 ? "Served from cache (under 24 hours)"
                 : "Fresh scan"}
+              {" · "}
+              <Link
+                href="/disclaimer"
+                className="underline decoration-white/20 hover:text-white"
+              >
+                AI-generated. Not legal advice.
+              </Link>
             </p>
           )}
 
@@ -123,7 +125,7 @@ function DashboardContent() {
             </p>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <ScamAlerts
               alerts={alerts}
               loading={loading}

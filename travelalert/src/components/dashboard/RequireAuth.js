@@ -8,11 +8,12 @@ export function RequireAuth({ children }) {
   const router = useRouter();
   const city = useSearchParams().get("city") || "";
   const [ready, setReady] = useState(false);
-  const [configError, setConfigError] = useState("");
+  const [configError] = useState(
+    supabase ? "" : "Authentication is not configured."
+  );
 
   useEffect(() => {
     if (!supabase) {
-      setConfigError("Authentication is not configured.");
       return;
     }
 

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Footer() {
   return (
     <footer>
@@ -5,32 +7,30 @@ export default function Footer() {
         <div className="f-top">
           <div>
             <div className="f-logo">TravelRadar</div>
-            <p className="f-tag">
-              Real-time scam alerts powered by live traveler reports and AI.
-              Updated daily.
-            </p>
+            <p className="f-tag">Know before you go.</p>
           </div>
           <div className="f-nav">
             <div className="f-col">
               <span className="f-col-title">Product</span>
               <a href="#features">Features</a>
               <a href="#pricing">Pricing</a>
+              <Link href="/login">Get started</Link>
             </div>
             <div className="f-col">
               <span className="f-col-title">Company</span>
-              <a href="/disclaimer">About</a>
+              <a href="#how">How it works</a>
+              <Link href="/disclaimer">Disclaimer</Link>
             </div>
             <div className="f-col">
               <span className="f-col-title">Legal</span>
-              <a href="/privacy">Privacy</a>
-              <a href="/terms">Terms</a>
-              <a href="/disclaimer">Disclaimer</a>
+              <Link href="/privacy">Privacy</Link>
+              <Link href="/terms">Terms</Link>
             </div>
           </div>
         </div>
         <div className="f-bottom">
-          <span>© 2026 TravelRadar. Data sourced from public traveler reports.</span>
-          <span>Built to help smart travelers, not to replace common sense.</span>
+          <span>© 2026 TravelRadar</span>
+          <span>Travel smarter.</span>
         </div>
       </div>
     </footer>

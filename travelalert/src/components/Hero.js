@@ -11,7 +11,7 @@ export default function Hero() {
           </span>
           <h1>
             <span>Know before you go.</span>
-            <span className="grad-accent">Not after you're scammed.</span>
+            <span className="grad-accent">Not after you&apos;re scammed.</span>
           </h1>
           <p className="hero-sub">
             The average tourist loses $180 to scams on day one. Real traveler

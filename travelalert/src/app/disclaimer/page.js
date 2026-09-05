@@ -1,6 +1,11 @@
+import Link from "next/link";
+
 export default function DisclaimerPage() {
   return (
-    <main className="container" style={{ maxWidth: 720, padding: "80px 20px" }}>
+    <main className="container" style={{ maxWidth: 720, padding: "96px 20px 64px" }}>
+      <Link href="/" style={{ color: "#a6a6ad", fontSize: 14 }}>
+        ← Home
+      </Link>
       <h1>Disclaimer</h1>
       <p>
         TravelRadar summaries come from public traveler posts and an AI model.

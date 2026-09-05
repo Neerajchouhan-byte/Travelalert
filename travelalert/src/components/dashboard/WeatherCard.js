@@ -5,7 +5,7 @@ import { Panel } from "./Panel";
 
 export function WeatherCard({ brief }) {
   const w = brief?.weather;
-  const rainy = w && w.code >= 50;
+  const rainy = w && [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99].includes(w.code);
 
   return (
     <Panel>
@@ -15,7 +15,7 @@ export function WeatherCard({ brief }) {
         </div>
         <div className="mb-1 flex items-baseline gap-2">
           <span className="font-mono text-[1.7rem] font-bold">
-            {w ? `${w.temp}°C` : "—"}
+            {w?.temp != null ? `${w.temp}°C` : "—"}
           </span>
           {rainy ? (
             <CloudRain className="size-5 text-[#5b9dee]" />
@@ -24,8 +24,8 @@ export function WeatherCard({ brief }) {
           )}
         </div>
         <p className="mb-3 text-xs text-[#a6a6ad]">
-          {w
-            ? `Humidity ${w.humidity}% · Feels like ${w.feels}°C · UV ${w.uv ?? "—"}`
+          {w?.temp != null
+            ? `Humidity ${w.humidity ?? "—"}% · Feels like ${w.feels ?? "—"}°C · UV ${w.uv ?? "—"}`
             : "Loading weather…"}
         </p>
         <div className="rounded-lg border border-[rgba(240,166,61,0.38)] bg-[rgba(240,166,61,0.13)] p-2.5">

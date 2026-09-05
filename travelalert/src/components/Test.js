@@ -8,7 +8,7 @@ export default function Test() {
         <div className="test-grid">
           <div className="t-card feat reveal" style={{ '--i': 0 }}>
             <div className="t-stars">★★★★★</div>
-            <p className="t-q">&ldquo;Checked TravelRadar before Bangkok, avoided the gem shop scam on day one. My friend who didn't use it <b>lost $300 to the exact scam</b> I'd been warned about.&rdquo;</p>
+            <p className="t-q">&ldquo;Checked TravelRadar before Bangkok, avoided the gem shop scam on day one. My friend who didn&apos;t use it <b>lost $300 to the exact scam</b> I&apos;d been warned about.&rdquo;</p>
             <div className="t-auth"><div className="t-av">SK</div><div><div className="t-name">Sarah K.</div><div className="t-trip">Solo trip &middot; Bangkok</div></div></div>
           </div>
           <div className="test-col">
