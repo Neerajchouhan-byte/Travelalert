@@ -15,16 +15,27 @@ import Scamcards from "@/components/Scamcards";
 
 export default function Home() {
   useEffect(() => {
-    const nodes = document.querySelectorAll(".reveal");
-    const revealNodes = Array.from(nodes);
+    // True scroll-triggered reveals: each .reveal element animates in
+    // the first time it enters the viewport, with --i stagger support.
+    const nodes = document.querySelectorAll(".reveal:not(.in)");
 
-    revealNodes.forEach((node, index) => {
-      const delay = node.style.getPropertyValue("--i") ? Number(node.style.getPropertyValue("--i")) * 80 : index * 80;
-      node.style.transitionDelay = `${delay}ms`;
-      requestAnimationFrame(() => {
-        node.classList.add("in");
-      });
-    });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const node = entry.target;
+          const stagger =
+            Number(node.style.getPropertyValue("--i") || 0) * 80;
+          node.style.transitionDelay = `${stagger}ms`;
+          node.classList.add("in");
+          observer.unobserve(node);
+        }
+      },
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
+    );
+
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
   }, []);
 
   return (

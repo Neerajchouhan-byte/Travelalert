@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowRight, Search } from "lucide-react";
+import { cities } from "@/lib/dashboard-data";
 
 export default function SearchBar() {
   const router = useRouter();
@@ -18,16 +20,31 @@ export default function SearchBar() {
   return (
     <div className="hero-search">
       <form onSubmit={handleSubmit} className="search-bar">
-        <i className="fa-solid fa-magnifying-glass"></i>
+        <Search className="size-4 shrink-0 text-[#68686f]" aria-hidden="true" />
         <input
           type="text"
           value={city}
           onChange={(e) => setCity(e.target.value)}
           placeholder="Bangkok, Bali, Rome..."
+          aria-label="Destination to scan"
+          list="landing-cities"
         />
-        <button type="submit" className="btn-primary"><span>Scan now</span><span className="icw"><i className="fa-solid fa-arrow-right" style={{ fontSize: '.72rem' }}></i></span></button>
+        <datalist id="landing-cities">
+          {cities.map((c) => (
+            <option key={c.name} value={c.name} />
+          ))}
+        </datalist>
+        <button type="submit" className="btn-primary">
+          <span>Scan now</span>
+          <span className="icw">
+            <ArrowRight className="size-3" aria-hidden="true" />
+          </span>
+        </button>
       </form>
-      <p className="search-hint">CHECKED TODAY: BANGKOK &middot; BALI &middot; TOKYO &middot; ROME &middot; PRAGUE</p>
+      <p className="search-hint">
+        CHECKED TODAY: BANGKOK &middot; BALI &middot; TOKYO &middot; ROME
+        &middot; PRAGUE
+      </p>
     </div>
   );
 }

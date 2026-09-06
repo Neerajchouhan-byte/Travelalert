@@ -3279,3 +3279,111 @@ footer {
     flex-direction: column;
   }
 }
+
+/* ---------- Dashboard live ticker ---------- */
+@keyframes ticker-scroll {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.animate-ticker {
+  animation: ticker-scroll 42s linear infinite;
+  will-change: transform;
+}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker,
+  .marquee-track,
+  .live-dot::after,
+  .radar-sweep,
+  .blip .dot {
+    animation: none !important;
+  }
+}
+
+/* ---------- Landing navbar polish ---------- */
+.nav-island {
+  transition:
+    background 260ms ease,
+    box-shadow 260ms ease,
+    border-color 260ms ease;
+}
+.nav-island.is-scrolled {
+  background: rgba(13, 13, 16, 0.92);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.65);
+}
+.nav-logo i {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+
+/* ?K search trigger pill */
+.nav-search-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+  cursor: pointer;
+}
+.nav-search-trigger:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+.nav-search-trigger kbd {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-faint);
+}
+@media (max-width: 1020px) {
+  .nav-right .nav-search-trigger span {
+    display: none;
+  }
+  .nav-right .nav-search-trigger kbd {
+    display: none;
+  }
+}
+
+/* Animated mobile menu */
+@media (max-width: 860px) {
+  .nav-links.open {
+    animation: navMenuIn 240ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+}
+@keyframes navMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pricing cards: motion hover needs a transform-ready baseline */
+.p-card {
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-links.open {
+    animation: none;
+  }
+}

@@ -1,7 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 
-export async function middleware(request) {
+/**
+ * Next.js 16 "proxy" convention (replaces middleware.js).
+ * Guards /dashboard and /profile — redirects unauthenticated
+ * visitors to /login, preserving the ?city param.
+ */
+export default async function proxy(request) {
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

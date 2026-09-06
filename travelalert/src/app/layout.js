@@ -19,17 +19,12 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html
-  lang="en"
-  data-scroll-behavior="smooth"
-  className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
->
-      <head>
-        <link
-          rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-        />
-      </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      lang="en"
+      data-scroll-behavior="smooth"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      {/* Font Awesome CDN removed — all icons now use local lucide-react */}
+      <body className="flex min-h-full flex-col">{children}</body>
     </html>
   );
 }

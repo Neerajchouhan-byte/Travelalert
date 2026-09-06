@@ -1,8 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { checkoutUrl } from "@/lib/checkout";
+
+function Feat({ children, locked = false }) {
+  return (
+    <li className={locked ? "locked" : undefined}>
+      {locked ? (
+        <X className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : (
+        <Check className="size-3.5 shrink-0" aria-hidden="true" />
+      )}
+      {children}
+    </li>
+  );
+}
 
 export default function Pricing() {
   const [proHref, setProHref] = useState(
@@ -47,7 +62,12 @@ export default function Pricing() {
           months.
         </div>
         <div className="pricing-grid">
-          <div className="p-card reveal" style={{ "--i": 0 }}>
+          <motion.div
+            className="p-card reveal"
+            style={{ "--i": 0 }}
+            whileHover={{ y: -6 }}
+            transition={{ type: "spring", stiffness: 260, damping: 22 }}
+          >
             <span className="p-name">Explorer</span>
             <div className="p-price">
               <span className="amt">$0</span>
@@ -57,25 +77,21 @@ export default function Pricing() {
               Try it before your next trip. No card required.
             </p>
             <ul className="p-feats">
-              {/* Explorer */}
-              <li>
-                <i className="fa-solid fa-check"></i>3 destination searches /
-                month
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>2 scam alerts + 3 tips per
-                city
-              </li>
-              <li className="locked">
-                <i className="fa-solid fa-xmark"></i>Full alert library
-              </li>
+              <Feat>3 destination searches / month</Feat>
+              <Feat>2 scam alerts + 3 tips per city</Feat>
+              <Feat locked>Full alert library</Feat>
             </ul>
             <a href="/login" className="btn-ghost btn-block">
               Start exploring
             </a>
-          </div>
+          </motion.div>
 
-          <div className="p-card pop reveal" style={{ "--i": 1 }}>
+          <motion.div
+            className="p-card pop reveal"
+            style={{ "--i": 1 }}
+            whileHover={{ y: -8, scale: 1.015 }}
+            transition={{ type: "spring", stiffness: 240, damping: 20 }}
+          >
             <span className="pop-badge">Most popular</span>
             <span className="p-name">Traveler Pro</span>
             <div className="p-price">
@@ -86,21 +102,10 @@ export default function Pricing() {
               Less than one street food meal. Protects the whole trip.
             </p>
             <ul className="p-feats">
-              {/* Pro */}
-              <li>
-                <i className="fa-solid fa-check"></i>Unlimited destinations
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>All scam alerts, refreshed
-                daily
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Full tips library
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Live weather and currency
-                for the city
-              </li>
+              <Feat>Unlimited destinations</Feat>
+              <Feat>All scam alerts, refreshed daily</Feat>
+              <Feat>Full tips library</Feat>
+              <Feat>Live weather and currency for the city</Feat>
             </ul>
             <a
               href={proHref}
@@ -110,9 +115,14 @@ export default function Pricing() {
               <span>Upgrade to Pro</span>
             </a>
             <p className="p-note">$9/month · cancel anytime</p>
-          </div>
+          </motion.div>
 
-          <div className="p-card reveal" style={{ "--i": 2 }}>
+          <motion.div
+            className="p-card reveal"
+            style={{ "--i": 2 }}
+            whileHover={{ y: -6 }}
+            transition={{ type: "spring", stiffness: 260, damping: 22 }}
+          >
             <span className="p-name">Traveler Ultimate</span>
             <div className="p-price">
               <span className="amt">$79</span>
@@ -122,24 +132,15 @@ export default function Pricing() {
               Pay once. Lifetime access to every current and future feature.
             </p>
             <ul className="p-feats">
-              <li>
-                <i className="fa-solid fa-check"></i>Everything in Traveler Pro
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Lifetime access
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Priority support
-              </li>
-              <li>
-                <i className="fa-solid fa-check"></i>Monthly intelligence
-                reports
-              </li>
+              <Feat>Everything in Traveler Pro</Feat>
+              <Feat>Lifetime access</Feat>
+              <Feat>Priority support</Feat>
+              <Feat>Monthly intelligence reports</Feat>
             </ul>
             <a href={lifeHref} className="btn-ghost btn-block">
               Pay once, travel forever
             </a>
-          </div>
+          </motion.div>
         </div>
       </div>
     </section>

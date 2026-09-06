@@ -2,6 +2,7 @@
 import { supabase } from "@/lib/supabase";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
 import { ScamAlerts } from "@/components/dashboard/ScamAlerts";
@@ -10,6 +11,8 @@ import { CurrencyCard } from "@/components/dashboard/CurrencyCard";
 import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
+import { LiveTicker } from "@/components/dashboard/LiveTicker";
+import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -97,6 +100,17 @@ function DashboardContent() {
     <RequireAuth>
       <>
         <Topbar key={city} city={city} />
+
+        {/* Live intel ticker — sits right under the topbar */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.5 }}
+          className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 lg:px-8"
+        >
+          <LiveTicker city={city} />
+        </motion.div>
+
         <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-4 sm:p-6 lg:p-8">
           <DestinationHeader
             city={city}
@@ -105,7 +119,12 @@ function DashboardContent() {
           />
 
           {source && (
-            <p className="text-xs text-[#a6a6ad]">
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="text-xs text-[#a6a6ad]"
+            >
               {source === "cache"
                 ? "Served from cache (under 24 hours)"
                 : "Fresh scan"}
@@ -116,13 +135,18 @@ function DashboardContent() {
               >
                 AI-generated. Not legal advice.
               </Link>
-            </p>
+            </motion.p>
           )}
 
           {error && (
-            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <motion.p
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: [0, -6, 6, -3, 3, 0] }}
+              transition={{ duration: 0.5 }}
+              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+            >
               {error}
-            </p>
+            </motion.p>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -140,10 +164,19 @@ function DashboardContent() {
               lockedCount={lockedTips}
             />
           </div>
+
           <div className="grid gap-4 md:grid-cols-2">
-            <CurrencyCard brief={brief} />
-            <WeatherCard brief={brief} />
+            <CurrencyCard brief={briefCity === city ? brief : null} />
+            <WeatherCard brief={briefCity === city ? brief : null} />
           </div>
+
+          <ThreatOverview
+            city={city}
+            brief={briefCity === city ? brief : null}
+            alerts={alerts}
+            alertCount={(alerts?.length || 0) + (lockedAlerts || 0)}
+          />
+
           <RecentActivity city={city} alerts={alerts} loading={loading} />
           <DestinationChips active={city} />
         </div>

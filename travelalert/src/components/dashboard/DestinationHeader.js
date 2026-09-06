@@ -1,8 +1,41 @@
-import { Panel } from "./Panel";
+"use client";
+
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { Clock, Coins, MapPin, ShieldHalf } from "lucide-react";
 import { getDestination } from "@/lib/dashboard-data";
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { Spotlight } from "@/components/ui/spotlight";
+
+/** Parse "GMT+7" / "GMT+5:45" into minutes offset. */
+function tzMinutes(tz) {
+  const m = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(tz || "");
+  if (!m) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  return sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0));
+}
+
+function useLocalTime(tz) {
+  const [time, setTime] = useState(null);
+  useEffect(() => {
+    const offset = tzMinutes(tz);
+    if (offset == null) return;
+    function tick() {
+      const now = new Date();
+      const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+      setTime(new Date(utc + offset * 60000));
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [tz]);
+  return time;
+}
 
 export function DestinationHeader({ city, brief, alertCount }) {
   const d = getDestination(city);
+  const localTime = useLocalTime(d.tz);
+
   const liveTemp =
     brief?.weather?.temp != null ? `${brief.weather.temp}°C` : d.temp;
   const liveCurrency = brief?.code
@@ -21,56 +54,115 @@ export function DestinationHeader({ city, brief, alertCount }) {
         : "text-[#e5484a]";
 
   const stats = [
-    { label: "Safety score", value: d.safety, color: safetyColor },
+    { label: "Safety score", value: d.safety, color: safetyColor, icon: ShieldHalf },
     {
       label: "Active alerts",
       value: alertCount != null ? String(alertCount) : d.alerts,
       color: "text-[#f0a63d]",
+      icon: null,
     },
-    { label: "Cost of living", value: d.cost, color: "text-[#3ecf8e]" },
-    { label: "Right now", value: liveTemp, color: "text-[#f3f3f2]" },
+    { label: "Cost of living", value: d.cost, color: "text-[#3ecf8e]", icon: Coins },
+    { label: "Right now", value: liveTemp, color: "text-[#f3f3f2]", icon: Clock },
   ];
 
   return (
-    <Panel>
-      <div className="relative overflow-hidden px-5 py-5 sm:px-7 sm:py-6">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
+      className="relative overflow-hidden rounded-[1.1rem] border border-white/10 bg-white/[0.045] p-[0.3rem]"
+    >
+      <div className="relative overflow-hidden rounded-[0.8rem] bg-[#141418] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
+        {/* Ambient light: spotlight + accent wash */}
+        <Spotlight
+          id="dest-header"
+          className="-top-40 left-1/2 -translate-x-1/2 opacity-70"
+        />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_90%_at_0%_50%,rgba(229,72,74,0.14),transparent_62%)]" />
-        <div className="relative grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="flex items-center gap-4">
-            <span className="text-4xl">{d.flag}</span>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight sm:text-[1.45rem]">
-                {liveName}
-              </h1>
-              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#a6a6ad]">
-                {d.region !== "Unknown" ? d.region : brief?.country || "—"}
-                <span className="size-0.5 rounded-full bg-[#68686f]" />
-                {liveCurrency}
-                <span className="size-0.5 rounded-full bg-[#68686f]" />
-                {d.tz}
-                <span className="size-0.5 rounded-full bg-[#68686f]" />
-                {d.language}
-              </p>
+
+        <div className="relative grid gap-6 px-5 py-5 sm:px-7 sm:py-6 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <div className="flex items-center gap-4">
+              <motion.span
+                initial={{ scale: 0, rotate: -20 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 200, damping: 14, delay: 0.15 }}
+                className="text-4xl"
+              >
+                {d.flag}
+              </motion.span>
+              <div>
+                <motion.h1
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.2, duration: 0.5 }}
+                  className="text-xl font-bold tracking-tight sm:text-[1.45rem]"
+                >
+                  {liveName}
+                </motion.h1>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3, duration: 0.5 }}
+                  className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#a6a6ad]"
+                >
+                  <MapPin className="size-3" />
+                  {d.region !== "Unknown" ? d.region : brief?.country || "—"}
+                  <span className="size-0.5 rounded-full bg-[#68686f]" />
+                  {liveCurrency}
+                  <span className="size-0.5 rounded-full bg-[#68686f]" />
+                  {d.tz}
+                  <span className="size-0.5 rounded-full bg-[#68686f]" />
+                  {d.language}
+                  {localTime && (
+                    <>
+                      <span className="size-0.5 rounded-full bg-[#68686f]" />
+                      <span className="font-mono tabular-nums text-[#f0a63d]">
+                        {localTime.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
+                      </span>
+                    </>
+                  )}
+                </motion.p>
+              </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {stats.map((s) => (
-              <div
-                key={s.label}
-                className="min-w-0 rounded-lg border border-white/10 bg-[#141418] px-3 py-2.5 text-center"
-              >
-                <div className={`font-mono text-lg font-bold sm:text-xl ${s.color}`}>
-                  {s.value}
-                </div>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-[#68686f]">
-                  {s.label}
-                </div>
-              </div>
-            ))}
+            {stats.map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <motion.div
+                  key={s.label}
+                  initial={{ opacity: 0, y: 14, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{
+                    delay: 0.25 + i * 0.08,
+                    type: "spring",
+                    stiffness: 160,
+                    damping: 18,
+                  }}
+                  whileHover={{ y: -3 }}
+                  className="min-w-0 rounded-lg border border-white/10 bg-[#101013] px-3 py-2.5 text-center"
+                >
+                  <div
+                    className={`flex items-center justify-center gap-1 font-mono text-lg font-bold sm:text-xl ${s.color}`}
+                  >
+                    {Icon && <Icon className="size-3.5 opacity-70" />}
+                    <AnimatedNumber value={s.value} delay={0.3 + i * 0.08} />
+                  </div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#68686f]">
+                    {s.label}
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </div>
-    </Panel>
+    </motion.div>
   );
 }
