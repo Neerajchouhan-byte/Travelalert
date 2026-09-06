@@ -43,8 +43,8 @@ export function CurrencyCard({ brief }) {
       glowColor="rgba(91, 157, 238, 0.12)"
       borderColor="rgba(91, 157, 238, 0.3)"
     >
-      <div className="flex h-full flex-col p-5">
-        <div className="mb-3 flex items-center justify-between">
+      <div className="flex h-full flex-col justify-between p-4">
+        <div className="mb-2 flex items-center justify-between">
           <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-[#68686f]">
             Live FX{brief?.city ? ` · ${brief.city}` : ""}
           </span>
@@ -83,7 +83,7 @@ export function CurrencyCard({ brief }) {
         </div>
 
         {/* Sparkline */}
-        <div className="mt-2 h-16 w-full">
+        <div className="mt-1.5 h-12 w-full">
           {series.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
@@ -115,7 +115,7 @@ export function CurrencyCard({ brief }) {
           )}
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-[#a6a6ad]">
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-[#a6a6ad]">
           <span>
             1 INR = <b className="font-semibold text-[#f3f3f2]">{inr}</b> {code}
           </span>
@@ -128,14 +128,14 @@ export function CurrencyCard({ brief }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25, duration: 0.45 }}
-          className="mt-4 flex items-start gap-2 rounded-lg border border-[rgba(240,166,61,0.38)] bg-[rgba(240,166,61,0.13)] p-2.5"
+          className="mt-3 flex items-start gap-2 rounded-lg border border-[rgba(240,166,61,0.38)] bg-[rgba(240,166,61,0.13)] p-2"
         >
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-[#f0a63d]" />
           <p className="text-[11px] leading-relaxed text-[#a6a6ad]">
             {brief?.money_avoid || "Fetching money advice…"}
           </p>
         </motion.div>
-        <p className="mt-3 flex items-center gap-2 text-[11px] font-semibold text-[#3ecf8e]">
+        <p className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-[#3ecf8e]">
           <CircleCheck className="size-3.5" />
           {brief?.money_best || "…"}
         </p>

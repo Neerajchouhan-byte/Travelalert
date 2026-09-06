@@ -165,7 +165,7 @@ function DashboardContent() {
             />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid items-start gap-4 md:grid-cols-2">
             <CurrencyCard brief={briefCity === city ? brief : null} />
             <WeatherCard brief={briefCity === city ? brief : null} />
           </div>

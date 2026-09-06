@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Menu, Radar, Search, X } from "lucide-react";
+import { ArrowRight, Menu, Radar, X } from "lucide-react";
 import CommandPalette from "./CommandPalette";
 
 export default function Navbar() {
@@ -32,18 +32,6 @@ export default function Navbar() {
         <a href="#features" onClick={close}>Features</a>
         <a href="#how" onClick={close}>How it works</a>
         <a href="#pricing" onClick={close}>Pricing</a>
-        <button
-          type="button"
-          className="nav-search-trigger"
-          onClick={() => {
-            close();
-            setPaletteOpen(true);
-          }}
-        >
-          <Search className="size-3.5" aria-hidden="true" />
-          <span>Search a destination</span>
-          <kbd>⌘K</kbd>
-        </button>
         <Link
           href="/login"
           className="btn-primary nav-cta-mobile"
@@ -54,16 +42,6 @@ export default function Navbar() {
       </div>
 
       <div className="nav-right">
-        <button
-          type="button"
-          className="nav-search-trigger"
-          onClick={() => setPaletteOpen(true)}
-          aria-label="Open destination search"
-        >
-          <Search className="size-3.5" aria-hidden="true" />
-          <span>Search</span>
-          <kbd>⌘K</kbd>
-        </button>
         <Link href="/login" className="btn-primary">
           <span>Scan now</span>
           <span className="icw">
