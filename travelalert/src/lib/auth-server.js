@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { adminDb } from "./supabase-admin";
+import { isSubscriptionActive } from "./billing";
 
 export function isPaid(plan) {
-  return plan === "pro" || plan === "lifetime";
+  return ["annual", "trip_pass", "destination_pack"].includes(plan);
 }
 
 export async function getRequestUser(request) {
@@ -28,17 +29,35 @@ export async function getRequestProfile(request) {
   if (!user) return { user: null, plan: "free" };
 
   const admin = adminDb();
-  const { data } = await admin
-    .from("profiles")
-    .select("plan, search_count, search_month")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, { data: subscription, error: subscriptionError }] =
+    await Promise.all([
+      admin
+        .from("profiles")
+        .select("plan, search_count, search_month")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      admin
+        .from("billing_subscriptions")
+        .select("plan_key, status, current_period_end")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+
+  // The normalized Dodo state is authoritative once the billing migration is live.
+  const plan =
+    !subscriptionError && subscription
+      ? isSubscriptionActive(subscription)
+        ? "annual"
+        : "free"
+      : profile?.plan === "annual"
+        ? "annual"
+        : "free";
 
   return {
     user,
-    plan: data?.plan || "free",
-    search_count: data?.search_count || 0,
-    search_month: data?.search_month || null,
+    plan,
+    search_count: profile?.search_count || 0,
+    search_month: profile?.search_month || null,
   };
 }
 
@@ -51,10 +70,13 @@ export function sliceForPlan(plan, alerts = [], tips = []) {
       lockedTips: 0,
     };
   }
+  // Free users: show at least 2 alerts and 3 tips, lock the rest
+  const visibleAlerts = Math.min(2, alerts.length);
+  const visibleTips = Math.min(3, tips.length);
   return {
-    alerts: alerts.slice(0, 2),
-    tips: tips.slice(0, 3),
-    lockedAlerts: Math.max(0, alerts.length - 2),
-    lockedTips: Math.max(0, tips.length - 3),
+    alerts: alerts.slice(0, Math.max(2, visibleAlerts)),
+    tips: tips.slice(0, Math.max(3, visibleTips)),
+    lockedAlerts: Math.max(0, alerts.length - Math.max(2, visibleAlerts)),
+    lockedTips: Math.max(0, tips.length - Math.max(3, visibleTips)),
   };
 }

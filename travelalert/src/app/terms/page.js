@@ -21,12 +21,15 @@ export default function TermsPage() {
       <h2>Accounts</h2>
       <p>
         You must provide a real email. Free accounts see a limited briefing.
-        Paid plans unlock the full briefing for as long as the plan is active.
+        Per-trip Passes provide full access for 30 days, Annual plans provide full
+        access while active, and Destination Packs provide permanent access only
+        to the destination purchased.
       </p>
       <h2>Payments</h2>
       <p>
-        Subscriptions and lifetime purchases are processed by Lemon Squeezy.
-        Refunds follow Lemon Squeezy’s policy.
+        Dodo Payments processes checkout. The Annual plan is billed once each year
+        and can be cancelled before its next renewal. Per-trip Passes and
+        Destination Packs are one-time purchases and do not renew.
       </p>
       <h2>Accuracy</h2>
       <p>

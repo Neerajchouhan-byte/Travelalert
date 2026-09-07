@@ -2,146 +2,125 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, X } from "lucide-react";
+import { Check, LoaderCircle, MapPin, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { checkoutUrl } from "@/lib/checkout";
 
-function Feat({ children, locked = false }) {
-  return (
-    <li className={locked ? "locked" : undefined}>
-      {locked ? (
-        <X className="size-3.5 shrink-0" aria-hidden="true" />
-      ) : (
-        <Check className="size-3.5 shrink-0" aria-hidden="true" />
-      )}
-      {children}
-    </li>
-  );
+const plans = [
+  {
+    key: "trip_pass",
+    name: "Per-trip Pass",
+    price: "$7",
+    period: "/ 30 days",
+    description: "Full travel intelligence for one trip, with access lasting 30 days from payment.",
+    features: ["Unlimited destinations for 30 days", "All alerts and insider tips", "No renewal or cancellation needed"],
+    action: "Get 30-day access",
+  },
+  {
+    key: "annual",
+    name: "Annual",
+    price: "$29",
+    period: "/ year",
+    description: "Year-round access to every destination, billed once per year.",
+    features: ["Unlimited destinations all year", "All alerts, tips, weather, and currency", "Manage or cancel renewal anytime"],
+    action: "Choose Annual",
+    featured: true,
+  },
+  {
+    key: "destination_pack",
+    name: "Destination Pack",
+    price: "$19",
+    period: "/ destination",
+    description: "Permanent access to the full briefing for one destination you choose.",
+    features: ["Lifetime access to one destination", "Choose your destination at checkout", "No subscription or renewal"],
+    action: "Unlock this destination",
+  },
+];
+
+async function authHeaders() {
+  const { data } = await supabase?.auth.getSession();
+  return data?.session?.access_token
+    ? { Authorization: `Bearer ${data.session.access_token}` }
+    : null;
 }
 
 export default function Pricing() {
-  const [proHref, setProHref] = useState(
-    process.env.NEXT_PUBLIC_CHECKOUT_PRO || "/login",
-  );
-  const [lifeHref, setLifeHref] = useState(
-    process.env.NEXT_PUBLIC_CHECKOUT_LIFE || "/login",
-  );
+  const router = useRouter();
+  const [subscription, setSubscription] = useState(null);
+  const [destination, setDestination] = useState("");
+  const [busyPlan, setBusyPlan] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    let on = true;
+    let current = true;
     (async () => {
-      if (!supabase) return;
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      if (!on || !user) return;
-      setProHref(checkoutUrl("pro", user.id, user.email));
-      setLifeHref(checkoutUrl("lifetime", user.id, user.email));
+      const headers = await authHeaders();
+      if (!headers) return;
+      const response = await fetch("/api/billing/subscription", { headers });
+      const body = await response.json().catch(() => ({}));
+      if (current && response.ok) setSubscription(body.subscription);
     })();
-    return () => {
-      on = false;
-    };
+    return () => { current = false; };
   }, []);
 
+  async function checkout(plan) {
+    setError("");
+    const headers = await authHeaders();
+    if (!headers) return router.push("/login");
+    if (plan === "destination_pack" && destination.trim().length < 2) {
+      setError("Enter the destination you want to unlock permanently.");
+      return;
+    }
+    setBusyPlan(plan);
+    try {
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ plan, destination }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.checkoutUrl) throw new Error(body.error || "Checkout could not be started.");
+      window.location.assign(body.checkoutUrl);
+    } catch (checkoutError) {
+      setError(checkoutError instanceof Error ? checkoutError.message : "Checkout could not be started.");
+    } finally {
+      setBusyPlan("");
+    }
+  }
+
   return (
-    <section id="pricing">
+    <section id="pricing" aria-labelledby="pricing-title">
       <div className="container">
-        <div
-          className="sec-head reveal"
-          style={{
-            marginLeft: "auto",
-            marginRight: "auto",
-            textAlign: "center",
-          }}
-        >
-          <span className="eyebrow">Simple pricing</span>
-          <h2>Less than one coffee.</h2>
+        <div className="sec-head reveal" style={{ marginInline: "auto", textAlign: "center" }}>
+          <span className="eyebrow">Flexible access</span>
+          <h2 id="pricing-title">Choose coverage that fits your journey.</h2>
         </div>
         <div className="price-anchor reveal">
-          Scams in Southeast Asia average <b>$180</b>. TravelRadar Pro costs{" "}
-          <span className="good">$9/month</span>. One prevented scam pays for 20
-          months.
+          One-off options never renew. Annual access is billed once per year—there is no monthly plan.
         </div>
+        {error && <p role="alert" className="price-anchor" style={{ borderColor: "rgba(229,72,74,.55)", color: "#fecaca" }}>{error}</p>}
         <div className="pricing-grid">
-          <motion.div
-            className="p-card reveal"
-            style={{ "--i": 0 }}
-            whileHover={{ y: -6 }}
-            transition={{ type: "spring", stiffness: 260, damping: 22 }}
-          >
-            <span className="p-name">Explorer</span>
-            <div className="p-price">
-              <span className="amt">$0</span>
-              <span className="per">/month</span>
-            </div>
-            <p className="p-desc">
-              Try it before your next trip. No card required.
-            </p>
-            <ul className="p-feats">
-              <Feat>3 destination searches / month</Feat>
-              <Feat>2 scam alerts + 3 tips per city</Feat>
-              <Feat locked>Full alert library</Feat>
-            </ul>
-            <a href="/login" className="btn-ghost btn-block">
-              Start exploring
-            </a>
-          </motion.div>
-
-          <motion.div
-            className="p-card pop reveal"
-            style={{ "--i": 1 }}
-            whileHover={{ y: -8, scale: 1.015 }}
-            transition={{ type: "spring", stiffness: 240, damping: 20 }}
-          >
-            <span className="pop-badge">Most popular</span>
-            <span className="p-name">Traveler Pro</span>
-            <div className="p-price">
-              <span className="amt">$9</span>
-              <span className="per">/month</span>
-            </div>
-            <p className="p-desc">
-              Less than one street food meal. Protects the whole trip.
-            </p>
-            <ul className="p-feats">
-              <Feat>Unlimited destinations</Feat>
-              <Feat>All scam alerts, refreshed daily</Feat>
-              <Feat>Full tips library</Feat>
-              <Feat>Live weather and currency for the city</Feat>
-            </ul>
-            <a
-              href={proHref}
-              className="btn-primary btn-block"
-              style={{ justifyContent: "center", padding: "0.85rem 1.5rem" }}
-            >
-              <span>Upgrade to Pro</span>
-            </a>
-            <p className="p-note">$9/month · cancel anytime</p>
-          </motion.div>
-
-          <motion.div
-            className="p-card reveal"
-            style={{ "--i": 2 }}
-            whileHover={{ y: -6 }}
-            transition={{ type: "spring", stiffness: 260, damping: 22 }}
-          >
-            <span className="p-name">Traveler Ultimate</span>
-            <div className="p-price">
-              <span className="amt">$79</span>
-              <span className="per">/once</span>
-            </div>
-            <p className="p-desc">
-              Pay once. Lifetime access to every current and future feature.
-            </p>
-            <ul className="p-feats">
-              <Feat>Everything in Traveler Pro</Feat>
-              <Feat>Lifetime access</Feat>
-              <Feat>Priority support</Feat>
-              <Feat>Monthly intelligence reports</Feat>
-            </ul>
-            <a href={lifeHref} className="btn-ghost btn-block">
-              Pay once, travel forever
-            </a>
-          </motion.div>
+          {plans.map((plan, index) => (
+            <motion.div key={plan.key} className={`p-card reveal ${plan.featured ? "pop" : ""}`} style={{ "--i": index }} whileHover={{ y: -6 }}>
+              {plan.featured && <span className="pop-badge">Best value</span>}
+              <span className="p-name">{plan.name}</span>
+              <div className="p-price"><span className="amt">{plan.price}</span><span className="per">{plan.period}</span></div>
+              <p className="p-desc">{plan.description}</p>
+              <ul className="p-feats">{plan.features.map((feature) => <li key={feature}><Check className="size-3.5 shrink-0" aria-hidden="true" />{feature}</li>)}</ul>
+              {plan.key === "destination_pack" && (
+                <label className="mb-3 block text-left text-xs text-[#a6a6ad]">
+                  <span className="mb-1 flex items-center gap-1"><MapPin className="size-3" />Destination</span>
+                  <input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="e.g. Bangkok" className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-[#5b9dee]" />
+                </label>
+              )}
+              <button type="button" className={plan.featured ? "btn-primary btn-block" : "btn-ghost btn-block"} onClick={() => checkout(plan.key)} disabled={Boolean(busyPlan)} aria-busy={busyPlan === plan.key} style={plan.featured ? { justifyContent: "center", padding: "0.85rem 1.5rem" } : undefined}>
+                {busyPlan === plan.key && <LoaderCircle className="mr-2 size-4 animate-spin" />}{plan.action}
+              </button>
+              {plan.key === "annual" && subscription?.plan === "annual" && <p className="p-note">Your Annual plan is active.</p>}
+            </motion.div>
+          ))}
         </div>
+        <p className="mt-5 flex items-center justify-center gap-2 text-center text-xs text-[#a6a6ad]"><ShieldCheck className="size-4 text-emerald-400" aria-hidden="true" />Secure checkout and access confirmation by Dodo Payments.</p>
       </div>
     </section>
   );

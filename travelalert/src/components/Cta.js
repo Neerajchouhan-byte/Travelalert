@@ -19,7 +19,7 @@ export default function Cta() {
             12 SCAMS REPORTED IN THE LAST 24 HOURS
           </span>
           <h2 className="cta-h2">
-            Don't be the tourist{" "}
+            Don&apos;t be the tourist{" "}
             <span className="grad-accent">who finds out after.</span>
           </h2>
           <p className="cta-sub">

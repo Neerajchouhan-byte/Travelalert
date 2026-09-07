@@ -11,9 +11,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Canonical site URL for SEO / social previews. Falls back to the custom
+// domain when NEXT_PUBLIC_SITE_URL is not configured in an environment.
+function siteUrl() {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live");
+  } catch {
+    return new URL("https://travelradar.live");
+  }
+}
+
 export const metadata = {
+  metadataBase: siteUrl(),
   title: "TravelRadar",
   description: "Live scam intel before you land.",
+  openGraph: {
+    siteName: "TravelRadar",
+    type: "website",
+    url: "/",
+  },
 };
 
 export default function RootLayout({ children }) {

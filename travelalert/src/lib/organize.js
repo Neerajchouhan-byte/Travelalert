@@ -14,39 +14,57 @@ function cleanList(arr, n) {
     }));
 }
 
-const GEMINI_MODELS = [
-  process.env.GEMINI_MODEL || "gemini-2.5-flash",
+const MODELS = [
+  process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  "gemini-3.8-flash",
+  "gemini-3.6-flash",
   "gemini-2.5-flash",
-  "gemini-2.0-flash",
-];
+].filter(Boolean);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function askGemini(key, prompt) {
+/**
+ * Shared Gemini JSON caller. Tries each configured model in order with
+ * retries/backoff on transient 429/503, and extracts the first JSON object
+ * from the response. Throws with the last error message when everything
+ * fails so callers can degrade gracefully.
+ */
+export async function askGemini(prompt) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY missing on the server");
+
   let lastErr = "no model tried";
 
-  for (const model of GEMINI_MODELS) {
+  for (const model of MODELS) {
     const url =
       "https://generativelanguage.googleapis.com/v1beta/models/" +
       model +
       ":generateContent";
 
     for (let attempt = 1; attempt <= 3; attempt++) {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": key,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-        }),
-      });
+      let res;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        });
+      } catch (err) {
+        lastErr = model + " network error: " + (err?.message || err);
+        await sleep(1000 * attempt);
+        continue;
+      }
 
       const json = await res.json().catch(() => ({}));
 
+      // Transient capacity / rate-limit errors: back off and retry.
       if (res.status === 503 || res.status === 429) {
         lastErr = model + " " + res.status;
         await sleep(1500 * attempt);
@@ -54,6 +72,7 @@ async function askGemini(key, prompt) {
       }
 
       if (!res.ok) {
+        // Model gone / bad key: move on to the next model immediately.
         lastErr = model + " " + res.status + " " + (json?.error?.message || "");
         break;
       }
@@ -77,6 +96,7 @@ async function askGemini(key, prompt) {
 
   throw new Error(lastErr);
 }
+
 
 export async function organizeCity(rawCity) {
   const city = normalizeCity(rawCity);
@@ -131,7 +151,7 @@ Posts:
 ${digest || "(no posts)"}`;
 
   try {
-    const parsed = await askGemini(key, prompt);
+    const parsed = await askGemini(prompt);
     const alerts = cleanList(parsed.alerts, 12);
     const tips = cleanList(parsed.tips, 10);
     if (alerts.length < 4 || tips.length < 3) {

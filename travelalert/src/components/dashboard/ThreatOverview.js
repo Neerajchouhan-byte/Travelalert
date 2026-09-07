@@ -10,7 +10,11 @@ import {
 import { motion } from "framer-motion";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { CardGlow } from "@/components/ui/card-glow";
-import { getDestination } from "@/lib/dashboard-data";
+import {
+  getDestination,
+  isKnownCity,
+  estimateSafety,
+} from "@/lib/dashboard-data";
 
 function severityTone(sev) {
   const s = (sev || "").toLowerCase();
@@ -29,13 +33,22 @@ const TONE = {
  * Threat overview — Recharts radial gauge (safety score) plus a
  * severity distribution bar rendered with Framer Motion physics.
  */
-export function ThreatOverview({ city, brief, alertCount, alerts = [] }) {
+export function ThreatOverview({ city, brief, alertCount, alerts = [], safety }) {
   const score = useMemo(() => {
+    // Server-computed safety (briefing response) wins when present.
+    const fromSafety = parseFloat(String(safety ?? ""));
+    if (!Number.isNaN(fromSafety) && fromSafety > 0) return fromSafety;
+    // Curated rating for the pre-loaded destinations.
     const fromBrief = parseFloat(brief?.safety || "");
     if (!Number.isNaN(fromBrief) && fromBrief > 0) return fromBrief;
-    const metaSafety = parseFloat(getDestination(city)?.safety || "");
-    return Number.isNaN(metaSafety) ? null : metaSafety;
-  }, [brief, city]);
+    const meta = getDestination(city);
+    const fromMeta = parseFloat(meta?.safety || "");
+    if (!Number.isNaN(fromMeta) && isKnownCity(city)) return fromMeta;
+    // Heuristic derived from the visible alert mix for fresh searches.
+    const fromAlerts = estimateSafety(alerts);
+    if (fromAlerts != null) return fromAlerts;
+    return Number.isNaN(fromMeta) ? null : fromMeta;
+  }, [brief, city, alerts, safety]);
 
   const dist = useMemo(() => {
     const d = { high: 0, med: 0, safe: 0 };

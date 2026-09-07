@@ -29,6 +29,7 @@ function DashboardContent() {
   const [plan, setPlan] = useState("free");
   const [lockedAlerts, setLockedAlerts] = useState(0);
   const [lockedTips, setLockedTips] = useState(0);
+  const [safety, setSafety] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +40,7 @@ function DashboardContent() {
       setAlerts([]);
       setTips([]);
       setSource("");
+      setSafety(null);
 
       try {
         let headers = {};
@@ -67,6 +69,7 @@ function DashboardContent() {
         setPlan(data.plan || "free");
         setLockedAlerts(data.lockedAlerts || 0);
         setLockedTips(data.lockedTips || 0);
+        setSafety(data.safety || null);
 
         if (data.error && !(data.alerts || []).length) {
           setError(data.error);
@@ -116,6 +119,8 @@ function DashboardContent() {
             city={city}
             brief={briefCity === city ? brief : null}
             alertCount={(alerts?.length || 0) + (lockedAlerts || 0)}
+            alerts={alerts}
+            safety={safety}
           />
 
           {source && (
@@ -167,7 +172,10 @@ function DashboardContent() {
 
           <div className="grid items-start gap-4 md:grid-cols-2">
             <CurrencyCard brief={briefCity === city ? brief : null} />
-            <WeatherCard brief={briefCity === city ? brief : null} />
+            <WeatherCard
+              city={city}
+              brief={briefCity === city ? brief : null}
+            />
           </div>
 
           <ThreatOverview
@@ -175,6 +183,7 @@ function DashboardContent() {
             brief={briefCity === city ? brief : null}
             alerts={alerts}
             alertCount={(alerts?.length || 0) + (lockedAlerts || 0)}
+            safety={safety}
           />
 
           <RecentActivity city={city} alerts={alerts} loading={loading} />

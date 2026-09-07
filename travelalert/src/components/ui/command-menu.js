@@ -33,6 +33,7 @@ function Kbd({ children }) {
 export function CommandMenu() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -77,6 +78,8 @@ export function CommandMenu() {
 
           <CommandPrimitive
             loop
+            value={query}
+            onValueChange={setQuery}
             className="overflow-hidden rounded-2xl [&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.14em] [&_[cmdk-group-heading]]:text-[#68686f]"
           >
             {/* Search input */}
@@ -149,6 +152,26 @@ export function CommandMenu() {
                   <span className="flex-1 text-sm">Read the disclaimer</span>
                 </Item>
               </CommandPrimitive.Group>
+
+              {/* Search any destination — always the last match so a typed
+                  city that isn't in the curated list can still be navigated
+                  to with Enter (ranked below every existing item). */}
+              {query.trim().length >= 2 && (
+                <CommandPrimitive.Group heading="Search any destination">
+                  <Item
+                    value={`search for ${query.trim().toLowerCase()}`}
+                    onSelect={() =>
+                      go(`/dashboard?city=${encodeURIComponent(query.trim())}`)
+                    }
+                  >
+                    <Search className="size-3.5 text-[#5b9dee]" />
+                    <span className="flex-1 truncate text-sm">
+                      Search for “{query.trim()}”
+                    </span>
+                    <ArrowRight className="size-3.5 text-[#68686f] opacity-70" />
+                  </Item>
+                </CommandPrimitive.Group>
+              )}
             </CommandPrimitive.List>
 
             {/* Footer */}

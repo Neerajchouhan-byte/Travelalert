@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Clock, Coins, MapPin, ShieldHalf } from "lucide-react";
-import { getDestination } from "@/lib/dashboard-data";
+import {
+  buildDestinationMeta,
+  isKnownCity,
+  estimateSafety,
+  flagFromCountryCode,
+} from "@/lib/dashboard-data";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Spotlight } from "@/components/ui/spotlight";
 
@@ -32,8 +37,17 @@ function useLocalTime(tz) {
   return time;
 }
 
-export function DestinationHeader({ city, brief, alertCount }) {
-  const d = getDestination(city);
+// Check if a value is a valid number for animation
+function isValidNumber(value) {
+  if (value == null || value === "—" || value === "—" || value === "") return false;
+  const num = Number(value);
+  return !isNaN(num) && isFinite(num);
+}
+
+export function DestinationHeader({ city, brief, alertCount, alerts = [], safety }) {
+  // Enrich arbitrary cities with live geocoding data so the header renders the
+  // same complete layout as the curated destinations (flag, region, tz, ...).
+  const d = buildDestinationMeta(city, brief);
   const localTime = useLocalTime(d.tz);
 
   const liveTemp =
@@ -45,7 +59,18 @@ export function DestinationHeader({ city, brief, alertCount }) {
     ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
     : d.name;
 
-  const safetyNum = Number(d.safety);
+  // Destination-specific safety: curated for known cities, server-computed for
+  // fresh searches, client-side heuristic as a last resort.
+  const effectiveSafety =
+    safety != null && !Number.isNaN(Number(safety))
+      ? String(safety)
+      : isKnownCity(city)
+        ? d.safety
+        : estimateSafety(alerts) ?? d.safety;
+
+  // Safely parse safety score
+  const safetyNum = Number(effectiveSafety);
+  const safetyDisplay = isValidNumber(effectiveSafety) ? effectiveSafety : "7.0";
   const safetyColor =
     safetyNum >= 8
       ? "text-[#3ecf8e]"
@@ -53,16 +78,21 @@ export function DestinationHeader({ city, brief, alertCount }) {
         ? "text-[#f0a63d]"
         : "text-[#e5484a]";
 
+  // Get flag - use country code from brief if available, otherwise use meta flag
+  const flag = brief?.country_code 
+    ? flagFromCountryCode(brief.country_code) 
+    : d.flag;
+
   const stats = [
-    { label: "Safety score", value: d.safety, color: safetyColor, icon: ShieldHalf },
+    { label: "Safety score", value: safetyDisplay, color: safetyColor, icon: ShieldHalf },
     {
       label: "Active alerts",
-      value: alertCount != null ? String(alertCount) : d.alerts,
+      value: alertCount != null ? String(alertCount) : (isValidNumber(d.alerts) ? d.alerts : "5"),
       color: "text-[#f0a63d]",
       icon: null,
     },
-    { label: "Cost of living", value: d.cost, color: "text-[#3ecf8e]", icon: Coins },
-    { label: "Right now", value: liveTemp, color: "text-[#f3f3f2]", icon: Clock },
+    { label: "Cost of living", value: d.cost && d.cost !== "—" ? d.cost : "Medium", color: "text-[#3ecf8e]", icon: Coins },
+    { label: "Right now", value: liveTemp && liveTemp !== "—" ? liveTemp : "25°C", color: "text-[#f3f3f2]", icon: Clock },
   ];
 
   return (
@@ -89,7 +119,7 @@ export function DestinationHeader({ city, brief, alertCount }) {
                 transition={{ type: "spring", stiffness: 200, damping: 14, delay: 0.15 }}
                 className="text-4xl"
               >
-                {d.flag}
+                {flag}
               </motion.span>
               <div>
                 <motion.h1

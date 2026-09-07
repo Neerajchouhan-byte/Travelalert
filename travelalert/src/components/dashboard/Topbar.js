@@ -3,9 +3,21 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Search, UserRound } from "lucide-react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { openCommandMenu } from "@/components/ui/command-menu";
 
 export function Topbar({ city }) {
+  const router = useRouter();
+  const [searchCity, setSearchCity] = useState("");
+
+  function handleSearch(e) {
+    e.preventDefault();
+    const trimmed = searchCity.trim();
+    if (!trimmed) return;
+    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
+  }
+
   return (
     <motion.header
       initial={{ y: -32, opacity: 0 }}
@@ -21,25 +33,41 @@ export function Topbar({ city }) {
           TravelRadar
         </Link>
 
+        {/* Direct search input - type city and press Enter */}
+        <form
+          onSubmit={handleSearch}
+          className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 transition-colors hover:border-white/20 hover:bg-white/[0.07]"
+        >
+          <Search className="size-3.5 shrink-0 text-[#68686f] transition-colors group-hover:text-[#a6a6ad]" />
+          <input
+            type="text"
+            value={searchCity}
+            onChange={(e) => setSearchCity(e.target.value)}
+            placeholder={`Search a city... (current: ${city})`}
+            aria-label="Search city"
+            className="min-w-0 flex-1 bg-transparent text-sm text-[#f3f3f2] outline-none placeholder:text-[#68686f]"
+          />
+          <button
+            type="submit"
+            className="hidden shrink-0 text-xs font-medium text-[#5b9dee] hover:text-[#7aaff2] sm:block"
+          >
+            Search
+          </button>
+        </form>
+
         {/* Command palette trigger — keyboard-first search */}
         <button
           type="button"
           onClick={openCommandMenu}
           aria-label="Open command menu"
-          className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-left transition-colors hover:border-white/20 hover:bg-white/[0.07]"
+          className="hidden shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1.5 transition-colors hover:border-white/20 hover:bg-white/[0.07] sm:flex"
         >
-          <Search className="size-3.5 shrink-0 text-[#68686f] transition-colors group-hover:text-[#a6a6ad]" />
-          <span className="min-w-0 flex-1 truncate text-sm text-[#68686f]">
-            Search cities or actions…
-          </span>
-          <span className="hidden shrink-0 items-center gap-1 sm:flex">
-            <kbd className="inline-flex h-5 select-none items-center rounded border border-white/10 bg-white/[0.06] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
-              ⌘
-            </kbd>
-            <kbd className="inline-flex h-5 select-none items-center rounded border border-white/10 bg-white/[0.06] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
-              K
-            </kbd>
-          </span>
+          <kbd className="inline-flex h-5 select-none items-center rounded border border-white/10 bg-white/[0.06] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
+            ⌘
+          </kbd>
+          <kbd className="inline-flex h-5 select-none items-center rounded border border-white/10 bg-white/[0.06] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
+            K
+          </kbd>
         </button>
 
         <motion.div whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.94 }}>

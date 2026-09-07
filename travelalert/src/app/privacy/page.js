@@ -16,8 +16,8 @@ export default function PrivacyPage() {
       <ul>
         <li>Email and password when you create an account (handled by Supabase Auth).</li>
         <li>The city you search, so we can show the right briefing.</li>
-        <li>Plan status (free, pro, lifetime) after you pay.</li>
-        <li>Payment details are collected by Lemon Squeezy, not stored on our servers.</li>
+        <li>Access status for a Per-trip Pass, Annual plan, or Destination Pack after you pay.</li>
+        <li>Payment details are collected by Dodo Payments, not stored on our servers.</li>
       </ul>
       <h2>How we use it</h2>
       <ul>
