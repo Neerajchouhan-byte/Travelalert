@@ -4,7 +4,6 @@ import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Bell,
   ChevronRight,
   CreditCard,
   KeyRound,
@@ -141,10 +140,10 @@ function ProfileContent() {
 
   return (
     <main className="app-theme min-h-screen bg-[#0a0a0c] text-[#f3f3f2] selection:bg-[#e5484a]/20">
-      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:py-10">
+      <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 lg:py-7">
         
         {/* Top Back Navigation */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between">
           <Link
             href="/dashboard"
             className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#141418] p-2 pr-4 text-xs font-medium text-[#a6a6ad] transition hover:border-white/20 hover:text-white"
@@ -166,11 +165,11 @@ function ProfileContent() {
         </div>
 
         {/* Responsive Grid: 1 Column on Mobile, 2 Columns on Laptop/Desktop */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-8">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
           
           {/* Left Column: User Profile Card */}
           <div className="lg:col-span-5">
-            <div className="sticky top-6 flex flex-col items-center rounded-3xl border border-white/10 bg-[#141418]/80 p-6 text-center shadow-xl backdrop-blur-sm sm:p-8">
+            <div className="sticky top-4 flex flex-col items-center rounded-3xl border border-white/10 bg-[#141418]/80 p-5 text-center shadow-xl backdrop-blur-sm sm:p-6">
               {/* Profile Avatar */}
               <div className="relative mb-4 flex size-24 items-center justify-center rounded-full border-2 border-[#e5484a]/40 bg-gradient-to-b from-[#e5484a]/20 to-transparent text-[#e5484a] shadow-inner">
                 <UserRound className="size-11" />
@@ -224,7 +223,7 @@ function ProfileContent() {
           </div>
 
           {/* Right Column: Settings, Security & Billing Cards */}
-          <div className="space-y-6 lg:col-span-7">
+          <div className="space-y-4 lg:col-span-7">
             
             {/* Section 1: Security & Credentials */}
             <div>
@@ -370,33 +369,6 @@ function ProfileContent() {
                         )}
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 3: Preferences / Notifications */}
-            <div>
-              <p className="mb-2.5 px-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-[#68686f]">
-                Preferences
-              </p>
-              <div className="divide-y divide-white/5 overflow-hidden rounded-2xl border border-white/10 bg-[#141418]">
-                <div className="flex items-center justify-between p-4 sm:p-5">
-                  <div className="flex items-center gap-3.5">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.04] text-[#a6a6ad]">
-                      <Bell className="size-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-[#f3f3f2]">
-                        Scam & Alert Notifications
-                      </p>
-                      <p className="text-xs text-[#a6a6ad]">
-                        Receive urgent alerts directly on your dashboard
-                      </p>
-                    </div>
-                  </div>
-                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] text-[#68686f]">
-                    Coming soon
-                  </span>
                 </div>
               </div>
             </div>

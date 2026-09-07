@@ -971,6 +971,100 @@ section {
   }
 }
 
+/* ---------- Minimal application UI refinement ---------- */
+/*
+ * Keep the existing application structure and palette, while making its
+ * surfaces quieter: whitespace does the grouping, borders stay hairline, and
+ * elevation is reserved for interaction rather than every card.
+ */
+.app-theme {
+  --app-hairline: rgba(255, 255, 255, 0.12);
+  --app-hairline-strong: rgba(255, 255, 255, 0.18);
+}
+
+.app-theme [class*="border-white/5"],
+.app-theme [class*="border-white/10"],
+.app-theme [class*="border-white/12"],
+.app-theme [class*="border-white/15"],
+.app-theme [class*="border-white/20"] {
+  border-width: 1px;
+  border-color: var(--app-hairline);
+}
+
+.app-theme [class*="shadow-xl"],
+.app-theme [class*="shadow-2xl"],
+.app-theme [class*="shadow-lg"],
+.app-theme [class*="shadow-sm"],
+.app-theme [class*="shadow-black"],
+.app-theme [class*="shadow-inner"],
+.app-theme [class*="drop-shadow"] {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+  filter: none;
+}
+
+.app-theme [class*="bg-gradient"] {
+  background-image: none !important;
+}
+
+.app-theme [class*="font-bold"] {
+  font-weight: 600;
+}
+
+.app-theme [class*="font-semibold"] {
+  font-weight: 500;
+}
+
+.app-theme [class*="p-[0.3rem]"] {
+  padding: 0.45rem;
+}
+
+.app-theme [class*="p-3.5"] {
+  padding: 1rem;
+}
+
+.app-theme [class*="p-4"] {
+  padding: 1.125rem;
+}
+
+.app-theme [class*="sm:p-5"] {
+  padding: 1.375rem;
+}
+
+.app-theme [class*="sm:p-6"] {
+  padding: 1.625rem;
+}
+
+.app-theme [class*="rounded-3xl"] {
+  border-radius: 1.25rem;
+}
+
+.app-theme [class*="rounded-2xl"] {
+  border-radius: 1rem;
+}
+
+.app-theme [class*="rounded-xl"] {
+  border-radius: 0.75rem;
+}
+
+.app-theme [class*="rounded-full"] {
+  /* Preserve controls and status shapes, but remove visual heaviness. */
+  box-shadow: none !important;
+}
+
+@media (prefers-color-scheme: light) {
+  .app-theme {
+    --app-hairline: rgba(28, 28, 32, 0.14);
+    --app-hairline-strong: rgba(28, 28, 32, 0.2);
+  }
+
+  .app-theme [class*="bg-white/[0.03]"],
+  .app-theme [class*="bg-white/[0.04]"],
+  .app-theme [class*="bg-white/[0.045]"],
+  .app-theme [class*="bg-white/[0.05]"] {
+    background-color: rgba(28, 28, 32, 0.035) !important;
+  }
+}
+
 .briefing-lab {
   padding: 0.8rem;
   border: 1px solid var(--border);
