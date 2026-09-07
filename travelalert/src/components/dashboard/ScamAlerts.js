@@ -2,7 +2,6 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Radar, ShieldHalf } from "lucide-react";
-import Link from "next/link";
 import { Panel } from "./Panel";
 import { ExpandableCard } from "./ExpandableCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,11 +22,10 @@ export function ScamAlerts({
   plan = "free",
   lockedCount = 0,
   city,
+  onUpgrade,
 }) {
   const hasAccess = plan !== "free";
   const locked = hasAccess ? 0 : lockedCount;
-  const upgradeHref = `/upgrade?city=${encodeURIComponent(city || "Bangkok")}&source=alerts`;
-
   // Ensure we always have at least 2 alerts for free users
   const displayAlerts = alerts.length > 0 ? alerts : [];
 
@@ -102,12 +100,13 @@ export function ScamAlerts({
             <span className="text-xs font-semibold text-[#5b9dee]">
               {locked} more alerts with full access
             </span>
-            <Link
-              href={upgradeHref}
+            <button
+              type="button"
+              onClick={onUpgrade}
               className="inline-flex h-9 min-h-9 items-center justify-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]"
             >
               Unlock alerts
-            </Link>
+            </button>
           </motion.div>
         )}
         {!hasAccess && locked === 0 && !loading && displayAlerts.length > 0 && (
@@ -119,12 +118,13 @@ export function ScamAlerts({
             <span className="text-xs font-semibold text-[#5b9dee]">
               Unlock all alerts with Pro
             </span>
-            <Link
-              href={upgradeHref}
+            <button
+              type="button"
+              onClick={onUpgrade}
               className="inline-flex h-9 min-h-9 items-center justify-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]"
             >
               Unlock alerts
-            </Link>
+            </button>
           </motion.div>
         )}
       </div>

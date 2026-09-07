@@ -14,7 +14,7 @@ import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
-import { UpgradeModal } from "@/components/dashboard/UpgradeModal";
+import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
 
 // Simple in-memory cache for dashboard data to reduce latency on repeated views
@@ -45,7 +45,8 @@ async function getAuthHeaders() {
 }
 
 function DashboardContent() {
-  const city = useSearchParams().get("city") || "Bangkok";
+  const searchParams = useSearchParams();
+  const city = searchParams.get("city") || "Bangkok";
   const router = useRouter();
   const [alerts, setAlerts] = useState([]);
   const [tips, setTips] = useState([]);
@@ -59,7 +60,7 @@ function DashboardContent() {
   const [lockedTips, setLockedTips] = useState(0);
   const [safety, setSafety] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(() => searchParams.get("upgrade") === "true");
 
   // Load briefing data (alerts, tips, safety) - independent effect
   useEffect(() => {
@@ -238,6 +239,7 @@ function DashboardContent() {
               loading={loading}
               plan={plan}
               lockedCount={lockedAlerts}
+              onUpgrade={() => setShowUpgradeModal(true)}
             />
             <InsiderTips
               tips={tips}
@@ -245,6 +247,7 @@ function DashboardContent() {
               city={city}
               plan={plan}
               lockedCount={lockedTips}
+              onUpgrade={() => setShowUpgradeModal(true)}
             />
           </div>
 
