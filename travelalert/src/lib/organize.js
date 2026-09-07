@@ -118,6 +118,8 @@ export async function organizeCity(rawCity) {
 
   const live = await fetchLivePosts(city);
   const posts = live.posts || [];
+  const sourceTag =
+    live.mode === "apify" ? "reddit+gemini" : live.mode === "reddit" ? "reddit+gemini" : "gemini";
 
   const digest = posts
     .slice(0, 15)
@@ -162,7 +164,7 @@ ${digest || "(no posts)"}`;
       alerts,
       tips,
       postCount: posts.length,
-      source: posts.length ? "reddit+gemini" : "gemini",
+      source: posts.length ? sourceTag : "gemini",
     };
   } catch (err) {
     return {

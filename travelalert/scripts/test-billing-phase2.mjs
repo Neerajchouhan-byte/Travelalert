@@ -1,6 +1,6 @@
-// Phase 2: dev server IS running with DODO_PAYMENTS_WEBHOOK_SECRET +
-// DODO_*_PRODUCT_ID set, but real billing tables may be missing.
-// Creates a user, fires signed webhook events, checks checkout + status.
+// Phase 2: real-credentials webhook test. Uses DODO_PAYMENTS_WEBHOOK_SECRET
+// and DODO_*_PRODUCT_ID from .env.local (or TEST_WEBHOOK_SECRET override),
+// fires properly signed events, and checks the resulting subscription state.
 import { readFileSync } from "node:fs";
 import { Webhook } from "standardwebhooks";
 
@@ -12,11 +12,14 @@ for (const line of readFileSync(new URL("../.env.local", import.meta.url), "utf8
 const BASE = env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SERVICE = env.SUPABASE_SERVICE_ROLE_KEY;
-const APP = "http://localhost:3211";
+const APP = process.env.TEST_APP_URL || "http://localhost:3211";
 
-const SECRET = process.env.TEST_WEBHOOK_SECRET;
-const ANNUAL_PID = "prod_test_annual";
-const TRIP_PID = "prod_test_trip";
+const SECRET = process.env.TEST_WEBHOOK_SECRET || env.DODO_PAYMENTS_WEBHOOK_SECRET;
+const ANNUAL_PID = env.DODO_ANNUAL_PRODUCT_ID;
+const TRIP_PID = env.DODO_TRIP_PASS_PRODUCT_ID;
+if (!SECRET) { console.log("No webhook secret found (.env.local DODO_PAYMENTS_WEBHOOK_SECRET or TEST_WEBHOOK_SECRET)."); process.exit(1); }
+if (!ANNUAL_PID || !TRIP_PID) { console.log("Missing DODO_ANNUAL_PRODUCT_ID / DODO_TRIP_PASS_PRODUCT_ID in .env.local."); process.exit(1); }
+console.log("Using real secret + product IDs from env (annual:", ANNUAL_PID.slice(0, 10) + "…, trip:", TRIP_PID.slice(0, 10) + "…)");
 
 const email = `bill-p2-${Date.now()}@example.com`;
 const password = "Bill-Test-Passw0rd!";
@@ -112,6 +115,12 @@ async function main() {
   // 5) Subscription state after webhook attempts
   const sub = await j(`${APP}/api/billing/subscription`, { headers: auth });
   console.log("5) subscription after:", sub.status, JSON.stringify(sub.body).slice(0, 160));
+
+  // 6) Briefing should now be unlocked (annual) — 12 alerts, 0 locked
+  const b = await j(`${APP}/api/briefing?city=${encodeURIComponent("Tokyo")}`, { headers: auth });
+  const d = b.body || {};
+  console.log("6) briefing after Pro:", b.status, "| plan:", d.plan, "| alerts:", (d.alerts || []).length, "locked:", d.lockedAlerts, "| tips:", (d.tips || []).length, "locked:", d.lockedTips);
+  console.log("   PRO UNLOCK OK:", d.plan !== "free" && (d.alerts || []).length >= 10 && d.lockedAlerts === 0 ? "YES" : "CHECK");
 }
 
 main()

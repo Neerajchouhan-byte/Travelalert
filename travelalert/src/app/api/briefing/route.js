@@ -7,7 +7,7 @@ import { adminDb } from "@/lib/supabase-admin";
 import { seedIntel, fillIntel } from "@/lib/seed-intel";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
-export const maxDuration = 60;
+export const maxDuration = 120; // fresh-city scans wait on Apify (~60-120s) + Gemini
 
 function monthKey() {
   const d = new Date();

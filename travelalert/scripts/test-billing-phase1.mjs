@@ -13,8 +13,10 @@ const SERVICE = env.SUPABASE_SERVICE_ROLE_KEY;
 const APP = "http://localhost:3211";
 
 const email = `bill-test-${Date.now()}@example.com`;
+const email2 = `travelradar.e2e+${Date.now()}@gmail.com`;
 const password = "Bill-Test-Passw0rd!";
 let userId = null;
+let billingUserId = null;
 
 async function j(url, opts = {}) {
   const res = await fetch(url, opts);
@@ -26,7 +28,6 @@ async function j(url, opts = {}) {
 
 async function main() {
   // A) Public signup endpoint (step 3 of the checklist)
-  const email2 = `travelradar.e2e+${Date.now()}@gmail.com`;
   const signup = await j(`${BASE}/auth/v1/signup`, {
     method: "POST",
     headers: { apikey: ANON, "Content-Type": "application/json" },
@@ -38,18 +39,17 @@ async function main() {
     "| needs email confirm:", !signup.body?.access_token && signup.status === 200,
     userId ? "| user created" : "| rejected: " + JSON.stringify(signup.body).slice(0, 120));
 
-  // Fallback: admin-created user so the billing tests can still run
-  if (!userId) {
-    const created = await j(`${BASE}/auth/v1/admin/users`, {
-      method: "POST",
-      headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, email_confirm: true }),
-    });
-    userId = created.body?.id;
-    console.log("A2) admin-created test user:", created.status, userId ? "ok" : "FAILED");
-  }
+  // A2) Always create an admin-confirmed user for the billing API tests
+  const created = await j(`${BASE}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, email_confirm: true }),
+  });
+  const billingUserId2 = created.body?.id;
+  billingUserId = billingUserId2;
+  console.log("A2) admin-created (confirmed) user:", created.status, billingUserId ? "ok" : "FAILED");
 
-  const loginEmail = userId && signup.status !== 200 ? email : email2;
+  const loginEmail = email;
 
   // Sign in via password grant regardless
   const login = await j(`${BASE}/auth/v1/token?grant_type=password`, {
@@ -87,11 +87,12 @@ async function main() {
 main()
   .catch((e) => console.log("ERROR:", e.message))
   .finally(async () => {
-    if (userId) {
-      const del = await fetch(`${BASE}/auth/v1/admin/users/${userId}`, {
+    for (const [label, id] of [["signup user", userId], ["billing user", billingUserId]]) {
+      if (!id) continue;
+      const del = await fetch(`${BASE}/auth/v1/admin/users/${id}`, {
         method: "DELETE",
         headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
       });
-      console.log("cleanup user:", del.status === 204 ? "deleted" : del.status);
+      console.log(`cleanup ${label}:`, del.status === 204 ? "deleted" : del.status);
     }
   });
