@@ -27,9 +27,10 @@ function XIcon() {
 function LoginContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "";
+  const redirect = searchParams.get("redirect") || "";
   const router = useRouter();
 
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState(() => searchParams.get("mode") === "signup" ? "signup" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -37,17 +38,22 @@ function LoginContent() {
   const [busy, setBusy] = useState(false);
 
   const afterLogin = useMemo(() => {
-    return city
-      ? "/dashboard?city=" + encodeURIComponent(city)
+    // Only allow local paths supplied by our own signup flow. Always preserve
+    // the selected city when returning to the dashboard.
+    const target = redirect.startsWith("/") && !redirect.startsWith("//")
+      ? redirect
       : "/dashboard";
-  }, [city]);
+    const destination = new URL(target, "https://travelradar.local");
+    if (city) destination.searchParams.set("city", city);
+    return destination.pathname + (destination.search ? destination.search : "");
+  }, [city, redirect]);
 
   function oauthRedirect() {
     const origin = window.location.origin;
-    const next = city
-      ? `/auth/callback?city=${encodeURIComponent(city)}`
-      : "/auth/callback";
-    return origin + next;
+    const callback = new URL("/auth/callback", origin);
+    if (city) callback.searchParams.set("city", city);
+    if (redirect.startsWith("/") && !redirect.startsWith("//")) callback.searchParams.set("redirect", redirect);
+    return callback.toString();
   }
 
   async function handleOAuth(provider) {

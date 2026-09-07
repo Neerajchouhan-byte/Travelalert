@@ -69,5 +69,7 @@ export default async function proxy(request) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/profile/:path*"],
+  // /scams is intentionally public; listing it here makes the public route
+  // explicit while keeping auth checks limited to protected areas below.
+  matcher: ["/", "/scams/:path*", "/dashboard/:path*", "/profile/:path*"],
 };

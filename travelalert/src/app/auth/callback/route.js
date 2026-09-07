@@ -6,9 +6,13 @@ export async function GET(request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const city = searchParams.get("city") || "";
-  const next = city
-    ? `/dashboard?city=${encodeURIComponent(city)}`
+  const redirect = searchParams.get("redirect") || "/dashboard";
+  const nextPath = redirect.startsWith("/") && !redirect.startsWith("//")
+    ? redirect
     : "/dashboard";
+  const nextUrl = new URL(nextPath, origin);
+  if (city) nextUrl.searchParams.set("city", city);
+  const next = nextUrl.pathname + nextUrl.search;
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
