@@ -9,20 +9,13 @@ export const supabase =
   url && anon
     ? createBrowserClient(url, anon, {
         auth: {
-          // Persist session in localStorage (default, but explicit for clarity)
-          storage: typeof window !== "undefined" ? window.localStorage : undefined,
-          // Auto-refresh tokens before they expire
           autoRefreshToken: true,
-          // Detect session in URL (for OAuth callbacks)
           detectSessionInUrl: true,
-          // Flow type for authentication
           flowType: "pkce",
         },
-        cookies: {
+        cookieOptions: {
           name: "travelradar-session",
-          // Session cookie lasts 30 days
           maxAge: 60 * 60 * 24 * 30,
-          // Use secure cookies in production
           secure: process.env.NODE_ENV === "production",
           sameSite: "lax",
         },
