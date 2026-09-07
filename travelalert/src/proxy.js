@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 /**
  * Next.js 16 "proxy" convention (replaces middleware.js).
- * Guards /dashboard, /profile, and /upgrade — redirects unauthenticated
+ * Guards /dashboard and /profile — redirects unauthenticated
  * visitors to /login, preserving the ?city param.
  * 
  * Also handles session refresh to keep users logged in across requests.
@@ -43,8 +43,7 @@ export default async function proxy(request) {
   const path = request.nextUrl.pathname;
   const protectedPath = 
     path.startsWith("/dashboard") || 
-    path.startsWith("/profile") || 
-    path.startsWith("/upgrade");
+    path.startsWith("/profile");
 
   if (protectedPath && !user) {
     const next = request.nextUrl.clone();
@@ -58,5 +57,5 @@ export default async function proxy(request) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/profile/:path*", "/upgrade/:path*"],
+  matcher: ["/dashboard/:path*", "/profile/:path*"],
 };

@@ -195,7 +195,7 @@ function ProfileContent() {
               <div className="mt-6 w-full">
                 {plan !== "annual" ? (
                   <Link
-                    href="/upgrade"
+                    href="/dashboard?upgrade=true"
                     className="flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#e5484a] text-sm font-semibold text-white shadow-lg shadow-[#e5484a]/20 transition duration-150 hover:bg-[#d43d3f] active:scale-[0.99]"
                   >
                     <Sparkles className="size-4" />

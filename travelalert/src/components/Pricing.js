@@ -65,7 +65,7 @@ export default function Pricing() {
   async function checkout(plan) {
     setError("");
     if (plan === "destination_pack") {
-      router.push("/upgrade");
+      router.push("/dashboard?upgrade=true");
       return;
     }
     const headers = await authHeaders();
