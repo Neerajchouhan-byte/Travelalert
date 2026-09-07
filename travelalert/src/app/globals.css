@@ -3201,3 +3201,75 @@ footer {
     animation: none;
   }
 }
+
+/* ---------- Application surfaces follow the system theme ---------- */
+/*
+ * The application screens predate the landing page theme variables and use
+ * Tailwind color literals. Keep those existing component classes intact, but
+ * remap their common surfaces and text colors when the OS prefers light mode.
+ */
+@media (prefers-color-scheme: light) {
+  .app-theme {
+    background: var(--bg) !important;
+    color: var(--text) !important;
+  }
+
+  .app-theme [class*="bg-[#0a0a0c]"],
+  .app-theme [class*="bg-[#07070a]"],
+  .app-theme [class*="bg-[#101013]"],
+  .app-theme [class*="bg-[#121316]"],
+  .app-theme [class*="bg-[#141418]"] {
+    background-color: var(--surface-inner) !important;
+  }
+
+  .app-theme [class*="bg-white/[0.02]"],
+  .app-theme [class*="bg-white/[0.03]"],
+  .app-theme [class*="bg-white/[0.04]"],
+  .app-theme [class*="bg-white/[0.05]"],
+  .app-theme [class*="bg-white/[0.08]"] {
+    background-color: var(--surface) !important;
+  }
+
+  .app-theme [class*="text-[#f3f3f2]"],
+  .app-theme [class*="text-white"] {
+    color: var(--text) !important;
+  }
+
+  .app-theme [class*="text-[#a6a6ad]"] {
+    color: var(--text-dim) !important;
+  }
+
+  .app-theme [class*="text-[#68686f]"],
+  .app-theme [class*="text-[#6f6f78]"] {
+    color: var(--text-faint) !important;
+  }
+
+  .app-theme [class*="border-white/5"],
+  .app-theme [class*="border-white/10"],
+  .app-theme [class*="border-white/12"],
+  .app-theme [class*="border-white/15"],
+  .app-theme [class*="border-white/20"] {
+    border-color: var(--border) !important;
+  }
+
+  .app-theme [class*="bg-white/5"] {
+    background-color: var(--surface) !important;
+  }
+
+  .app-theme [class*="hover:bg-white"]:hover {
+    background-color: var(--surface) !important;
+  }
+
+  .app-theme input,
+  .app-theme textarea,
+  .app-theme select {
+    color: var(--text);
+    background-color: var(--surface-inner);
+    border-color: var(--border-strong);
+  }
+
+  .app-theme input::placeholder,
+  .app-theme textarea::placeholder {
+    color: var(--text-faint);
+  }
+}

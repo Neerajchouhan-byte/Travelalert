@@ -141,7 +141,7 @@ function LoginContent() {
   const isSignup = mode === "signup";
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[#07070a] px-4 py-8 text-[#f3f3f2]">
+    <main className="app-theme flex min-h-svh items-center justify-center bg-[#07070a] px-4 py-8 text-[#f3f3f2]">
       <div className="w-full max-w-[420px]">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#e5484a]">
           {isSignup ? "Create account" : "Welcome back"}
@@ -246,7 +246,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="grid min-h-svh place-items-center bg-[#07070a] text-[#9a9aa3]">
+        <main className="app-theme grid min-h-svh place-items-center bg-[#07070a] text-[#9a9aa3]">
           Loading...
         </main>
       }

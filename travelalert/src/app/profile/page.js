@@ -140,7 +140,7 @@ function ProfileContent() {
         : "Free access";
 
   return (
-    <main className="min-h-screen bg-[#0a0a0c] text-[#f3f3f2] selection:bg-[#e5484a]/20">
+    <main className="app-theme min-h-screen bg-[#0a0a0c] text-[#f3f3f2] selection:bg-[#e5484a]/20">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:py-10">
         
         {/* Top Back Navigation */}
@@ -412,7 +412,7 @@ export default function ProfilePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[#0a0a0c] text-sm text-[#a6a6ad]">
+        <div className="app-theme flex min-h-screen items-center justify-center bg-[#0a0a0c] text-sm text-[#a6a6ad]">
           <LoaderCircle className="mr-2 size-4 animate-spin" /> Checking session...
         </div>
       }
