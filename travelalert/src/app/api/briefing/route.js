@@ -1,6 +1,6 @@
 import { getFreshCache, saveCache } from "@/lib/cache";
 import { organizeCity } from "@/lib/organize";
-import { normalizeCity } from "@/lib/city";
+import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
@@ -23,10 +23,19 @@ export async function GET(request) {
   }
 
   const url = new URL(request.url);
-  const city = normalizeCity(url.searchParams.get("city") || "");
+  const rawCity = url.searchParams.get("city") || "";
+  
+  // Try to resolve city using fuzzy matching first
+  let city = resolveCity(rawCity);
+  
+  // Fallback to simple normalization
+  if (!city) {
+    city = normalizeCity(rawCity);
+  }
+  
   if (!city) {
     return Response.json(
-      { error: "valid city required", alerts: [], tips: [] },
+      { error: `Could not recognize "${rawCity}" as a valid city name`, alerts: [], tips: [], invalidCity: true },
       { status: 400 }
     );
   }

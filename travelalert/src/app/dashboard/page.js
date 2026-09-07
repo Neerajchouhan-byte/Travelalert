@@ -16,6 +16,33 @@ import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import { useRouter, useSearchParams } from "next/navigation";
 
+// Simple in-memory cache for dashboard data to reduce latency on repeated views
+const dashboardCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCachedData(key) {
+  const cached = dashboardCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedData(key, data) {
+  dashboardCache.set(key, { data, timestamp: Date.now() });
+}
+
+// Helper to get auth headers
+async function getAuthHeaders() {
+  let headers = {};
+  if (supabase) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (token) headers = { Authorization: "Bearer " + token };
+  }
+  return headers;
+}
+
 function DashboardContent() {
   const city = useSearchParams().get("city") || "Bangkok";
   const router = useRouter();
@@ -30,11 +57,27 @@ function DashboardContent() {
   const [lockedAlerts, setLockedAlerts] = useState(0);
   const [lockedTips, setLockedTips] = useState(0);
   const [safety, setSafety] = useState(null);
+  const [briefLoading, setBriefLoading] = useState(false);
 
+  // Load briefing data (alerts, tips, safety) - independent effect
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function loadBriefing() {
+      // Check cache first
+      const cacheKey = `briefing:${city.toLowerCase()}`;
+      const cached = getCachedData(cacheKey);
+      if (cached) {
+        setAlerts(cached.alerts || []);
+        setTips(cached.tips || []);
+        setSource(cached.source || "");
+        setPlan(cached.plan || "free");
+        setLockedAlerts(cached.lockedAlerts || 0);
+        setLockedTips(cached.lockedTips || 0);
+        setSafety(cached.safety || null);
+        return;
+      }
+
       setLoading(true);
       setError("");
       setAlerts([]);
@@ -43,24 +86,12 @@ function DashboardContent() {
       setSafety(null);
 
       try {
-        let headers = {};
-        if (supabase) {
-          const { data: sessionData } = await supabase.auth.getSession();
-          const token = sessionData?.session?.access_token;
-          if (token) headers = { Authorization: "Bearer " + token };
-        }
+        const headers = await getAuthHeaders();
 
-        // Briefing and city facts are independent. Start both immediately so
-        // weather/currency do not wait behind an AI or live-post scan.
-        const briefingRequest = fetch(
+        const res = await fetch(
           "/api/briefing?city=" + encodeURIComponent(city),
           { cache: "no-store", headers },
         );
-        const cityBriefRequest = fetch(
-          "/api/city-brief?city=" + encodeURIComponent(city),
-          { cache: "no-store", headers },
-        );
-        const res = await briefingRequest;
 
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
@@ -82,14 +113,8 @@ function DashboardContent() {
           setError(data.error);
         }
 
-        const briefRes = await cityBriefRequest;
-        if (briefRes.ok) {
-          const briefData = await briefRes.json();
-          if (!cancelled) {
-            setBrief(briefData);
-            setBriefCity(city);
-          }
-        }
+        // Cache the results
+        setCachedData(cacheKey, data);
       } catch {
         if (!cancelled) setError("Could not load this destination");
       } finally {
@@ -97,11 +122,57 @@ function DashboardContent() {
       }
     }
 
-    load();
+    loadBriefing();
     return () => {
       cancelled = true;
     };
   }, [city, router]);
+
+  // Load city brief data (weather, currency) - independent effect for faster loading
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCityBrief() {
+      // Check cache first
+      const cacheKey = `citybrief:${city.toLowerCase()}`;
+      const cached = getCachedData(cacheKey);
+      if (cached) {
+        setBrief(cached);
+        setBriefCity(city);
+        return;
+      }
+
+      setBriefLoading(true);
+
+      try {
+        const headers = await getAuthHeaders();
+
+        const briefRes = await fetch(
+          "/api/city-brief?city=" + encodeURIComponent(city),
+          { cache: "no-store", headers },
+        );
+        
+        if (briefRes.ok) {
+          const briefData = await briefRes.json();
+          if (!cancelled) {
+            setBrief(briefData);
+            setBriefCity(city);
+            // Cache the results
+            setCachedData(cacheKey, briefData);
+          }
+        }
+      } catch (err) {
+        console.error("city brief load failed:", err);
+      } finally {
+        if (!cancelled) setBriefLoading(false);
+      }
+    }
+
+    loadCityBrief();
+    return () => {
+      cancelled = true;
+    };
+  }, [city]);
 
   return (
     <RequireAuth>

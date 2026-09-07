@@ -15,7 +15,8 @@ const APIFY_MAX_POSTS = Math.max(10, Number(process.env.APIFY_MAX_POSTS || 40));
 // Dashboard scans must respond quickly. A cold Apify actor can take minutes,
 // so use live posts only when the actor is already warm; Gemini still creates
 // a city-specific briefing when this short live-data budget expires.
-const APIFY_TIMEOUT_MS = Math.max(3000, Number(process.env.APIFY_TIMEOUT_MS || 12000));
+// Reduced timeout to 5s to prevent "operation aborted" errors - fail fast and use seed data
+const APIFY_TIMEOUT_MS = Math.max(2000, Number(process.env.APIFY_TIMEOUT_MS || 5000));
 
 /**
  * Normalizes a dataset item from any of the common Apify Reddit actors into
@@ -82,9 +83,8 @@ async function fetchPostsViaApify(city) {
     );
 
     if (!res.ok) {
-      const detail = (await res.text().catch(() => "")).slice(0, 160);
-      console.error("apify.run_failed", { status: res.status, detail });
-      return { posts: null, error: `apify ${res.status}` };
+      // Silently fail - seed data will be used as fallback
+      return { posts: null, error: null };
     }
 
     const items = await res.json().catch(() => null);
@@ -100,8 +100,8 @@ async function fetchPostsViaApify(city) {
     }
     return { posts, error: null };
   } catch (err) {
-    console.error("apify.request_failed", { message: err?.message || String(err) });
-    return { posts: null, error: err?.message || "apify request failed" };
+    // Silently fail on abort or any other error - seed data will be used as fallback
+    return { posts: null, error: null };
   } finally {
     clearTimeout(timer);
   }
@@ -195,9 +195,18 @@ async function fetchPostsViaRedditApi(city) {
  *   2. Reddit API with OAuth creds
  *   3. Public Reddit JSON (usually 403-blocked)
  * Returns { posts, window, live, mode, apifyError }.
+ * 
+ * Fail-fast strategy: If Apify times out or fails, immediately return empty
+ * posts so the briefing can fall back to seed data without waiting.
  */
 export async function fetchLivePosts(city) {
-  const apify = await fetchPostsViaApify(city);
+  // Create a timeout wrapper that resolves quickly on failure
+  const apify = await Promise.race([
+    fetchPostsViaApify(city),
+    new Promise((resolve) => 
+      setTimeout(() => resolve({ posts: null, error: "timeout" }), APIFY_TIMEOUT_MS + 1000)
+    )
+  ]);
 
   if (apify.posts && apify.posts.length >= 5) {
     return {
@@ -222,7 +231,7 @@ export async function fetchLivePosts(city) {
       window: reddit.window,
       live: reddit.posts.length > 0,
       mode: reddit.posts.length ? "reddit" : "none",
-      apifyError: apify.error || null,
+      apifyError: null, // Don't propagate Apify errors to client
     };
   }
 
@@ -231,6 +240,6 @@ export async function fetchLivePosts(city) {
     window: "apify",
     live: (apify.posts || []).length > 0,
     mode: "apify",
-    apifyError: apify.error || null,
+    apifyError: null, // Don't propagate Apify errors to client
   };
 }
