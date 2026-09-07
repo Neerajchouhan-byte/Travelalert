@@ -14,6 +14,7 @@ import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
+import { UpgradeModal } from "@/components/dashboard/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
 
 // Simple in-memory cache for dashboard data to reduce latency on repeated views
@@ -58,6 +59,7 @@ function DashboardContent() {
   const [lockedTips, setLockedTips] = useState(0);
   const [safety, setSafety] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   // Load briefing data (alerts, tips, safety) - independent effect
   useEffect(() => {
@@ -179,7 +181,7 @@ function DashboardContent() {
       <>
         <Topbar key={city} city={city} />
 
-        {/* Live intel ticker — sits right under the topbar */}
+        {/* Live intel ticker â€” sits right under the topbar */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -208,7 +210,7 @@ function DashboardContent() {
               {source === "cache"
                 ? "Served from cache (under 24 hours)"
                 : "Fresh scan"}
-              {" · "}
+              {" Â· "}
               <Link
                 href="/disclaimer"
                 className="underline decoration-white/20 hover:text-white"
@@ -265,15 +267,22 @@ function DashboardContent() {
           <RecentActivity city={city} alerts={alerts} loading={loading} />
           <DestinationChips active={city} />
         </div>
+
+        {/* Upgrade Modal */}
+        <UpgradeModal
+          isOpen={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          city={city}
+        />
       </>
     </RequireAuth>
-  );
-}
+    );
+  }
 
 export default function DashboardPage() {
   return (
     <Suspense
-      fallback={<div className="p-8 text-[#a6a6ad]">Loading dashboard…</div>}
+      fallback={<div className="p-8 text-[#a6a6ad]">Loading dashboardâ€¦</div>}
     >
       <DashboardContent />
     </Suspense>

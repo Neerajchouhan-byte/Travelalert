@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 
 /**
  * Next.js 16 "proxy" convention (replaces middleware.js).
- * Guards /dashboard and /profile — redirects unauthenticated
+ * Guards /dashboard, /profile, and /upgrade — redirects unauthenticated
  * visitors to /login, preserving the ?city param.
+ * 
+ * Also handles session refresh to keep users logged in across requests.
  */
 export default async function proxy(request) {
   let response = NextResponse.next({ request });
@@ -28,12 +30,21 @@ export default async function proxy(request) {
     },
   });
 
+  // Get current user and refresh session if needed
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Refresh session to extend expiry - this keeps users logged in
+  if (user) {
+    await supabase.auth.refreshSession();
+  }
+
   const path = request.nextUrl.pathname;
-  const protectedPath = path.startsWith("/dashboard") || path.startsWith("/profile");
+  const protectedPath = 
+    path.startsWith("/dashboard") || 
+    path.startsWith("/profile") || 
+    path.startsWith("/upgrade");
 
   if (protectedPath && !user) {
     const next = request.nextUrl.clone();
@@ -47,5 +58,5 @@ export default async function proxy(request) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/profile/:path*"],
+  matcher: ["/dashboard/:path*", "/profile/:path*", "/upgrade/:path*"],
 };

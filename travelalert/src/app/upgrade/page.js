@@ -2,11 +2,9 @@
 
 import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, LoaderCircle, MapPin, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Check, LoaderCircle, MapPin, ShieldCheck, UserRound } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RequireAuth } from "@/components/dashboard/RequireAuth";
-import { Topbar } from "@/components/dashboard/Topbar";
 import { supabase } from "@/lib/supabase";
 
 const plans = [
@@ -55,7 +53,33 @@ function UpgradeContent() {
   const [busyPlan, setBusyPlan] = useState("");
   const [error, setError] = useState("");
   const [subscription, setSubscription] = useState(null);
+  const [user, setUser] = useState(null);
 
+  // Check authentication status
+  useEffect(() => {
+    if (!supabase) return;
+    
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
+        const next = city ? `/login?city=${encodeURIComponent(city)}` : "/login";
+        router.replace(next);
+        return;
+      }
+      setUser(data.session.user);
+    });
+
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        const next = city ? `/login?city=${encodeURIComponent(city)}` : "/login";
+        router.replace(next);
+      }
+      setUser(session?.user ?? null);
+    });
+
+    return () => authSub?.unsubscribe();
+  }, [router, city]);
+
+  // Fetch subscription data
   useEffect(() => {
     let current = true;
     (async () => {
@@ -105,11 +129,41 @@ function UpgradeContent() {
     }
   }
 
+  // Show loading state while checking auth
+  if (!user) {
+    return (
+      <main className="min-h-svh bg-[#0a0a0c] text-[#f3f3f2]">
+        <div className="flex min-h-svh items-center justify-center">
+          <div className="text-center">
+            <LoaderCircle className="mx-auto size-8 animate-spin text-[#5b9dee]" />
+            <p className="mt-4 text-sm text-[#a6a6ad]">Loading...</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-svh bg-[#0a0a0c] text-[#f3f3f2]">
-      <Topbar city={city || "your destination"} />
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0a0a0c]/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+          <Link href="/" className="text-sm font-bold tracking-tight transition-opacity hover:opacity-80">
+            TravelRadar
+          </Link>
+          <Link
+            href="/profile"
+            aria-label="Open profile"
+            className="flex size-8 items-center justify-center rounded-full border border-[#e5484a]/40 bg-[#e5484a]/15 text-[#e5484a] transition-colors hover:bg-[#e5484a]/25"
+          >
+            <UserRound className="size-3.5" />
+          </Link>
+        </div>
+      </header>
 
-      <div className="mx-auto w-full max-w-6xl space-y-4 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-6 lg:px-8">
+      {/* Main Content */}
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        {/* Back Link */}
         <Link
           href={city ? `/dashboard?city=${encodeURIComponent(city)}` : "/dashboard"}
           className="inline-flex items-center gap-2 text-xs font-semibold text-[#a6a6ad] transition hover:text-white"
@@ -118,19 +172,19 @@ function UpgradeContent() {
         </Link>
 
         {/* Header Section */}
-        <motion.section
+        <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="text-center"
+          className="mt-6 text-center"
         >
           <span className="inline-block rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-[#a6a6ad]">
             Flexible access
           </span>
-          <h1 className="mt-3 text-xl font-bold tracking-tight sm:mt-4 sm:text-2xl lg:text-3xl">
+          <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl lg:text-4xl">
             Choose coverage that fits your journey.
           </h1>
-          <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-[#a6a6ad] sm:mt-3 sm:text-sm sm:leading-6">
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-[#a6a6ad] sm:text-base">
             {city ? (
               <>
                 You are viewing <span className="font-semibold text-white">{city}</span>. Choose the access level for your trip.
@@ -140,98 +194,104 @@ function UpgradeContent() {
             )}
           </p>
           {city && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-[10px] text-[#a6a6ad] sm:mt-4 sm:px-3.5 sm:py-2">
-              <MapPin className="size-3 text-[#f0a63d] sm:size-3.5" />
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 font-mono text-[10px] text-[#a6a6ad]">
+              <MapPin className="size-3.5 text-[#f0a63d]" />
               {city}
               <span className="text-[#68686f]">·</span>
               From {source}
             </div>
           )}
-        </motion.section>
+        </motion.div>
 
         {/* Info Banner */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center sm:p-4">
-          <p className="text-xs text-[#a6a6ad] sm:text-sm">
+        <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-center sm:mt-8">
+          <p className="text-sm text-[#a6a6ad]">
             One-off options never renew. Annual access is billed once per year—there is no monthly plan.
           </p>
         </div>
 
+        {/* Error Message */}
         {error && (
-          <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 sm:px-4 sm:py-3 sm:text-sm">
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}
-          </p>
+          </div>
         )}
 
-        {/* Pricing Grid - Responsive: 1 col mobile, 2 col tablet, 3 col desktop */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+        {/* Pricing Grid */}
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
           {plans.map((plan, index) => (
             <motion.div
               key={plan.key}
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.08, duration: 0.45 }}
-              className={`relative rounded-xl border p-4 sm:rounded-2xl sm:p-6 ${
+              transition={{ delay: index * 0.1, duration: 0.45 }}
+              className={`relative flex flex-col rounded-2xl border p-5 sm:p-6 ${
                 plan.featured
-                  ? "border-[#e5484a]/50 bg-[linear-gradient(160deg,rgba(229,72,74,0.15),transparent_60%)]"
+                  ? "border-[#e5484a]/50 bg-gradient-to-b from-[rgba(229,72,74,0.15)] to-transparent"
                   : "border-white/10 bg-white/[0.03]"
               }`}
             >
               {plan.featured && (
-                <span className="absolute -top-2.5 left-4 rounded-full bg-[#e5484a] px-2.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-white sm:-top-3 sm:px-3 sm:py-1 sm:text-[10px]">
+                <span className="absolute -top-3 left-6 rounded-full bg-[#e5484a] px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-white">
                   Best value
                 </span>
               )}
-              <p className="font-mono text-[9px] font-semibold uppercase tracking-widest text-[#68686f] sm:text-[10px]">
-                {plan.key === "destination_pack"
-                  ? "Destination coverage"
-                  : plan.key === "annual"
-                    ? "Full access"
-                    : "Trip coverage"}
-              </p>
-              <h2 className="mt-1.5 text-base font-bold text-[#f3f3f2] sm:mt-2 sm:text-lg">{plan.name}</h2>
-              <div className="mt-2 flex items-baseline gap-1 sm:mt-3">
-                <span className="font-mono text-2xl font-bold text-[#f3f3f2] sm:text-3xl">{plan.price}</span>
-                <span className="text-xs text-[#68686f] sm:text-sm">{plan.period}</span>
-              </div>
-              {plan.key === "destination_pack" && (
-                <div className="mt-2 rounded-lg border border-white/10 bg-[#101013] px-2.5 py-1.5 font-mono text-[9px] text-[#a6a6ad] sm:mt-3 sm:px-3 sm:py-2 sm:text-[10px]">
-                  Destination: <span className="font-semibold text-[#f3f3f2]">{city || "Choose from a dashboard"}</span>
+              
+              <div className="flex-1">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#68686f]">
+                  {plan.key === "destination_pack"
+                    ? "Destination coverage"
+                    : plan.key === "annual"
+                      ? "Full access"
+                      : "Trip coverage"}
+                </p>
+                <h2 className="mt-2 text-lg font-bold text-[#f3f3f2] sm:text-xl">{plan.name}</h2>
+                <div className="mt-3 flex items-baseline gap-1">
+                  <span className="font-mono text-3xl font-bold text-[#f3f3f2] sm:text-4xl">{plan.price}</span>
+                  <span className="text-sm text-[#68686f]">{plan.period}</span>
                 </div>
-              )}
-              <p className="mt-2 text-xs leading-4 text-[#a6a6ad] sm:mt-3 sm:text-sm sm:leading-5">{plan.description}</p>
-              <ul className="mt-3 flex-1 space-y-2 border-t border-white/10 pt-3 sm:mt-4 sm:space-y-2.5 sm:pt-4">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-1.5 text-xs text-[#a6a6ad] sm:gap-2 sm:text-sm">
-                    <Check className="mt-0.5 size-3 shrink-0 text-[#3ecf8e] sm:size-3.5" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
+                {plan.key === "destination_pack" && (
+                  <div className="mt-3 rounded-lg border border-white/10 bg-[#101013] px-3 py-2 font-mono text-[10px] text-[#a6a6ad]">
+                    Destination: <span className="font-semibold text-[#f3f3f2]">{city || "Choose from a dashboard"}</span>
+                  </div>
+                )}
+                <p className="mt-3 text-sm leading-5 text-[#a6a6ad]">{plan.description}</p>
+                <ul className="mt-4 space-y-2.5 border-t border-white/10 pt-4">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sm text-[#a6a6ad]">
+                      <Check className="mt-0.5 size-3.5 shrink-0 text-[#3ecf8e]" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              
               <button
                 type="button"
                 onClick={() => startCheckout(plan.key)}
                 disabled={Boolean(busyPlan)}
-                className={`mt-4 flex h-9 w-full items-center justify-center rounded-lg text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 sm:mt-5 sm:h-10 sm:text-sm ${
+                className={`mt-6 flex h-11 w-full items-center justify-center rounded-lg text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
                   plan.featured
                     ? "bg-[#f3f3f2] text-[#111] hover:bg-white"
                     : "border border-white/15 bg-white/[0.04] text-[#f3f3f2] hover:border-white/25 hover:bg-white/[0.08]"
                 }`}
               >
-                {busyPlan === plan.key && <LoaderCircle className="mr-1.5 size-3 animate-spin sm:mr-2 sm:size-3.5" />}
+                {busyPlan === plan.key && <LoaderCircle className="mr-2 size-4 animate-spin" />}
                 {plan.action}
               </button>
+              
               {plan.key === "annual" && subscription?.plan === "annual" && (
-                <p className="mt-2 text-center font-mono text-[9px] text-[#68686f] sm:mt-3 sm:text-[10px]">Your Annual plan is active.</p>
+                <p className="mt-3 text-center font-mono text-[10px] text-[#68686f]">Your Annual plan is active.</p>
               )}
             </motion.div>
           ))}
         </div>
 
         {/* Security Badge */}
-        <p className="flex items-center justify-center gap-1.5 pt-1 text-center text-[10px] text-[#a6a6ad] sm:gap-2 sm:pt-2 sm:text-xs">
-          <ShieldCheck className="size-3.5 text-emerald-400 sm:size-4" />
+        <div className="mt-8 flex items-center justify-center gap-2 pb-8 text-center text-xs text-[#a6a6ad] sm:mt-10">
+          <ShieldCheck className="size-4 text-emerald-400" />
           Secure checkout and access confirmation by Dodo Payments.
-        </p>
+        </div>
       </div>
     </main>
   );
@@ -239,10 +299,17 @@ function UpgradeContent() {
 
 export default function UpgradePage() {
   return (
-    <Suspense fallback={<div className="min-h-svh bg-[#0a0a0c] p-8 text-[#a6a6ad]">Loading upgrade options...</div>}>
-      <RequireAuth>
-        <UpgradeContent />
-      </RequireAuth>
+    <Suspense fallback={
+      <main className="min-h-svh bg-[#0a0a0c] text-[#f3f3f2]">
+        <div className="flex min-h-svh items-center justify-center">
+          <div className="text-center">
+            <LoaderCircle className="mx-auto size-8 animate-spin text-[#5b9dee]" />
+            <p className="mt-4 text-sm text-[#a6a6ad]">Loading upgrade options...</p>
+          </div>
+        </div>
+      </main>
+    }>
+      <UpgradeContent />
     </Suspense>
   );
 }
