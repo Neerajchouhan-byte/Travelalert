@@ -4,9 +4,8 @@ import { NextResponse } from "next/server";
 /**
  * Next.js 16 "proxy" convention (replaces middleware.js).
  * Guards /dashboard and /profile — redirects unauthenticated
- * visitors to /login, preserving the ?city param. Authenticated visitors
- * requesting the public root page are redirected to /dashboard before the
- * landing page is rendered.
+ * visitors to /login, preserving the ?city param. The public root page remains
+ * available to authenticated users so dashboard navigation can return home.
  * 
  * Also handles session refresh to keep users logged in across requests.
  */
@@ -43,15 +42,6 @@ export default async function proxy(request) {
   }
 
   const path = request.nextUrl.pathname;
-
-  // Redirect at the proxy boundary so authenticated users never see a
-  // client-rendered landing page flash. The exact path check prevents this
-  // from affecting /dashboard or creating a redirect loop.
-  if (path === "/" && user) {
-    const redirect = NextResponse.redirect(new URL("/dashboard", request.url));
-    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
-    return redirect;
-  }
 
   const protectedPath = 
     path.startsWith("/dashboard") || 

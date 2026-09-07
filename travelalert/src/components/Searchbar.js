@@ -4,17 +4,22 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Search } from "lucide-react";
 import { cities } from "@/lib/dashboard-data";
+import { supabase } from "@/lib/supabase";
 
 export default function SearchBar() {
   const router = useRouter();
   const [city, setCity] = useState("");
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     const trimmedCity = city.trim();
-    if (!trimmedCity) return;
+    const destination = trimmedCity
+      ? `?city=${encodeURIComponent(trimmedCity)}`
+      : "";
+    const { data } = await supabase?.auth.getSession();
+    const target = data?.session ? "/dashboard" : "/login";
 
-    router.push(`/login?city=${encodeURIComponent(trimmedCity)}`);
+    router.push(`${target}${destination}`);
   }
 
   return (

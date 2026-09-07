@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { getScamCity } from "@/lib/scam-data";
 
-export function generateMetadata({ params }) {
-  const city = getScamCity(params.city);
+export async function generateMetadata({ params }) {
+  const { city: slug } = await params;
+  const city = getScamCity(slug);
   if (!city) return { title: "Tourist Scam Guide | TravelRadar" };
   return {
     title: `${city.name} Tourist Scams (2026 Guide) - What to Avoid`,
@@ -10,8 +11,9 @@ export function generateMetadata({ params }) {
   };
 }
 
-export default function CityScamPage({ params }) {
-  const city = getScamCity(params.city);
+export default async function CityScamPage({ params }) {
+  const { city: slug } = await params;
+  const city = getScamCity(slug);
   if (!city) notFound();
 
   const visibleAlerts = city.alerts.filter((alert) => !alert.gated);

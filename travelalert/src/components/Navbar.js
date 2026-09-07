@@ -4,17 +4,37 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Menu, Radar, X } from "lucide-react";
 import CommandPalette from "./CommandPalette";
+import { supabase } from "@/lib/supabase";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (active) setIsLoggedIn(Boolean(data?.session));
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(Boolean(session));
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   const close = () => setOpen(false);
@@ -33,17 +53,17 @@ export default function Navbar() {
         <a href="#how" onClick={close}>How it works</a>
         <a href="#pricing" onClick={close}>Pricing</a>
         <Link
-          href="/login"
+          href={isLoggedIn ? "/dashboard" : "/login"}
           className="btn-primary nav-cta-mobile"
           onClick={close}
         >
-          <span>Scan now</span>
+          <span>{isLoggedIn ? "Dashboard" : "Scan now"}</span>
         </Link>
       </div>
 
       <div className="nav-right">
-        <Link href="/login" className="btn-primary">
-          <span>Scan now</span>
+        <Link href={isLoggedIn ? "/dashboard" : "/login"} className="btn-primary">
+          <span>{isLoggedIn ? "Dashboard" : "Scan now"}</span>
           <span className="icw">
             <ArrowRight className="size-3" aria-hidden="true" />
           </span>
