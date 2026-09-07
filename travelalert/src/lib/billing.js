@@ -36,14 +36,33 @@ const STATUS_WEIGHT = {
 };
 
 export function getDodoClient() {
-  const bearerToken = process.env.DODO_PAYMENTS_API_KEY;
-  const environment = process.env.DODO_PAYMENTS_ENVIRONMENT || "test_mode";
-  if (!bearerToken) throw new Error("Billing is not configured.");
-  if (!["test_mode", "live_mode"].includes(environment)) {
-    throw new Error("Billing environment is invalid.");
+  const bearerToken = String(process.env.DODO_PAYMENTS_API_KEY || "").trim();
+  const environment = String(
+    process.env.DODO_PAYMENTS_ENVIRONMENT || "test_mode",
+  ).trim();
+
+  if (!bearerToken) {
+    throw new Error("DODO_PAYMENTS_API_KEY is missing.");
   }
-  return new DodoPayments({ bearerToken, environment });
+
+  if (/[<>]/.test(bearerToken)) {
+    throw new Error(
+      "DODO_PAYMENTS_API_KEY contains angle brackets. Remove < and >.",
+    );
+  }
+
+  if (!["test_mode", "live_mode"].includes(environment)) {
+    throw new Error(
+      `DODO_PAYMENTS_ENVIRONMENT is invalid: ${environment}. Use test_mode or live_mode.`,
+    );
+  }
+
+  return new DodoPayments({
+    bearerToken,
+    environment,
+  });
 }
+
 
 export function getPlan(planKey) {
   const plan = BILLING_PLANS[planKey];
@@ -184,8 +203,27 @@ export function isStaleUpdate(existing, incomingAt, incomingStatus) {
 
 export function billingErrorMessage(error) {
   const status = error?.status || error?.statusCode;
-  if (status === 401 || status === 403) return "Billing authorization failed. Please contact support.";
-  if (status === 429) return "Billing is busy. Please wait a moment and try again.";
-  if (status >= 500) return "Billing is temporarily unavailable. Please try again shortly.";
-  return error?.message || "Billing request failed. Please try again.";
+  const message = String(error?.message || "");
+
+  if (status === 401 || status === 403) {
+    return "Dodo authorization failed. Verify that the API key, product IDs, and environment all belong to the same Dodo account.";
+  }
+
+  if (status === 404) {
+    return "Dodo product was not found. Check that the product ID belongs to the configured Dodo environment.";
+  }
+
+  if (status === 429) {
+    return "Dodo is temporarily rate-limiting requests. Please try again shortly.";
+  }
+
+  if (status >= 500) {
+    return "Dodo Payments is temporarily unavailable. Please try again shortly.";
+  }
+
+  if (message.includes("not configured")) {
+    return message;
+  }
+
+  return message || "Billing request failed. Please try again.";
 }

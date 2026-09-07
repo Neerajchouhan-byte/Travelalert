@@ -138,7 +138,7 @@ export function CommandMenu() {
                 </Item>
                 <Item
                   value="upgrade pro pricing"
-                  onSelect={() => run(() => go("/#pricing"))}
+                    onSelect={() => run(() => go("/upgrade"))}
                 >
                   <Crown className="size-3.5 text-[#f0a63d]" />
                   <span className="flex-1 text-sm">Upgrade to Pro</span>

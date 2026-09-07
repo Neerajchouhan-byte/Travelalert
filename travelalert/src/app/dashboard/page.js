@@ -50,10 +50,17 @@ function DashboardContent() {
           if (token) headers = { Authorization: "Bearer " + token };
         }
 
-        const res = await fetch(
+        // Briefing and city facts are independent. Start both immediately so
+        // weather/currency do not wait behind an AI or live-post scan.
+        const briefingRequest = fetch(
           "/api/briefing?city=" + encodeURIComponent(city),
           { cache: "no-store", headers },
         );
+        const cityBriefRequest = fetch(
+          "/api/city-brief?city=" + encodeURIComponent(city),
+          { cache: "no-store", headers },
+        );
+        const res = await briefingRequest;
 
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
@@ -75,10 +82,7 @@ function DashboardContent() {
           setError(data.error);
         }
 
-        const briefRes = await fetch(
-          "/api/city-brief?city=" + encodeURIComponent(city),
-          { cache: "no-store", headers },
-        );
+        const briefRes = await cityBriefRequest;
         if (briefRes.ok) {
           const briefData = await briefRes.json();
           if (!cancelled) {
@@ -156,6 +160,7 @@ function DashboardContent() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <ScamAlerts
+              city={city}
               alerts={alerts}
               loading={loading}
               plan={plan}

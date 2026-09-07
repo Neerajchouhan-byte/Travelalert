@@ -12,7 +12,10 @@ const UA = "TravelRadar/1.0 (travel safety research)";
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
 const APIFY_ACTOR_ID = process.env.APIFY_ACTOR_ID || "trudax~reddit-scraper-lite";
 const APIFY_MAX_POSTS = Math.max(10, Number(process.env.APIFY_MAX_POSTS || 40));
-const APIFY_TIMEOUT_MS = 110000; // actor runs take ~60-120s (startup + scraping)
+// Dashboard scans must respond quickly. A cold Apify actor can take minutes,
+// so use live posts only when the actor is already warm; Gemini still creates
+// a city-specific briefing when this short live-data budget expires.
+const APIFY_TIMEOUT_MS = Math.max(3000, Number(process.env.APIFY_TIMEOUT_MS || 12000));
 
 /**
  * Normalizes a dataset item from any of the common Apify Reddit actors into
@@ -206,7 +209,12 @@ export async function fetchLivePosts(city) {
     };
   }
 
-  const reddit = await fetchPostsViaRedditApi(city);
+  // Direct Reddit is normally 403-blocked from server hosts. Do not add four
+  // more network attempts after an Apify timeout unless OAuth is configured.
+  const canUseRedditOauth = Boolean(CLIENT_ID && CLIENT_SECRET);
+  const reddit = canUseRedditOauth
+    ? await fetchPostsViaRedditApi(city)
+    : { posts: [], window: "none" };
 
   if (reddit.posts.length >= (apify.posts?.length || 0)) {
     return {

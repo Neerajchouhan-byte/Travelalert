@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, LoaderCircle, MapPin, ShieldCheck } from "lucide-react";
+import { Check, LoaderCircle, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -32,8 +32,8 @@ const plans = [
     price: "$19",
     period: "/ destination",
     description: "Permanent access to the full briefing for one destination you choose.",
-    features: ["Lifetime access to one destination", "Choose your destination at checkout", "No subscription or renewal"],
-    action: "Unlock this destination",
+    features: ["Lifetime access to one destination", "Start from a destination dashboard", "No subscription or renewal"],
+    action: "Choose a destination",
   },
 ];
 
@@ -47,7 +47,6 @@ async function authHeaders() {
 export default function Pricing() {
   const router = useRouter();
   const [subscription, setSubscription] = useState(null);
-  const [destination, setDestination] = useState("");
   const [busyPlan, setBusyPlan] = useState("");
   const [error, setError] = useState("");
 
@@ -65,18 +64,18 @@ export default function Pricing() {
 
   async function checkout(plan) {
     setError("");
-    const headers = await authHeaders();
-    if (!headers) return router.push("/login");
-    if (plan === "destination_pack" && destination.trim().length < 2) {
-      setError("Enter the destination you want to unlock permanently.");
+    if (plan === "destination_pack") {
+      router.push("/upgrade");
       return;
     }
+    const headers = await authHeaders();
+    if (!headers) return router.push("/login");
     setBusyPlan(plan);
     try {
       const response = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, destination }),
+        body: JSON.stringify({ plan }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.checkoutUrl) throw new Error(body.error || "Checkout could not be started.");
@@ -107,12 +106,6 @@ export default function Pricing() {
               <div className="p-price"><span className="amt">{plan.price}</span><span className="per">{plan.period}</span></div>
               <p className="p-desc">{plan.description}</p>
               <ul className="p-feats">{plan.features.map((feature) => <li key={feature}><Check className="size-3.5 shrink-0" aria-hidden="true" />{feature}</li>)}</ul>
-              {plan.key === "destination_pack" && (
-                <label className="mb-3 block text-left text-xs text-[#a6a6ad]">
-                  <span className="mb-1 flex items-center gap-1"><MapPin className="size-3" />Destination</span>
-                  <input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="e.g. Bangkok" className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-[#5b9dee]" />
-                </label>
-              )}
               <button type="button" className={plan.featured ? "btn-primary btn-block" : "btn-ghost btn-block"} onClick={() => checkout(plan.key)} disabled={Boolean(busyPlan)} aria-busy={busyPlan === plan.key} style={plan.featured ? { justifyContent: "center", padding: "0.85rem 1.5rem" } : undefined}>
                 {busyPlan === plan.key && <LoaderCircle className="mr-2 size-4 animate-spin" />}{plan.action}
               </button>

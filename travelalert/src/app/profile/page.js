@@ -2,7 +2,13 @@
 
 import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { ArrowLeft, CreditCard, LoaderCircle, LogOut, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  CreditCard,
+  LoaderCircle,
+  LogOut,
+  UserRound,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import { Button } from "@/components/ui/button";
@@ -85,25 +91,31 @@ function ProfileContent() {
     try {
       const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token;
-      if (!token) throw new Error("Your session has expired. Please sign in again.");
+      if (!token)
+        throw new Error("Your session has expired. Please sign in again.");
       const response = await fetch(path, {
         method: "POST",
         headers: { Authorization: "Bearer " + token },
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "Billing request failed.");
+      if (!response.ok)
+        throw new Error(body.error || "Billing request failed.");
       if (body.portalUrl) {
         window.location.assign(body.portalUrl);
         return;
       }
-      setBillingNotice(body.message || "Your billing preferences were updated.");
+      setBillingNotice(
+        body.message || "Your billing preferences were updated.",
+      );
       if (path.endsWith("/cancel")) {
         setSubscription((current) =>
           current ? { ...current, cancelAtPeriodEnd: true } : current,
         );
       }
     } catch (error) {
-      setBillingError(error instanceof Error ? error.message : "Billing request failed.");
+      setBillingError(
+        error instanceof Error ? error.message : "Billing request failed.",
+      );
     } finally {
       setBillingBusy("");
     }
@@ -202,11 +214,21 @@ function ProfileContent() {
               </p>
               {subscription?.currentPeriodEnd && (
                 <p className="mt-1 text-xs text-[#68686f]">
-                  Current period ends {new Date(subscription.currentPeriodEnd).toLocaleDateString()}.
+                  Current period ends{" "}
+                  {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                  .
                 </p>
               )}
-              {billingError && <p role="alert" className="mt-2 text-sm text-red-300">{billingError}</p>}
-              {billingNotice && <p role="status" className="mt-2 text-sm text-emerald-300">{billingNotice}</p>}
+              {billingError && (
+                <p role="alert" className="mt-2 text-sm text-red-300">
+                  {billingError}
+                </p>
+              )}
+              {billingNotice && (
+                <p role="status" className="mt-2 text-sm text-emerald-300">
+                  {billingNotice}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {subscription?.canManage && (
@@ -216,23 +238,30 @@ function ProfileContent() {
                   disabled={Boolean(billingBusy)}
                   className="h-10 border-white/10 bg-white/[0.03] text-[#f3f3f2] hover:bg-white/[0.08]"
                 >
-                  {billingBusy === "portal" && <LoaderCircle className="size-4 animate-spin" />}
+                  {billingBusy === "portal" && (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  )}
                   Manage billing
                 </Button>
               )}
-              {subscription?.plan === "annual" && !subscription?.cancelAtPeriodEnd && (
-                <Button
-                  variant="outline"
-                  onClick={() => callBilling("/api/billing/cancel", "cancel")}
-                  disabled={Boolean(billingBusy)}
-                  className="h-10 border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                >
-                  {billingBusy === "cancel" && <LoaderCircle className="size-4 animate-spin" />}
-                  Cancel at period end
-                </Button>
-              )}
+              {subscription?.plan === "annual" &&
+                !subscription?.cancelAtPeriodEnd && (
+                  <Button
+                    variant="outline"
+                    onClick={() => callBilling("/api/billing/cancel", "cancel")}
+                    disabled={Boolean(billingBusy)}
+                    className="h-10 border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                  >
+                    {billingBusy === "cancel" && (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    )}
+                    Cancel at period end
+                  </Button>
+                )}
               {subscription?.plan === "free" && (
-                <Link href="/#pricing" className="btn-primary h-10 px-4 text-sm">View plans</Link>
+                <Link href="/upgrade" className="btn-primary h-10 px-4 text-sm">
+                  Upgrade access
+                </Link>
               )}
             </div>
           </div>

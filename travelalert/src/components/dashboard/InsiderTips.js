@@ -19,6 +19,7 @@ export function InsiderTips({ tips = [], loading, city, plan = "free", lockedCou
   // locked tips arrives separately as lockedCount — render them as blurred
   // placeholders plus the upgrade prompt (mirrors ScamAlerts).
   const locked = hasAccess ? 0 : Math.max(0, lockedCount || 0);
+  const upgradeHref = `/upgrade?city=${encodeURIComponent(city || "Bangkok")}&source=tips`;
 
   return (
     <Panel>
@@ -28,8 +29,8 @@ export function InsiderTips({ tips = [], loading, city, plan = "free", lockedCou
         <AnimatePresence mode="popLayout">{!loading && rows.map((tip, index) => <ExpandableCard key={tip.title} index={index} title={tip.title} preview={tip.desc} badge="tip" accent="tip"><p className="text-xs leading-relaxed text-[#a6a6ad]">{tip.desc}</p>{tip.saving && <p className="mt-2 flex items-start gap-2 text-xs font-semibold text-[#3ecf8e]"><ShieldHalf className="mt-0.5 size-3 shrink-0" />{tip.saving}</p>}</ExpandableCard>)}</AnimatePresence>
         {!loading && Array.from({ length: locked }).map((_, index) => <ExpandableCard key={`lock-${index}`} index={rows.length + index} title="Locked tip" preview="Upgrade to Pro to unlock this insider tip." accent="tip" locked />)}
         {!loading && rows.length === 0 && <p className="px-1 py-2 text-xs text-[#a6a6ad]">No live tips for {city} yet. Check back soon.</p>}
-        {!hasAccess && locked > 0 && !loading && <div className="flex flex-col gap-2 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs font-semibold text-[#5b9dee]">{locked} more tips with full access</span><Link href="/#pricing" className="inline-flex h-7 items-center justify-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]">View access options</Link></div>}
-        {!hasAccess && locked === 0 && !loading && rows.length > 0 && <div className="flex flex-col gap-2 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs font-semibold text-[#5b9dee]">Unlock all tips with Pro</span><Link href="/#pricing" className="inline-flex h-7 items-center justify-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]">View access options</Link></div>}
+        {!hasAccess && locked > 0 && !loading && <div className="flex flex-col gap-2 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs font-semibold text-[#5b9dee]">{locked} more tips with full access</span><Link href={upgradeHref} className="inline-flex h-7 items-center justify-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]">Unlock tips</Link></div>}
+        {!hasAccess && locked === 0 && !loading && rows.length > 0 && <div className="flex flex-col gap-2 rounded-lg border border-[rgba(91,157,238,0.38)] bg-[rgba(91,157,238,0.13)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs font-semibold text-[#5b9dee]">Unlock all tips with Pro</span><Link href={upgradeHref} className="inline-flex h-7 items-center justify-center rounded-full bg-[#5b9dee] px-3 text-xs font-semibold text-[#071426]">Unlock tips</Link></div>}
       </div>
     </Panel>
   );

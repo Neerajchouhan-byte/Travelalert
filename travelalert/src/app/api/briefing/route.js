@@ -7,7 +7,9 @@ import { adminDb } from "@/lib/supabase-admin";
 import { seedIntel, fillIntel } from "@/lib/seed-intel";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
-export const maxDuration = 120; // fresh-city scans wait on Apify (~60-120s) + Gemini
+// Apify has a short best-effort budget; a city briefing must not leave the
+// dashboard waiting for a cold scraper run.
+export const maxDuration = 45;
 
 function monthKey() {
   const d = new Date();

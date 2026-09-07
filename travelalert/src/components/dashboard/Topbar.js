@@ -43,7 +43,7 @@ export function Topbar({ city }) {
             type="text"
             value={searchCity}
             onChange={(e) => setSearchCity(e.target.value)}
-            placeholder={`Search a city... (current: ${city})`}
+            placeholder={`Search a city... `}
             aria-label="Search city"
             className="min-w-0 flex-1 bg-transparent text-sm text-[#f3f3f2] outline-none placeholder:text-[#68686f]"
           />
