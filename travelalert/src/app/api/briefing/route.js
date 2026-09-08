@@ -15,6 +15,7 @@ function monthKey() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+// Rate limiting map: tracks [userId_city] -> lastRefreshTimestamp
 const refreshCooldowns = new Map();
 const COOLDOWN_MS = 3 * 60 * 1000; // 3-minute cooldown between forced live scrapes
 
@@ -27,20 +28,36 @@ export async function GET(request) {
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
   let forceRefresh = url.searchParams.get("refresh") === "1";
-  
-  // DEFENSIVE RATE LIMIT: Prevent API abuse
+
+  // 1. Resolve and normalize city name FIRST
+  let city = resolveCity(rawCity);
+  if (!city) {
+    city = normalizeCity(rawCity);
+  }
+
+  if (!city) {
+    return Response.json(
+      {
+        error: `Could not recognize "${rawCity}" as a valid city name`,
+        alerts: [],
+        tips: [],
+        invalidCity: true,
+      },
+      { status: 400 },
+    );
+  }
+
+  // 2. DEFENSIVE RATE LIMIT: Prevent API abuse
   if (forceRefresh) {
-    const rateKey = `${profile.user.id}_${rawCity.toLowerCase()}`;
+    const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
     const lastRefresh = refreshCooldowns.get(rateKey) || 0;
     const now = Date.now();
 
     if (now - lastRefresh < COOLDOWN_MS) {
-      // Cooldown active: silently ignore forceRefresh and serve cached data
-      console.warn(`[AntiSpam] Cooldown active for user ${profile.user.id} on ${rawCity}. Serving cache.`);
+      console.warn(`[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`);
       forceRefresh = false;
     } else {
       refreshCooldowns.set(rateKey, now);
-      // Clean up old memory entries
       if (refreshCooldowns.size > 2000) refreshCooldowns.clear();
     }
   }

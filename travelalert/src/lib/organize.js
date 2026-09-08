@@ -8,8 +8,8 @@ function cleanList(arr, n) {
     .slice(0, n)
     .map((x) => ({
       name: String(x.name || x.title).slice(0, 120),
-      severity: ["high", "medium"].includes(String(x.severity).toLowerCase())
-        ? x.severity.toLowerCase()
+      severity: ["high", "medium"].includes(String(x.severity || "").toLowerCase())
+        ? String(x.severity).toLowerCase()
         : "medium",
       description: String(x.description || x.desc || "").slice(0, 600),
       avoid: String(x.avoid || x.saving || "").slice(0, 300),
@@ -18,11 +18,10 @@ function cleanList(arr, n) {
     }));
 }
 
-// Exactly what Google's API asked for:
 const MODELS = [
-  "gemini-3.6-flash", // Recommended directly by Google's API response
-  "gemini-3.8-flash", // Primary model
-  "gemini-3.1-flash-lite", // Lite model (separate capacity pool, immune to 503s)
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
   "gemini-flash-lite-latest",
 ];
 
@@ -35,12 +34,9 @@ export async function askGemini(prompt) {
   for (const model of MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    // Try twice per model with a short pause if Google is busy (503)
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        console.info(
-          `[Organize] Calling model ${model} (attempt ${attempt})...`,
-        );
+        console.info(`[Organize] Calling model ${model} (attempt ${attempt})...`);
         const res = await fetch(url, {
           method: "POST",
           headers: {
@@ -54,11 +50,8 @@ export async function askGemini(prompt) {
 
         const json = await res.json().catch(() => ({}));
 
-        // If Google servers have a brief 503 spike, wait 1 second and retry or fail over
         if (res.status === 503 || res.status === 429) {
-          console.warn(
-            `[Organize] ${model} temporary spike (${res.status}). Retrying...`,
-          );
+          console.warn(`[Organize] ${model} temporary spike (${res.status}). Retrying...`);
           await new Promise((r) => setTimeout(r, 1200));
           continue;
         }
@@ -66,7 +59,7 @@ export async function askGemini(prompt) {
         if (!res.ok) {
           lastErr = `${model} HTTP ${res.status}: ${json?.error?.message || "error"}`;
           console.warn(`[Organize] ${lastErr}`);
-          break; // Move to next model
+          break;
         }
 
         const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -79,9 +72,7 @@ export async function askGemini(prompt) {
         }
 
         const parsed = JSON.parse(text.slice(start, end + 1));
-        console.info(
-          `[Organize] Success! ${model} organized the intelligence.`,
-        );
+        console.info(`[Organize] Success! ${model} organized the intelligence.`);
         return parsed;
       } catch (err) {
         lastErr = `${model} error: ${err.message}`;
@@ -112,14 +103,11 @@ export async function organizeCity(rawCity) {
   const posts = live.posts || [];
 
   if (posts.length === 0) {
-    console.warn(
-      `[Organize] No live Reddit posts found for ${city}. Using fallback.`,
-    );
+    console.warn(`[Organize] No live Reddit posts found for ${city}. Using fallback.`);
     return { city, ...seeded, source: "seed" };
   }
 
-  // 2. Format digest with real URLs and upvotes
-  // 1. Sanitize raw text to prevent breaking out of XML boundary tags
+  // 2. Format digest with boundary tags
   const digest = posts
     .map((p, i) => {
       const cleanTitle = (p.title || "").replace(/<\/?untrusted_report>/gi, "");
@@ -133,7 +121,6 @@ export async function organizeCity(rawCity) {
     })
     .join("\n");
 
-  // 2. Prompt with strict security boundary isolation
   const prompt = `You are a travel security analyst generating a briefing for ${city}.
 
 SECURITY POLICY & RULES:
@@ -175,4 +162,31 @@ Return ONLY valid JSON matching this schema:
     }
   ]
 }`;
+
+  try {
+    const parsed = await askGemini(prompt);
+    const alerts = cleanList(parsed.alerts, 12);
+    const tips = cleanList(parsed.tips, 10);
+
+    if (alerts.length > 0 || tips.length > 0) {
+      console.info(`[Organize] Finished: ${alerts.length} real alerts and ${tips.length} real tips extracted.`);
+      return {
+        city,
+        alerts,
+        tips,
+        postCount: posts.length,
+        source: "reddit+gemini",
+      };
+    }
+
+    return { city, ...seeded, source: "seed" };
+  } catch (err) {
+    console.error("[Organize] AI failed to organize posts:", err.message);
+    return {
+      city,
+      ...seeded,
+      source: "seed",
+      error: err.message,
+    };
+  }
 }

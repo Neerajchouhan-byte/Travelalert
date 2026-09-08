@@ -36,7 +36,7 @@ export async function fetchLivePosts(city) {
       },
       body: JSON.stringify({
         q: query,
-        num: 10,
+        num: 7,
       }),
       cache: "no-store",
     });
