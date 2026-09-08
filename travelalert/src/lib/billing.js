@@ -63,7 +63,6 @@ export function getDodoClient() {
   });
 }
 
-
 export function getPlan(planKey) {
   const plan = BILLING_PLANS[planKey];
   if (!plan?.productId()) throw new Error("That offering is not currently available.");
@@ -86,8 +85,6 @@ export async function getUserSubscription(userId) {
   const { data, error } = await adminDb()
     .from("billing_subscriptions").select("*").eq("user_id", userId).maybeSingle();
   if (error) {
-    // Missing table / migration not applied yet: treat as no subscription so
-    // the app degrades to the free plan instead of failing every request.
     console.error("billing_subscriptions read failed:", error.message);
     return null;
   }
@@ -151,10 +148,18 @@ export async function createCheckout(user, planKey, origin, destination) {
     throw new Error("Choose a valid destination for this pack.");
   }
 
+  // 1. Send user directly back to their dashboard with city preserved
+  const returnPath = destination 
+    ? `/dashboard?city=${encodeURIComponent(destination)}&billing=success`
+    : `/dashboard?billing=success`;
+
+  const returnUrl = new URL(returnPath, origin).toString();
+
+  // 2. Call Dodo checkout
   const session = await getDodoClient().checkoutSessions.create({
     product_cart: [{ product_id: plan.productId(), quantity: 1 }],
     customer: { email: user.email },
-    return_url: new URL("/profile?billing=success", origin).toString(),
+    return_url: returnUrl,
     metadata: {
       travelradar_user_id: user.id,
       offering_key: plan.key,
@@ -162,6 +167,7 @@ export async function createCheckout(user, planKey, origin, destination) {
       destination_name: normalizedDestination || undefined,
     },
   });
+
   if (!session?.checkout_url) throw new Error("Checkout could not be started.");
   return session.checkout_url;
 }

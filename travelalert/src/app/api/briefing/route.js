@@ -15,6 +15,9 @@ function monthKey() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+const refreshCooldowns = new Map();
+const COOLDOWN_MS = 3 * 60 * 1000; // 3-minute cooldown between forced live scrapes
+
 export async function GET(request) {
   const profile = await getRequestProfile(request);
   if (!profile.user) {
@@ -23,24 +26,42 @@ export async function GET(request) {
 
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
-  const forceRefresh = url.searchParams.get("refresh") === "1";
+  let forceRefresh = url.searchParams.get("refresh") === "1";
   
-  // Try to resolve city using fuzzy matching first
-  let city = resolveCity(rawCity);
-  
-  // Fallback to simple normalization
-  if (!city) {
-    city = normalizeCity(rawCity);
+  // DEFENSIVE RATE LIMIT: Prevent API abuse
+  if (forceRefresh) {
+    const rateKey = `${profile.user.id}_${rawCity.toLowerCase()}`;
+    const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+    const now = Date.now();
+
+    if (now - lastRefresh < COOLDOWN_MS) {
+      // Cooldown active: silently ignore forceRefresh and serve cached data
+      console.warn(`[AntiSpam] Cooldown active for user ${profile.user.id} on ${rawCity}. Serving cache.`);
+      forceRefresh = false;
+    } else {
+      refreshCooldowns.set(rateKey, now);
+      // Clean up old memory entries
+      if (refreshCooldowns.size > 2000) refreshCooldowns.clear();
+    }
   }
-  
+
   if (!city) {
     return Response.json(
-      { error: `Could not recognize "${rawCity}" as a valid city name`, alerts: [], tips: [], invalidCity: true },
-      { status: 400 }
+      {
+        error: `Could not recognize "${rawCity}" as a valid city name`,
+        alerts: [],
+        tips: [],
+        invalidCity: true,
+      },
+      { status: 400 },
     );
   }
 
-  let billingState = { subscription: null, tripPass: null, destinationPacks: [] };
+  let billingState = {
+    subscription: null,
+    tripPass: null,
+    destinationPacks: [],
+  };
   try {
     billingState = await getBillingState(profile.user.id);
   } catch (err) {
@@ -67,7 +88,7 @@ export async function GET(request) {
     forceRefresh,
     cache: cached ? "hit" : "miss",
   });
-  
+
   // Try cache first if it has enough data
   if (
     cached &&
@@ -86,7 +107,7 @@ export async function GET(request) {
     console.info("briefing.source", { city, source: "organize-live-pipeline" });
     // Try to get live data from organizeCity (uses AI + Reddit)
     const org = await organizeCity(city);
-    
+
     // If organizeCity returned enough data, use it
     if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
       payload = {
@@ -100,10 +121,10 @@ export async function GET(request) {
       // Cache only real briefings — generic seed fallbacks must not stick in
       // the 24h cache, or every search for that city would serve the same
       // placeholder content even after live data becomes available.
+      // Cache any real live intelligence so next time it loads in 30ms
       if (
         payload.source !== "seed" &&
-        payload.alerts.length >= 8 &&
-        payload.tips.length >= 6
+        (payload.alerts?.length > 0 || payload.tips?.length > 0)
       ) {
         await saveCache(city, payload);
       }
@@ -138,7 +159,7 @@ export async function GET(request) {
   const curated = findKnownCity(payload.city) || findKnownCity(city);
   const safety = curated
     ? curated.safety
-    : estimateSafety(payload.alerts) ?? "7.0";
+    : (estimateSafety(payload.alerts) ?? "7.0");
 
   return Response.json({
     city: payload.city,

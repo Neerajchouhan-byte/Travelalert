@@ -13,11 +13,5 @@ export const supabase =
           detectSessionInUrl: true,
           flowType: "pkce",
         },
-        cookieOptions: {
-          name: "travelradar-session",
-          maxAge: 60 * 60 * 24 * 30,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-        },
       })
     : null;

@@ -15,6 +15,7 @@ import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
+import { RefreshCw } from "lucide-react";
 
 // Simple in-memory cache for dashboard data to reduce latency on repeated views
 const dashboardCache = new Map();
@@ -60,7 +61,72 @@ function DashboardContent() {
   const [lockedTips, setLockedTips] = useState(0);
   const [safety, setSafety] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(() => searchParams.get("upgrade") === "true");
+  const [showUpgradeModal, setShowUpgradeModal] = useState(
+    () => searchParams.get("upgrade") === "true",
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  // When returning from Dodo checkout with ?billing=success, activate Pro and unlock all cards
+  useEffect(() => {
+    if (searchParams.get("billing") === "success") {
+      async function activatePro() {
+        const { data } = await supabase?.auth.getSession();
+        const token = data?.session?.access_token;
+        if (!token) return;
+
+        try {
+          const res = await fetch("/api/billing/sync", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (res.ok) {
+            setPlan("annual");
+            setLockedAlerts(0);
+            setLockedTips(0);
+            // Clean up the URL query parameter without refreshing the page
+            router.replace(`/dashboard?city=${encodeURIComponent(city)}`);
+          }
+        } catch (err) {
+          console.error("[Dashboard] Activation error:", err);
+        }
+      }
+      activatePro();
+    }
+  }, [searchParams, city, router]);
+
+  // Triggers live scan, bypasses cache, and updates cache for all users
+  async function handleRefresh() {
+    if (refreshing || loading) return;
+    setRefreshing(true);
+
+    try {
+      let headers = await getAuthHeaders();
+
+      // Force live update via &refresh=1
+      const res = await fetch(
+        `/api/briefing?city=${encodeURIComponent(city)}&refresh=1`,
+        { headers, cache: "no-store" },
+      );
+
+      if (res.ok) {
+        const bData = await res.json();
+        setAlerts(bData.alerts || []);
+        setTips(bData.tips || []);
+        setLockedAlerts(bData.lockedAlerts || 0);
+        setLockedTips(bData.lockedTips || 0);
+        setPlan(bData.plan || "free");
+        setSource("live");
+        if (bData.safety) setSafety(String(bData.safety));
+
+        // Update local memory cache immediately
+        setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
+      }
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   // Load briefing data (alerts, tips, safety) - independent effect
   useEffect(() => {
@@ -95,7 +161,9 @@ function DashboardContent() {
         const headers = await getAuthHeaders();
 
         const res = await fetch(
-          "/api/briefing?city=" + encodeURIComponent(city) + (refresh ? "&refresh=1" : ""),
+          "/api/briefing?city=" +
+            encodeURIComponent(city) +
+            (refresh ? "&refresh=1" : ""),
           { cache: "no-store", headers, signal: controller.signal },
         );
 
@@ -107,11 +175,15 @@ function DashboardContent() {
         const data = await res.json();
         if (cancelled) return;
 
-        // Never render a response for a different destination. This protects
-        // against a slower request finishing after the user changes cities.
-        if (String(data.city || "").trim().toLowerCase() !== requestedCity) {
-          setError("The destination response did not match your search. Please try again.");
-          return;
+        const resCity = String(data.city || "")
+          .trim()
+          .toLowerCase();
+        if (
+          resCity &&
+          !resCity.includes(requestedCity) &&
+          !requestedCity.includes(resCity)
+        ) {
+          console.warn("City mismatch:", { resCity, requestedCity });
         }
 
         setAlerts(data.alerts || []);
@@ -144,14 +216,13 @@ function DashboardContent() {
     };
   }, [city, refresh, router]);
 
-  // Load city brief data (weather, currency) - independent effect for faster loading
+  // Load city brief data (weather, currency)
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
     const requestedCity = city.trim().toLowerCase();
 
     async function loadCityBrief() {
-      // Check cache first
       const cacheKey = `citybrief:${requestedCity}`;
       const cached = getCachedData(cacheKey);
       if (cached) {
@@ -170,13 +241,12 @@ function DashboardContent() {
           "/api/city-brief?city=" + encodeURIComponent(city),
           { cache: "no-store", headers, signal: controller.signal },
         );
-        
+
         if (briefRes.ok) {
           const briefData = await briefRes.json();
           if (!cancelled) {
             setBrief(briefData);
             setBriefCity(city);
-            // Cache the results
             setCachedData(cacheKey, briefData);
           }
         }
@@ -201,7 +271,7 @@ function DashboardContent() {
       <>
         <Topbar key={city} city={city} />
 
-        {/* Live intel ticker â€” sits right under the topbar */}
+        {/* Live intel ticker */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -221,25 +291,45 @@ function DashboardContent() {
             safety={safety}
           />
 
-          {source && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="text-xs text-[#a6a6ad]"
-            >
-              {source === "cache"
-                ? "Served from cache (under 24 hours)"
-                : "Fresh scan"}
-              {" Â· "}
+          {/* STATUS ROW WITH DEDICATED REFRESH BUTTON */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-2.5">
+            <div className="text-xs text-[#a6a6ad]">
+              <span
+                className={
+                  source === "cache" ? "text-[#3ecf8e]" : "text-[#f0a63d]"
+                }
+              >
+                ●{" "}
+                {source === "cache"
+                  ? "Served from cache (instant)"
+                  : "Live scan"}
+              </span>
+              {" · "}
               <Link
                 href="/disclaimer"
                 className="underline decoration-white/20 hover:text-white"
               >
-                AI-generated. Not legal advice.
+                AI-organized Reddit intelligence
               </Link>
-            </motion.p>
-          )}
+            </div>
+
+            {/* THE REFRESH BUTTON */}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing || loading}
+              className="flex items-center gap-2 rounded-full border border-[#f0a63d]/30 bg-[#f0a63d]/10 px-3.5 py-1.5 text-xs font-semibold text-[#f0a63d] transition hover:border-[#f0a63d] hover:bg-[#f0a63d]/20 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+              <span>
+                {refreshing
+                  ? "Scanning Reddit live..."
+                  : "Refresh Intelligence"}
+              </span>
+            </button>
+          </div>
 
           {error && (
             <motion.p
@@ -290,13 +380,13 @@ function DashboardContent() {
         />
       </>
     </RequireAuth>
-    );
-  }
+  );
+}
 
 export default function DashboardPage() {
   return (
     <Suspense
-      fallback={<div className="p-8 text-[#a6a6ad]">Loading dashboardâ€¦</div>}
+      fallback={<div className="p-8 text-[#a6a6ad]">Loading dashboard...</div>}
     >
       <DashboardContent />
     </Suspense>

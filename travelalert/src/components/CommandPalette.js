@@ -45,13 +45,6 @@ export default function CommandPalette({ open, onOpenChange }) {
             if (event.target === event.currentTarget) onOpenChange(false);
           }}
         >
-          <motion.div
-            className="command-dialog"
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98 }}
-            transition={{ duration: 0.18 }}
-          >
             <Command label="TravelRadar command palette" shouldFilter>
               <div className="command-search">
                 <Search size={16} aria-hidden="true" />
@@ -90,7 +83,6 @@ export default function CommandPalette({ open, onOpenChange }) {
               <div className="command-footer"><span><CommandIcon size={13} /> Navigate</span><span>Enter to select</span></div>
             </Command>
           </motion.div>
-        </motion.div>
       )}
     </AnimatePresence>
   );
