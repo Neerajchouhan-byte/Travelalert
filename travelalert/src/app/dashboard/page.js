@@ -10,12 +10,12 @@ import { CurrencyCard } from "@/components/dashboard/CurrencyCard";
 import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
-import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
+import { cities, getDestination, flagFromCountryCode } from "@/lib/dashboard-data";
 
 // Simple in-memory cache for dashboard data to reduce latency on repeated views
 const dashboardCache = new Map();
@@ -278,7 +278,6 @@ function DashboardContent() {
           transition={{ delay: 0.15, duration: 0.5 }}
           className="dashboard-frame mx-auto w-full max-w-7xl px-4 pt-5 sm:px-6 lg:px-10"
         >
-          <LiveTicker city={city} />
           <DestinationChips active={city} />
         </motion.div>
 

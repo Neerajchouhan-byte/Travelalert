@@ -7,7 +7,6 @@ import {
   buildDestinationMeta,
   isKnownCity,
   estimateSafety,
-  flagFromCountryCode,
 } from "@/lib/dashboard-data";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Spotlight } from "@/components/ui/spotlight";
@@ -38,25 +37,31 @@ function useLocalTime(tz) {
 }
 
 function isValidNumber(value) {
-  if (value == null || value === "—" || value === "—" || value === "") return false;
+  if (value == null || value === "—" || value === "") return false;
   const num = Number(value);
   return !isNaN(num) && isFinite(num);
 }
 
-/** Map a flag emoji to its ISO 3166-1 alpha-2 country code. */
-function flagToCode(flag) {
-  const pts = [...String(flag || "")].map((ch) => ch.codePointAt(0));
-  if (
-    pts.length === 2 &&
-    pts[0] >= 0x1f1e6 &&
-    pts[0] <= 0x1f1ff &&
-    pts[1] >= 0x1f1e6 &&
-    pts[1] <= 0x1f1ff
-  ) {
-    return String.fromCharCode(pts[0] - 0x1f1e6 + 65, pts[1] - 0x1f1e6 + 65);
-  }
-  return "";
-}
+// Fallback lookup map if the brief hasn't loaded yet
+const COUNTRY_CODE_MAP = {
+  thailand: "th", bangkok: "th", phuket: "th",
+  japan: "jp", tokyo: "jp", kyoto: "jp", osaka: "jp",
+  france: "fr", paris: "fr", marseille: "fr",
+  italy: "it", rome: "it", milan: "it",
+  spain: "es", barcelona: "es", madrid: "es",
+  indonesia: "id", bali: "id", jakarta: "id",
+  vietnam: "vn", hanoi: "vn", "ho chi minh": "vn",
+  germany: "de", berlin: "de", munich: "de",
+  india: "in", delhi: "in", mumbai: "in", jaipur: "in",
+  singapore: "sg",
+  "united states": "us", usa: "us", "new york": "us",
+  "united kingdom": "gb", uk: "gb", london: "gb",
+  cambodia: "kh", "siem reap": "kh",
+  "czech republic": "cz", czechia: "cz", prague: "cz",
+  nepal: "np", kathmandu: "np",
+  "sri lanka": "lk", colombo: "lk",
+  malaysia: "my", "kuala lumpur": "my",
+};
 
 export function DestinationHeader({ city, brief, alertCount, alerts = [], safety }) {
   const d = buildDestinationMeta(city, brief);
@@ -67,9 +72,21 @@ export function DestinationHeader({ city, brief, alertCount, alerts = [], safety
   const liveCurrency = brief?.code
     ? `${brief.currencyName || brief.code} (${brief.code})`
     : d.currency;
-  const liveName = brief?.city
-    ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
-    : d.name;
+
+  // 1. Prevent duplicate names (e.g. "Japan, Japan" -> "Japan")
+  const rawCity = brief?.city || city;
+  const rawCountry = brief?.country || "";
+  const isDuplicate =
+    rawCountry &&
+    (rawCity.toLowerCase().trim() === rawCountry.toLowerCase().trim() ||
+      rawCity.toLowerCase().includes(rawCountry.toLowerCase()) ||
+      rawCountry.toLowerCase().includes(rawCity.toLowerCase()));
+
+  const liveName = isDuplicate
+    ? rawCity
+    : rawCountry
+    ? `${rawCity}, ${rawCountry}`
+    : d.name || city;
 
   const effectiveSafety =
     safety != null && !Number.isNaN(Number(safety))
@@ -87,8 +104,17 @@ export function DestinationHeader({ city, brief, alertCount, alerts = [], safety
         ? "text-[#f0a63d]"
         : "text-[#e5484a]";
 
-  const countryCode = (brief?.country_code || flagToCode(d.flag) || "—").toUpperCase();
-  const flag = brief?.country_code ? flagFromCountryCode(brief.country_code) : d.flag;
+  // 2. Exact Circle Flag SVG URL from the circle-flags CDN
+  const countryCode = (
+    brief?.country_code || 
+    COUNTRY_CODE_MAP[city.toLowerCase().trim()] || 
+    COUNTRY_CODE_MAP[rawCountry.toLowerCase().trim()] || 
+    ""
+  ).toLowerCase();
+
+  const circleFlagUrl = countryCode && /^[a-z]{2}$/.test(countryCode)
+    ? `https://hatscripts.github.io/circle-flags/flags/${countryCode}.svg`
+    : null;
 
   const stats = [
     { label: "Safety score", value: safetyDisplay, color: safetyColor, icon: ShieldHalf },
@@ -129,19 +155,29 @@ export function DestinationHeader({ city, brief, alertCount, alerts = [], safety
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_90%_at_0%_50%,rgba(229,72,74,0.14),transparent_62%)]" />
 
         <div className="relative flex flex-col gap-4 px-5 py-5 sm:px-7 sm:py-6 md:flex-row md:items-start">
-          {/* Country badge + city name + metadata */}
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4 md:flex-1">
-            <span className="flex size-11 shrink-0 select-none items-center justify-center rounded-full border border-white/10 bg-[#1c1c21] font-mono text-sm font-bold text-[#f3f3f2]">
-              {countryCode}
-            </span>
+          
+          {/* CIRCULAR FLAG BADGE (Matching your image) */}
+          <div className="flex min-w-0 items-center gap-3.5 sm:gap-4 md:flex-1">
+            <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-[#1c1c21] shadow-md">
+              {circleFlagUrl ? (
+                <img
+                  src={circleFlagUrl}
+                  alt={brief?.country || city}
+                  className="size-full object-cover"
+                  loading="eager"
+                />
+              ) : (
+                <span className="text-xl">🌍</span>
+              )}
+            </div>
+
             <div className="min-w-0 flex-1">
               <motion.h1
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2, duration: 0.5 }}
-                className="truncate text-xl font-bold tracking-tight sm:text-[1.45rem]"
+                className="truncate text-xl font-bold tracking-tight text-white sm:text-[1.45rem]"
               >
-                <span aria-hidden="true" className="mr-2">{flag}</span>
                 {liveName}
               </motion.h1>
               <motion.p
