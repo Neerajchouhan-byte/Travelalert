@@ -13,9 +13,9 @@ export function Panel({ children, className = "", delay = 0 }) {
       whileInView={{ opacity: 1, y: 0, scale: 1 }}
       viewport={{ once: true, margin: "-32px" }}
       transition={{ duration: 0.55, delay, ease: [0.23, 1, 0.32, 1] }}
-      className={`rounded-[1.1rem] border border-white/10 bg-white/[0.045] p-[0.3rem] ${className}`}
+      className={`dashboard-panel rounded-[1.1rem] border border-white/10 bg-white/[0.045] p-[0.3rem] ${className}`}
     >
-      <div className="h-full rounded-[0.8rem] bg-[#141418] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
+      <div className="dashboard-panel-inner h-full rounded-[0.8rem] bg-[#141418] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
         {children}
       </div>
     </motion.div>

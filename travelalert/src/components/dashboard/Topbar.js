@@ -40,9 +40,11 @@ export function Topbar({ city }) {
   useEffect(() => {
     const trimmed = searchCity.trim();
     if (trimmed.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
+      const reset = setTimeout(() => {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }, 0);
+      return () => clearTimeout(reset);
     }
 
     const timeout = setTimeout(async () => {
@@ -69,14 +71,14 @@ export function Topbar({ city }) {
     const trimmed = searchCity.trim();
     if (!trimmed) return;
     setShowSuggestions(false);
-    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
+    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}&refresh=1`);
   }
 
   function handleCitySelect(cityItem) {
     setShowSuggestions(false);
     setSearchCity("");
     router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}`
+      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}&refresh=1`
     );
   }
 
@@ -100,12 +102,12 @@ export function Topbar({ city }) {
       initial={{ y: -32, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-      className="sticky top-0 z-50 border-b border-white/10 bg-[#0a0a0c]/85 backdrop-blur-md"
+      className="dashboard-topbar sticky top-0 z-50 border-b border-white/10 bg-[#0a0a0c]/85 backdrop-blur-md"
     >
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3.5 sm:gap-5 sm:px-6 lg:px-10">
         <Link
           href="/"
-          className="hidden shrink-0 text-sm font-bold tracking-tight transition-opacity hover:opacity-80 sm:block"
+          className="dashboard-brand hidden shrink-0 text-sm font-bold tracking-tight transition-opacity hover:opacity-80 sm:block"
         >
           TravelRadar
         </Link>
@@ -114,7 +116,7 @@ export function Topbar({ city }) {
         <div className="relative min-w-0 flex-1">
           <form
             onSubmit={handleSearch}
-            className="group flex min-w-0 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 transition-colors hover:border-white/20 hover:bg-white/[0.07] focus-within:border-white/20 focus-within:bg-white/[0.07]"
+            className="dashboard-search group flex min-w-0 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 transition-colors hover:border-white/20 hover:bg-white/[0.07] focus-within:border-white/20 focus-within:bg-white/[0.07]"
           >
             <Search className="size-3.5 shrink-0 text-[#68686f] transition-colors group-hover:text-[#a6a6ad]" />
             <input

@@ -5,8 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
-import { ScamAlerts } from "@/components/dashboard/ScamAlerts";
-import { InsiderTips } from "@/components/dashboard/InsiderTips";
+import { IntelTabs } from "@/components/dashboard/IntelTabs";
 import { CurrencyCard } from "@/components/dashboard/CurrencyCard";
 import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
@@ -47,6 +46,7 @@ async function getAuthHeaders() {
 function DashboardContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "Bangkok";
+  const refresh = searchParams.get("refresh") === "1";
   const router = useRouter();
   const [alerts, setAlerts] = useState([]);
   const [tips, setTips] = useState([]);
@@ -65,12 +65,15 @@ function DashboardContent() {
   // Load briefing data (alerts, tips, safety) - independent effect
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const requestedCity = city.trim().toLowerCase();
 
     async function loadBriefing() {
       // Check cache first
-      const cacheKey = `briefing:${city.toLowerCase()}`;
+      const cacheKey = `briefing:${requestedCity}`;
       const cached = getCachedData(cacheKey);
-      if (cached) {
+      if (cached && !refresh) {
+        if (cancelled) return;
         setAlerts(cached.alerts || []);
         setTips(cached.tips || []);
         setSource(cached.source || "");
@@ -92,8 +95,8 @@ function DashboardContent() {
         const headers = await getAuthHeaders();
 
         const res = await fetch(
-          "/api/briefing?city=" + encodeURIComponent(city),
-          { cache: "no-store", headers },
+          "/api/briefing?city=" + encodeURIComponent(city) + (refresh ? "&refresh=1" : ""),
+          { cache: "no-store", headers, signal: controller.signal },
         );
 
         if (res.status === 401) {
@@ -103,6 +106,13 @@ function DashboardContent() {
 
         const data = await res.json();
         if (cancelled) return;
+
+        // Never render a response for a different destination. This protects
+        // against a slower request finishing after the user changes cities.
+        if (String(data.city || "").trim().toLowerCase() !== requestedCity) {
+          setError("The destination response did not match your search. Please try again.");
+          return;
+        }
 
         setAlerts(data.alerts || []);
         setTips(data.tips || []);
@@ -118,8 +128,10 @@ function DashboardContent() {
 
         // Cache the results
         setCachedData(cacheKey, data);
-      } catch {
-        if (!cancelled) setError("Could not load this destination");
+      } catch (err) {
+        if (!cancelled && err?.name !== "AbortError") {
+          setError("Could not load this destination");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -128,18 +140,22 @@ function DashboardContent() {
     loadBriefing();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [city, router]);
+  }, [city, refresh, router]);
 
   // Load city brief data (weather, currency) - independent effect for faster loading
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const requestedCity = city.trim().toLowerCase();
 
     async function loadCityBrief() {
       // Check cache first
-      const cacheKey = `citybrief:${city.toLowerCase()}`;
+      const cacheKey = `citybrief:${requestedCity}`;
       const cached = getCachedData(cacheKey);
       if (cached) {
+        if (cancelled) return;
         setBrief(cached);
         setBriefCity(city);
         return;
@@ -152,7 +168,7 @@ function DashboardContent() {
 
         const briefRes = await fetch(
           "/api/city-brief?city=" + encodeURIComponent(city),
-          { cache: "no-store", headers },
+          { cache: "no-store", headers, signal: controller.signal },
         );
         
         if (briefRes.ok) {
@@ -165,7 +181,9 @@ function DashboardContent() {
           }
         }
       } catch (err) {
-        console.error("city brief load failed:", err);
+        if (err?.name !== "AbortError") {
+          console.error("city brief load failed:", err);
+        }
       } finally {
         if (!cancelled) setBriefLoading(false);
       }
@@ -174,6 +192,7 @@ function DashboardContent() {
     loadCityBrief();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [city]);
 
@@ -187,12 +206,13 @@ function DashboardContent() {
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15, duration: 0.5 }}
-          className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 lg:px-8"
+          className="dashboard-frame mx-auto w-full max-w-7xl px-4 pt-5 sm:px-6 lg:px-10"
         >
           <LiveTicker city={city} />
+          <DestinationChips active={city} />
         </motion.div>
 
-        <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-4 sm:p-6 lg:p-8">
+        <div className="dashboard-frame mx-auto w-full max-w-7xl space-y-5 px-4 pb-10 pt-5 sm:px-6 sm:pb-14 lg:px-10 lg:pt-7">
           <DestinationHeader
             city={city}
             brief={briefCity === city ? brief : null}
@@ -232,26 +252,18 @@ function DashboardContent() {
             </motion.p>
           )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <ScamAlerts
-              city={city}
-              alerts={alerts}
-              loading={loading}
-              plan={plan}
-              lockedCount={lockedAlerts}
-              onUpgrade={() => setShowUpgradeModal(true)}
-            />
-            <InsiderTips
-              tips={tips}
-              loading={loading}
-              city={city}
-              plan={plan}
-              lockedCount={lockedTips}
-              onUpgrade={() => setShowUpgradeModal(true)}
-            />
-          </div>
+          <IntelTabs
+            city={city}
+            alerts={alerts}
+            tips={tips}
+            loading={loading}
+            plan={plan}
+            lockedAlerts={lockedAlerts}
+            lockedTips={lockedTips}
+            onUpgrade={() => setShowUpgradeModal(true)}
+          />
 
-          <div className="grid items-start gap-4 md:grid-cols-2">
+          <div className="dashboard-section-grid grid items-start gap-5 md:grid-cols-2">
             <CurrencyCard brief={briefCity === city ? brief : null} />
             <WeatherCard
               city={city}
@@ -268,7 +280,6 @@ function DashboardContent() {
           />
 
           <RecentActivity city={city} alerts={alerts} loading={loading} />
-          <DestinationChips active={city} />
         </div>
 
         {/* Upgrade Modal */}

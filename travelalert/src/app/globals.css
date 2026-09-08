@@ -847,6 +847,113 @@ section {
   }
 }
 
+/* Dashboard system: a quieter graphite canvas with one clear focal point. */
+.dashboard-shell {
+  isolation: isolate;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    radial-gradient(circle at 75% 0%, rgba(229, 72, 74, 0.09), transparent 30rem),
+    linear-gradient(180deg, #0d0d10 0%, #0a0a0c 44rem);
+  background-size: 48px 48px, 48px 48px, auto, auto;
+  background-attachment: fixed;
+}
+
+/* Utility: hide scrollbars on horizontal scroll rows (city pills). */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-topbar {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 12px 36px rgba(5, 5, 8, 0.2);
+}
+
+.dashboard-brand {
+  position: relative;
+  letter-spacing: -0.04em;
+}
+.dashboard-brand::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin: 0 0.45rem 0.05rem 0;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.dashboard-search {
+  max-width: 38rem;
+  margin-inline: auto;
+}
+.dashboard-search:focus-within {
+  box-shadow: 0 0 0 3px rgba(229, 72, 74, 0.08);
+}
+
+.dashboard-hero {
+  box-shadow: 0 20px 60px rgba(5, 5, 8, 0.18);
+}
+.dashboard-hero-inner {
+  background:
+    radial-gradient(ellipse 60% 120% at 0% 50%, rgba(229, 72, 74, 0.12), transparent 68%),
+    #141418;
+}
+.dashboard-panel {
+  box-shadow: 0 12px 34px rgba(5, 5, 8, 0.1);
+  transition: transform 260ms var(--ease-out), border-color 260ms var(--ease-out), box-shadow 260ms var(--ease-out);
+}
+.dashboard-panel:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 18px 42px rgba(5, 5, 8, 0.16);
+}
+.dashboard-panel-inner {
+  overflow: hidden;
+}
+.dashboard-section-grid > * {
+  min-width: 0;
+}
+
+.dashboard-press:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dashboard-expandable:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-topbar {
+    position: sticky;
+  }
+  .dashboard-search {
+    max-width: none;
+  }
+  .dashboard-frame {
+    padding-inline: 1rem;
+  }
+  .dashboard-hero-inner {
+    background: #141418;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-panel,
+  .dashboard-panel:hover {
+    transform: none;
+    transition: none;
+  }
+  .dashboard-press:active {
+    transform: none;
+  }
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f5f3ef;

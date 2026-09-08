@@ -10,28 +10,104 @@ const UA = "TravelRadar/1.0 (travel safety research)";
 //   APIFY_MAX_POSTS=40                   (optional)
 // ---------------------------------------------------------------------------
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
-const APIFY_ACTOR_ID = process.env.APIFY_ACTOR_ID || "trudax~reddit-scraper-lite";
+const APIFY_ACTOR_ID = (process.env.APIFY_ACTOR_ID || "trudax~reddit-scraper-lite").replace("/", "~");
 const APIFY_MAX_POSTS = Math.max(10, Number(process.env.APIFY_MAX_POSTS || 40));
-// Dashboard scans must respond quickly. A cold Apify actor can take minutes,
-// so use live posts only when the actor is already warm; Gemini still creates
-// a city-specific briefing when this short live-data budget expires.
-// Reduced timeout to 5s to prevent "operation aborted" errors - fail fast and use seed data
-const APIFY_TIMEOUT_MS = Math.max(2000, Number(process.env.APIFY_TIMEOUT_MS || 5000));
+// A synchronous Apify actor can take more than a minute on a cold start. Keep
+// enough time for the actor to finish instead of aborting a successful run.
+const APIFY_TIMEOUT_MS = Math.max(5000, Number(process.env.APIFY_TIMEOUT_MS || 120000));
+// The actor's README supports "Relevance", "Hot", "Top" and "New". "new" keeps
+// the briefing live; "relevance" surfaces older-but-on-topic posts. If the
+// actor rejects the requested sort, the run retries once with "relevance".
+const APIFY_SORT = process.env.APIFY_SORT || "new";
+// A post must reference the city plus at least one risk signal before it is
+// worth feeding to the organizer. City in the title (3) + any risk word (1)
+// clears the bar; city anywhere (2) + a multi-word risk phrase (2) does too.
+export const MIN_RELEVANCE_SCORE = 4;
+// Risk vocabulary used to score posts. Multi-word phrases score double because
+// they are far less likely to be false positives.
+const RISK_TERMS = [
+  "scam",
+  "scammed",
+  "fraud",
+  "tourist trap",
+  "overcharg",
+  "overpriced",
+  "rip off",
+  "ripoff",
+  "rip-off",
+  "theft",
+  "stolen",
+  "robbed",
+  "snatch",
+  "extortion",
+  "tourist police",
+  "tout",
+  "unlicensed",
+  "illegal",
+  "taxi",
+  "meter",
+  "fare",
+  "commission",
+  "markup",
+  "surcharge",
+  "fake",
+  "warning",
+  "avoid",
+  "unsafe",
+  "dangerous",
+  "deposit",
+  "damage claim",
+];
+
+/** True when an item body is missing or just the actor's submit boilerplate. */
+function isBoilerplate(text) {
+  // Normalize HTML entities so real-world shapes like
+  // "&#32; submitted by &#32; /u/name [link] &#32; [comments]" still match.
+  const flat = String(text || "").replace(/&#?\w+;/g, " ");
+  return !flat.trim() || /submitted by\s+\/u\//i.test(flat);
+}
+
+/** Minimal HTML-to-text fallback for actors that only fill the html field. */
+function htmlToText(html) {
+  if (!html) return "";
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|li|h[1-6]|div)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * Normalizes a dataset item from any of the common Apify Reddit actors into
- * the { title, text, sub, score } shape organizeCity consumes. Field names
- * differ slightly per actor (body/text/selftext, numberOfUpvotes/score, ...),
- * so every known variant is checked.
+ * the { id, url, createdAt, title, text, sub, score } shape organizeCity
+ * consumes. Field names differ slightly per actor (body/text/selftext,
+ * numberOfUpvotes/score, ...), so every known variant is checked.
  */
-function mapApifyItem(item) {
-  // Some actors emit comments/mixed rows too — keep posts only when flagged.
-  if (item?.dataType && !/post|thread|link/i.test(String(item.dataType))) return null;
+export function mapApifyItem(item) {
+  // The actor can return posts, comments, and subreddit/community records even
+  // when comments are disabled. Only actual Reddit submissions are sources.
+  if (item?.dataType !== "post") return null;
   const title = item?.title || item?.postTitle || "";
   if (!title) return null;
-  const text = String(
+
+  let text = String(
     item?.body || item?.text || item?.selftext || item?.selfText || item?.content || ""
-  ).slice(0, 400);
+  ).trim();
+  // Some actors leave only "submitted by /u/... [link] [comments]" in the body
+  // while the readable content lives in html — fall back to html then.
+  if (isBoilerplate(text)) {
+    text = htmlToText(item?.html || item?.contentHtml || "");
+  }
+
   const sub = String(
     item?.communityName ||
       item?.subreddit ||
@@ -42,49 +118,141 @@ function mapApifyItem(item) {
   const score = Number(
     item?.numberOfUpvotes ?? item?.upvotes ?? item?.score ?? item?.numberOfLikes ?? 0
   );
+
   return {
+    id: String(item?.parsedId || item?.id || item?.postId || ""),
+    url: String(item?.url || ""),
+    createdAt: item?.createdAt || item?.createdUtc || item?.timestamp || null,
     title: String(title).slice(0, 300),
-    text,
+    text: String(text).slice(0, 400),
     sub,
     score: Number.isFinite(score) ? score : 0,
   };
 }
 
-async function fetchPostsViaApify(city) {
-  if (!APIFY_TOKEN) return { posts: null, error: "APIFY_TOKEN not set" };
+/**
+ * Boundary-aware term match: stems like "overcharg" still match
+ * "overcharging", but "fare" no longer matches "welfare".
+ */
+function containsTerm(hay, term) {
+  if (term.includes(" ")) return hay.includes(term);
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}`).test(hay);
+}
 
-  const query = `${city} (scam OR "tourist trap" OR taxi OR overcharg OR ATM)`;
+/** Scores how useful a post is for a city briefing. Higher = more relevant. */
+export function relevanceScore(post, city) {
+  const titleText = String(post.title || "").toLowerCase();
+  const hay = `${titleText} ${String(post.text || "").toLowerCase()}`;
+  const cityTerms = String(city || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.replace(/[^a-z\u00c0-\u024f]/g, ""))
+    .filter((term) => term.length >= 3);
+
+  let score = 0;
+  const cityInTitle = cityTerms.some((term) => titleText.includes(term));
+  const cityAnywhere = cityTerms.some((term) => containsTerm(hay, term));
+  if (cityInTitle) score += 3;
+  else if (cityAnywhere) score += 2;
+
+  for (const term of RISK_TERMS) {
+    if (containsTerm(hay, term)) score += term.includes(" ") ? 2 : 1;
+  }
+
+  // Travel/destination subreddits are a strong signal of traveler context.
+  if (/(travel|visit|tourism|backpacking|solotravel|digitalnomad)/i.test(String(post.sub || ""))) {
+    score += 1;
+  }
+
+  return score;
+}
+
+/** Removes duplicate posts by Reddit id, URL, or normalized title. */
+export function dedupePosts(posts) {
+  const seen = new Set();
+  const out = [];
+  for (const post of posts) {
+    const normTitle = String(post.title || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    const keys = [post.id, post.url, normTitle].filter(Boolean);
+    if (keys.length === 0 || keys.some((key) => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
+    out.push(post);
+  }
+  return out;
+}
+
+async function fetchPostsViaApify(city) {
+  if (!APIFY_TOKEN) {
+    console.warn("apify.skip", { city, reason: "APIFY_TOKEN not set" });
+    return { posts: null, error: "APIFY_TOKEN not set" };
+  }
+
+  // Reddit search treats parentheses + OR as a group. Queries are scoped to
+  // the city plus one family of risk language, and deliberately kept to four:
+  // every extra search slows the sync actor run toward the briefing timeout.
+  const searches = [
+    `"${city}" (scam OR scammed OR fraud OR fake OR "tourist trap" OR tout)`,
+    `"${city}" (overcharged OR overcharging OR overpriced OR "rip off" OR ripoff OR markup OR surcharge OR commission OR deposit OR "damage claim")`,
+    `"${city}" (taxi OR meter OR fare OR pickpocket)`,
+    `"${city}" (theft OR stolen OR robbed OR snatch OR robbery OR unlicensed OR illegal OR extortion OR avoid OR warning OR unsafe OR dangerous OR "tourist police")`,
+  ];
   const input = {
-    searches: [query],
+    searches,
     posts: [],
     includeComments: false,
     includePostData: true,
     maxPosts: APIFY_MAX_POSTS,
-    maxComments: 0,
-    sort: "top",
+    // This actor validates maxComments even when comments are disabled.
+    maxComments: 1,
+    sort: APIFY_SORT,
   };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), APIFY_TIMEOUT_MS);
 
+  const runRequest = () =>
+    fetch(`https://api.apify.com/v2/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${APIFY_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
   try {
-    const res = await fetch(
-      `https://api.apify.com/v2/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${APIFY_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-        signal: controller.signal,
-        cache: "no-store",
-      }
-    );
+    console.info("apify.request", {
+      city,
+      actor: APIFY_ACTOR_ID,
+      maxPosts: APIFY_MAX_POSTS,
+      sort: input.sort,
+      timeoutMs: APIFY_TIMEOUT_MS,
+    });
+    let res = await runRequest();
+
+    // If the actor rejects the requested sort (e.g. "new"), fall back to the
+    // documented "relevance" once instead of failing the whole pipeline.
+    if (!res.ok && input.sort !== "relevance") {
+      console.info("apify.sort_retry", {
+        city,
+        from: input.sort,
+        to: "relevance",
+        status: res.status,
+      });
+      input.sort = "relevance";
+      res = await runRequest();
+    }
 
     if (!res.ok) {
-      // Silently fail - seed data will be used as fallback
-      return { posts: null, error: null };
+      const error = `HTTP ${res.status}`;
+      console.error("apify.response_error", { city, actor: APIFY_ACTOR_ID, error });
+      return { posts: null, error };
     }
 
     const items = await res.json().catch(() => null);
@@ -93,15 +261,30 @@ async function fetchPostsViaApify(city) {
       return { posts: null, error: "apify payload was not an array" };
     }
 
-    const posts = items.map(mapApifyItem).filter(Boolean);
-    if (!posts.length) {
-      console.warn("apify.no_mapped_posts", { itemCount: items.length });
-      return { posts: null, error: "apify returned no usable posts" };
+    const postItems = items.filter((item) => item?.dataType === "post");
+    const mapped = postItems.map(mapApifyItem).filter(Boolean);
+    const deduped = dedupePosts(mapped);
+    const relevantPosts = deduped
+      .filter((post) => relevanceScore(post, city) >= MIN_RELEVANCE_SCORE)
+      // Newest first so the digest prioritizes the most recent reports.
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    console.info("apify.response", {
+      city,
+      itemCount: items.length,
+      postItems: postItems.length,
+      mappedPosts: mapped.length,
+      dedupedPosts: deduped.length,
+      relevantPosts: relevantPosts.length,
+    });
+    if (!relevantPosts.length) {
+      console.warn("apify.no_relevant_posts", { city, itemCount: items.length, postItems: postItems.length });
+      return { posts: null, error: "apify returned no relevant posts" };
     }
-    return { posts, error: null };
+    return { posts: relevantPosts, error: null };
   } catch (err) {
-    // Silently fail on abort or any other error - seed data will be used as fallback
-    return { posts: null, error: null };
+    const error = err?.name === "AbortError" ? "timeout" : err?.message || "request failed";
+    console.error("apify.request_failed", { city, actor: APIFY_ACTOR_ID, error });
+    return { posts: null, error };
   } finally {
     clearTimeout(timer);
   }
@@ -196,8 +379,8 @@ async function fetchPostsViaRedditApi(city) {
  *   3. Public Reddit JSON (usually 403-blocked)
  * Returns { posts, window, live, mode, apifyError }.
  * 
- * Fail-fast strategy: If Apify times out or fails, immediately return empty
- * posts so the briefing can fall back to seed data without waiting.
+ * If Apify times out or fails, return empty posts so the briefing can fall back
+ * to city-specific seed data without failing the dashboard request.
  */
 export async function fetchLivePosts(city) {
   // Create a timeout wrapper that resolves quickly on failure
@@ -208,7 +391,10 @@ export async function fetchLivePosts(city) {
     )
   ]);
 
-  if (apify.posts && apify.posts.length >= 5) {
+  // Accept even a small valid sample: for less-discussed cities, a handful of
+  // genuine reports beats dropping back to static seed content.
+  if (apify.posts && apify.posts.length >= 1) {
+    console.info("live-posts.source", { city, source: "apify", posts: apify.posts.length });
     return {
       posts: apify.posts,
       window: "apify",
@@ -226,6 +412,12 @@ export async function fetchLivePosts(city) {
     : { posts: [], window: "none" };
 
   if (reddit.posts.length >= (apify.posts?.length || 0)) {
+    console.info("live-posts.source", {
+      city,
+      source: reddit.posts.length ? "reddit" : "none",
+      posts: reddit.posts.length,
+      apifyError: apify.error || null,
+    });
     return {
       posts: reddit.posts,
       window: reddit.window,

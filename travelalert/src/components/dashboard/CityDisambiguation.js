@@ -25,8 +25,8 @@ export function CityDisambiguation({ onSelect, onClose }) {
   useEffect(() => {
     const trimmed = query.trim();
     if (trimmed.length < 2) {
-      setResults([]);
-      return;
+      const reset = setTimeout(() => setResults([]), 0);
+      return () => clearTimeout(reset);
     }
 
     const timeout = setTimeout(async () => {

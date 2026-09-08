@@ -1,0 +1,19 @@
+
+> travelalert@0.1.0 dev
+> next dev
+
+▲ Next.js 16.3.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.8:3000
+- Environments: .env.local
+✓ Ready in 1523ms
+✓ Running next.config.mjs took 47ms
+
+○ Compiling /dashboard ...
+ GET /dashboard 200 in 19.3s (next.js: 15.7s, proxy.ts: 2.5s, application-code: 1112ms)
+[browser] You have Reduced Motion enabled on your device. Animations may not appear as expected.. For more information and steps for solving, visit https://motion.dev/troubleshooting/reduced-motion-disabled
+○ Compiling /api/briefing ...
+briefing.request { city: 'Bangkok', forceRefresh: false, cache: 'hit' }
+briefing.source { city: 'Bangkok', source: 'cache' }
+ GET /api/briefing?city=Bangkok 200 in 7.0s (next.js: 3.4s, application-code: 3.6s)
+ GET /api/city-brief?city=Bangkok 200 in 8.3s (next.js: 3.3s, application-code: 5.1s)

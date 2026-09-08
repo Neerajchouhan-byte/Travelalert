@@ -1,67 +1,83 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { Compass } from "lucide-react";
-import { Panel } from "./Panel";
 import { cities } from "@/lib/dashboard-data";
+
+/**
+ * Horizontal city quick-switcher pills.
+ * The active destination gets an amber outline + LIVE dot; inactive pills are
+ * quiet dark chips with a safety score badge. The row scrolls horizontally on
+ * small screens so it never wraps or breaks the layout.
+ */
+
+/** Map a regional-indicator flag emoji (🇹🇭) to its ISO 3166-1 alpha-2 code. */
+function flagToCode(flag) {
+  const pts = [...String(flag || "")].map((ch) => ch.codePointAt(0));
+  if (
+    pts.length === 2 &&
+    pts[0] >= 0x1f1e6 &&
+    pts[0] <= 0x1f1ff &&
+    pts[1] >= 0x1f1e6 &&
+    pts[1] <= 0x1f1ff
+  ) {
+    return String.fromCharCode(pts[0] - 0x1f1e6 + 65, pts[1] - 0x1f1e6 + 65);
+  }
+  return "";
+}
 
 export function DestinationChips({ active }) {
   const router = useRouter();
 
   return (
-    <Panel delay={0.15}>
-      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <Compass className="size-4 text-[#5b9dee]" />
-          Popular destinations
-        </div>
-        <span className="hidden font-mono text-[11px] text-[#68686f] sm:inline">
-          POPULAR
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-2 p-4">
-        {cities.map((c, i) => {
-          const isActive = c.name === active;
-          return (
-            <motion.button
-              key={c.name}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.03, duration: 0.3 }}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() =>
-                router.push(`/dashboard?city=${encodeURIComponent(c.name)}`)
-              }
-              className={`relative inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                isActive
-                  ? "border-transparent text-[#e5484a]"
-                  : "border-white/10 bg-[#141418] text-[#a6a6ad] hover:text-[#f3f3f2]"
-              }`}
-            >
-              {/* sliding active pill */}
-              {isActive && (
-                <motion.span
-                  layoutId="dest-chip-active"
-                  className="absolute inset-0 rounded-full border border-[rgba(229,72,74,0.4)] bg-[rgba(229,72,74,0.14)]"
-                  transition={{ type: "spring", stiffness: 320, damping: 30 }}
-                />
-              )}
-              <span className="relative">{c.flag}</span>
-              <span className="relative">{c.name}</span>
-              <span
-                className={`relative font-mono text-[11px] ${
-                  c.tone === "good" ? "text-[#3ecf8e]" : "text-[#f0a63d]"
-                }`}
-              >
-                {c.score}
+    <div
+      role="tablist"
+      aria-label="Switch destination"
+      className="flex items-center gap-2 overflow-x-auto no-scrollbar"
+    >
+      {cities.map((city) => {
+        const isActive =
+          city.name.toLowerCase() === String(active || "").toLowerCase();
+        const code = flagToCode(city.flag) || "—";
+        const scoreTone =
+          city.tone === "good"
+            ? "bg-[rgba(62,207,142,0.16)] text-[#3ecf8e]"
+            : "bg-[rgba(240,166,61,0.16)] text-[#f0a63d]";
+
+        return (
+          <button
+            key={city.name}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() =>
+              router.push(`/dashboard?city=${encodeURIComponent(city.name)}`)
+            }
+            className={`inline-flex h-9 min-h-9 shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-semibold transition-colors duration-200 ${
+              isActive
+                ? "border border-[#f0a63d]/60 bg-[rgba(240,166,61,0.14)] text-[#f3f3f2]"
+                : "border border-white/10 bg-[#141418] text-[#a6a6ad] hover:border-white/20 hover:text-[#f3f3f2]"
+            }`}
+          >
+            <span aria-hidden="true" className="text-sm leading-none">
+              {city.flag}
+            </span>
+            <span className="font-mono text-[10px] text-[#68686f]">{code}</span>
+            <span>{city.name}</span>
+            {isActive ? (
+              <span className="flex items-center gap-1 text-[#f0a63d]">
+                <span className="size-1.5 rounded-full bg-[#f0a63d]" />
+                LIVE
               </span>
-            </motion.button>
-          );
-        })}
-      </div>
-    </Panel>
+            ) : (
+              <span
+                className={`rounded-full px-1.5 font-mono text-[10px] ${scoreTone}`}
+              >
+                {city.score}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }

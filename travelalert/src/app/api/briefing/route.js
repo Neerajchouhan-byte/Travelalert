@@ -4,12 +4,11 @@ import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
-import { seedIntel, fillIntel } from "@/lib/seed-intel";
+import { fillIntel } from "@/lib/seed-intel";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
-// Apify has a short best-effort budget; a city briefing must not leave the
-// dashboard waiting for a cold scraper run.
-export const maxDuration = 45;
+// Apify's synchronous actor can take around 80 seconds on a cold start.
+export const maxDuration = 180;
 
 function monthKey() {
   const d = new Date();
@@ -24,6 +23,7 @@ export async function GET(request) {
 
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
+  const forceRefresh = url.searchParams.get("refresh") === "1";
   
   // Try to resolve city using fuzzy matching first
   let city = resolveCity(rawCity);
@@ -61,7 +61,12 @@ export async function GET(request) {
   if (profile.search_month !== month) count = 0;
 
   let payload;
-  const cached = await getFreshCache(city);
+  const cached = forceRefresh ? null : await getFreshCache(city);
+  console.info("briefing.request", {
+    city,
+    forceRefresh,
+    cache: cached ? "hit" : "miss",
+  });
   
   // Try cache first if it has enough data
   if (
@@ -69,6 +74,7 @@ export async function GET(request) {
     (cached.alerts || []).length >= 4 &&
     (cached.tips || []).length >= 3
   ) {
+    console.info("briefing.source", { city, source: "cache" });
     payload = {
       city,
       alerts: cached.alerts,
@@ -77,6 +83,7 @@ export async function GET(request) {
       fetchedAt: cached.fetchedAt || null,
     };
   } else {
+    console.info("briefing.source", { city, source: "organize-live-pipeline" });
     // Try to get live data from organizeCity (uses AI + Reddit)
     const org = await organizeCity(city);
     
@@ -90,13 +97,19 @@ export async function GET(request) {
         fetchedAt: new Date().toISOString(),
         error: org.error,
       };
-      // Cache if we have good data
-      if (payload.alerts.length >= 8 && payload.tips.length >= 6) {
+      // Cache only real briefings — generic seed fallbacks must not stick in
+      // the 24h cache, or every search for that city would serve the same
+      // placeholder content even after live data becomes available.
+      if (
+        payload.source !== "seed" &&
+        payload.alerts.length >= 8 &&
+        payload.tips.length >= 6
+      ) {
         await saveCache(city, payload);
       }
     } else {
-      // Use seed data as fallback - fillIntel ensures we always have enough
-      const seeded = seedIntel(city);
+      // Use city-specific seed data as fallback - fillIntel ensures we always
+      // have enough destination-specific alerts and tips.
       const filled = fillIntel(city, org.alerts || [], org.tips || []);
       payload = {
         city,

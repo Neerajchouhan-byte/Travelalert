@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Lock } from "lucide-react";
 
-const spring = { type: "spring", stiffness: 260, damping: 28 };
+const spring = { type: "spring", duration: 0.5, bounce: 0.2 };
 
 export function ExpandableCard({
   title,
@@ -58,14 +58,13 @@ export function ExpandableCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06, duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
-      whileHover={{ y: -2 }}
-      className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] transition-colors hover:border-white/20 hover:bg-white/[0.05]"
+      className="dashboard-expandable overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] transition-[border-color,background-color,transform] duration-200 hover:border-white/20 hover:bg-white/[0.05]"
     >
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-start gap-3 px-3 py-3 text-left sm:px-4"
+        className="dashboard-press flex w-full items-start gap-3 px-3 py-3 text-left sm:px-4"
       >
         <motion.span
           animate={open ? { scale: [1, 1.5, 1] } : { scale: 1 }}
