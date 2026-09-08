@@ -54,7 +54,9 @@ export async function GET(request) {
     const now = Date.now();
 
     if (now - lastRefresh < COOLDOWN_MS) {
-      console.warn(`[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`);
+      console.warn(
+        `[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`,
+      );
       forceRefresh = false;
     } else {
       refreshCooldowns.set(rateKey, now);
@@ -97,6 +99,23 @@ export async function GET(request) {
   const month = monthKey();
   let count = profile.search_count || 0;
   if (profile.search_month !== month) count = 0;
+  // STRICT ENFORCEMENT: Block free Explorer users once they reach 3 searches
+  if (!hasAccess && count >= 3) {
+    return Response.json(
+      {
+        error:
+          "You have used all 3 free Explorer searches. Upgrade to Trip Pass or Vacation for unlimited access.",
+        limitReached: true,
+        searchesLeft: 0,
+        plan: "free",
+        alerts: [],
+        tips: [],
+        lockedAlerts: 12,
+        lockedTips: 10,
+      },
+      { status: 403 },
+    );
+  }
 
   let payload;
   const cached = forceRefresh ? null : await getFreshCache(city);

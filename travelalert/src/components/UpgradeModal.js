@@ -8,19 +8,19 @@ import { supabase } from "@/lib/supabase";
 const PLANS = [
   {
     key: "trip_pass",
-    name: "Monthly",
+    name: "Trip Pass",
     price: "$7",
-    period: "/mo",
-    note: "Pay once · 30 days",
+    period: "/ 30 days",
+    note: "Pay once · 30 days access",
     badge: null,
   },
   {
     key: "annual",
-    name: "Yearly",
+    name: "Vacation",
     price: "$29",
-    period: "/yr",
-    note: "Billed once a year",
-    badge: "SAVE 52%",
+    period: "/ year",
+    note: "Billed once a year · Unlimited",
+    badge: "BEST VALUE",
   },
 ];
 

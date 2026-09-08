@@ -15,7 +15,11 @@ import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
-import { cities, getDestination, flagFromCountryCode } from "@/lib/dashboard-data";
+import {
+  cities,
+  getDestination,
+  flagFromCountryCode,
+} from "@/lib/dashboard-data";
 
 // Simple in-memory cache for dashboard data to reduce latency on repeated views
 const dashboardCache = new Map();
@@ -169,6 +173,14 @@ function DashboardContent() {
 
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
+          return;
+        }
+        // Catch the 3-search limit reached
+        if (res.status === 403) {
+          const limitData = await res.json();
+          setError(limitData.error);
+          setShowUpgradeModal(true); // Automatically open the paywall modal
+          setLoading(false);
           return;
         }
 
