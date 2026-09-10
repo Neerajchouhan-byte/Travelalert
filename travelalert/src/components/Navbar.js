@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, Menu, Radar, X } from "lucide-react";
 import CommandPalette from "./CommandPalette";
+import { ThemeToggle } from "./ThemeToggle";
 import { supabase } from "@/lib/supabase";
 
 export default function Navbar() {
@@ -77,6 +78,8 @@ export default function Navbar() {
 
         {/* Right Action */}
         <div className="flex items-center gap-3">
+          <ThemeToggle />
+
           <Link
             href={isLoggedIn ? "/dashboard" : "/login"}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#e5283b] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-[#d32032] active:scale-95"

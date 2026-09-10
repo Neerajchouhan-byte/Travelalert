@@ -32,14 +32,32 @@ export const metadata = {
   },
 };
 
+// Runs before paint to avoid a flash of the wrong theme. Default is light —
+// the class is added only when the user has explicitly chosen dark.
+const themeInitScript = `
+(function(){
+  try {
+    var stored = localStorage.getItem("travelradar-theme");
+    if (stored === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
       data-scroll-behavior="smooth"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      {/* Font Awesome CDN removed — all icons now use local lucide-react */}
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="flex min-h-full flex-col">{children}</body>
     </html>
   );

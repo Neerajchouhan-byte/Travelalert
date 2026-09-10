@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { findKnownCity } from "@/lib/dashboard-data";
 
 function flagToCode(flag) {
@@ -147,7 +148,8 @@ export function Topbar({ city, brief }) {
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
             <button
               type="button"
               onClick={() => setMobileSearchOpen((v) => !v)}
@@ -275,6 +277,8 @@ export function Topbar({ city, brief }) {
                 2m ago
               </span>
             </div>
+
+            <ThemeToggle />
 
             <button
               type="button"
