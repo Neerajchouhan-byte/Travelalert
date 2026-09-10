@@ -14,7 +14,7 @@ export async function POST(request) {
     // 1. Check if the webhook already registered the payment
     const { data: sub } = await admin
       .from("billing_subscriptions")
-      .select("status, plan_key")
+      .select("status, plan_key, dodo_customer_id")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -24,51 +24,43 @@ export async function POST(request) {
 
     // 2. DEFENSIVE CHECK: Query Dodo Payments API directly to verify real payment
     const dodo = getDodoClient();
-    
-    // Look up customer by verified email
-    const customers = await dodo.customers.list({ email: user.email });
-    const customer = customers?.items?.[0];
 
-    if (!customer) {
-      return Response.json({ 
-        ok: false, 
-        message: "No payment record found with payment processor." 
-      }, { status: 402 });
+    // Prefer our own stored customer id from the billing row; fall back to
+    // looking up the customer by verified email on first sync.
+    let customerId = sub?.dodo_customer_id || null;
+
+    if (!customerId) {
+      const customers = await dodo.customers.list({ email: user.email });
+      customerId = customers?.items?.[0]?.customer_id || null;
     }
 
-    // Check customer's active subscriptions in Dodo
-    // NEW — try our own subscription record first
-const { data: existingRow } = await admin
-  .from("billing_subscriptions")
-  .select("dodo_customer_id")
-  .eq("user_id", user.id)
-  .maybeSingle();
+    if (!customerId) {
+      return Response.json(
+        { ok: false, message: "No payment record found with payment processor." },
+        { status: 402 },
+      );
+    }
 
-let customerId = existingRow?.dodo_customer_id;
-
-if (!customerId) {
-  const customers = await dodo.customers.list({ email: user.email });
-  customerId = customers?.items?.[0]?.customer_id;
-}
-
-if (!customerId) {
-  return Response.json(
-    { ok: false, message: "No payment record found with payment processor." },
-    { status: 402 },
-  );
-}
-
-const subs = await dodo.subscriptions.list({ customer_id: customerId });
+    // 3. Confirm an active subscription exists for this customer.
+    const subs = await dodo.subscriptions.list({ customer_id: customerId });
+    const activeSub = subs?.items?.find((s) =>
+      ["active", "pending"].includes(s.status),
+    );
 
     if (!activeSub) {
-      return Response.json({ 
-        ok: false, 
-        message: "Payment processor did not confirm an active subscription." 
-      }, { status: 402 });
+      return Response.json(
+        {
+          ok: false,
+          message: "Payment processor did not confirm an active subscription.",
+        },
+        { status: 402 },
+      );
     }
 
-    // 3. SECURE UPGRADE: Verified directly with payment processor
-    const periodEnd = activeSub.next_billing_date || new Date(Date.now() + 365 * 86400000).toISOString();
+    // 4. SECURE UPGRADE: Verified directly with payment processor
+    const periodEnd =
+      activeSub.next_billing_date ||
+      new Date(Date.now() + 365 * 86400000).toISOString();
 
     await admin.from("profiles").upsert({
       user_id: user.id,
@@ -76,15 +68,18 @@ const subs = await dodo.subscriptions.list({ customer_id: customerId });
       updated_at: new Date().toISOString(),
     });
 
-    await admin.from("billing_subscriptions").upsert({
-      user_id: user.id,
-      dodo_customer_id: customer.customer_id,
-      dodo_subscription_id: activeSub.subscription_id,
-      plan_key: "annual",
-      status: "active",
-      current_period_end: periodEnd,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
+    await admin.from("billing_subscriptions").upsert(
+      {
+        user_id: user.id,
+        dodo_customer_id: customerId,
+        dodo_subscription_id: activeSub.subscription_id,
+        plan_key: "annual",
+        status: "active",
+        current_period_end: periodEnd,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
 
     return Response.json({ ok: true, plan: "annual" });
   } catch (error) {

@@ -80,11 +80,17 @@ export async function POST(request) {
 
   // 4. Route by event family.
   try {
+    if (eventType.startsWith("subscription.")) {
       const annualProduct = process.env.DODO_ANNUAL_PRODUCT_ID;
-  if (annualProduct && data?.product_id && data.product_id !== annualProduct) {
-    console.info("[Webhook] ignoring non-annual subscription product");
-    return;
-  } else if (eventType.startsWith("payment.") || eventType.startsWith("refund.")) {
+      if (annualProduct && data?.product_id && data.product_id !== annualProduct) {
+        console.info("[Webhook] ignoring non-annual subscription product");
+        return Response.json({ ok: true, ignored: true });
+      }
+      await handleSubscription(eventType, data, occurredAt, eventId, admin);
+    } else if (
+      eventType.startsWith("payment.") ||
+      eventType.startsWith("refund.")
+    ) {
       await handlePayment(eventType, data, occurredAt, admin);
     }
     // Silently ignore unknown events — we already logged them.
@@ -97,7 +103,7 @@ export async function POST(request) {
   }
 }
 
-async function handleSubscription(eventType, data, occurredAt, admin) {
+async function handleSubscription(eventType, data, occurredAt, eventId, admin) {
   const userId = pickUserId(data);
   if (!userId) {
     console.warn("[Webhook] subscription event missing travelradar_user_id");
@@ -118,7 +124,7 @@ async function handleSubscription(eventType, data, occurredAt, admin) {
     current_period_end: data?.next_billing_date || null,
     cancel_at_period_end: Boolean(data?.cancel_at_next_billing_date),
     last_event_at: occurredAt,
-    last_event_id: null,
+    last_event_id: eventId,
     metadata: data?.metadata || {},
     updated_at: new Date().toISOString(),
   };

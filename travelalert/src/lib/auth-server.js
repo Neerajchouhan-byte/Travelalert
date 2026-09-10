@@ -33,7 +33,7 @@ export async function getRequestProfile(request) {
     await Promise.all([
       admin
         .from("profiles")
-        .select("plan, search_count, search_month")
+        .select("plan, search_count, search_month, searched_cities")
         .eq("user_id", user.id)
         .maybeSingle(),
       admin
@@ -57,6 +57,9 @@ export async function getRequestProfile(request) {
     plan,
     search_count: profile?.search_count || 0,
     search_month: profile?.search_month || null,
+    searched_cities: Array.isArray(profile?.searched_cities)
+      ? profile.searched_cities
+      : [],
   };
 }
 

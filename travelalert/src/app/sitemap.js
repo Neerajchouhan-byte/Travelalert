@@ -4,7 +4,7 @@ export default function sitemap() {
   const base =
     process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live";
   const now = new Date();
-  const staticRoutes = ["/", "/scams", "/pricing", "/terms", "/privacy"].map((p) => ({
+  const staticRoutes = ["/", "/scams", "/terms", "/privacy"].map((p) => ({
     url: `${base}${p}`,
     lastModified: now,
     changeFrequency: "weekly",

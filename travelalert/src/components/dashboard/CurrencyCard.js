@@ -18,8 +18,8 @@ export function UsdConversionCard({ brief }) {
         1 USD = {usd} {code}
       </p>
 
-      {/* Red wavy sparkline line matching mockup */}
-      <div className="mt-3 h-8 w-full">
+      {/* Mobile & Desktop: Wavy red line sparkline (Image 1 & Image 2) */}
+      <div className="mt-3 h-8 w-full md:hidden xl:block">
         <svg viewBox="0 0 200 40" className="h-full w-full overflow-visible" preserveAspectRatio="none">
           <path
             d="M0,32 Q25,28 50,29 T100,22 T150,18 T200,10"
@@ -29,6 +29,17 @@ export function UsdConversionCard({ brief }) {
             strokeLinecap="round"
           />
         </svg>
+      </div>
+
+      {/* Tablet: Vertical red bars sparkline (Image 3) */}
+      <div className="mt-3 hidden h-9 w-full items-end gap-1.5 md:flex xl:hidden">
+        {[25, 38, 30, 48, 62, 78, 92].map((h, idx) => (
+          <div
+            key={idx}
+            style={{ height: `${h}%` }}
+            className="w-2.5 rounded-full bg-[#e5283b]"
+          />
+        ))}
       </div>
 
       {/* DCC warning pill */}
@@ -74,8 +85,8 @@ export function ExchangeRateCard({ brief }) {
         24H · USD/{code}
       </p>
 
-      {/* Area Chart */}
-      <div className="mt-3 h-24 w-full">
+      {/* Mobile & Desktop: Area chart with gradient fill (Image 1 & Image 2) */}
+      <div className="mt-3 h-24 w-full md:hidden xl:block">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
             <defs>
@@ -95,6 +106,17 @@ export function ExchangeRateCard({ brief }) {
             />
           </AreaChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Tablet: Vertical red bars matching Image 3 */}
+      <div className="mt-3 hidden h-24 w-full items-end justify-between px-2 md:flex xl:hidden">
+        {[30, 42, 36, 54, 48, 68, 76, 94].map((h, i) => (
+          <div
+            key={i}
+            style={{ height: `${h}%` }}
+            className="w-3 rounded-full bg-[#e5283b]"
+          />
+        ))}
       </div>
 
       {/* Time marks */}

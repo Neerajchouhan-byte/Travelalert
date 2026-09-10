@@ -13,7 +13,7 @@ export function Weather7DayCard({ brief }) {
     { day: "SUN", temp: 31, low: 24, type: "sun" },
   ];
 
-  const renderIcon = (type, isRed = false) => {
+  const renderIcon = (type, isHighlighted = false) => {
     if (type === "sun") {
       return <Sun className="size-4 text-amber-500" />;
     }
@@ -25,7 +25,7 @@ export function Weather7DayCard({ brief }) {
     }
     return (
       <CloudRain
-        className={`size-4 ${isRed ? "text-white" : "text-zinc-400 dark:text-zinc-500"}`}
+        className={`size-4 ${isHighlighted ? "text-white" : "text-zinc-400 dark:text-zinc-500"}`}
       />
     );
   };
@@ -40,8 +40,8 @@ export function Weather7DayCard({ brief }) {
         <Calendar className="size-4 text-zinc-400 dark:text-zinc-500" />
       </div>
 
-      {/* Desktop & Tablet: Vertical List */}
-      <div className="mt-4 hidden space-y-2 md:block">
+      {/* Desktop & Tablet: Vertical List (Image 2 & 3) */}
+      <div className="mt-4 hidden space-y-1.5 md:block">
         {forecast.map((f, i) => {
           const isActive = f.active || i === 1;
 
@@ -80,7 +80,7 @@ export function Weather7DayCard({ brief }) {
         })}
       </div>
 
-      {/* Mobile: Horizontal Carousel */}
+      {/* Mobile: Horizontal Carousel (Image 1) */}
       <div className="no-scrollbar mt-4 flex items-center gap-2.5 overflow-x-auto pb-1 md:hidden">
         {forecast.map((f, i) => {
           const isActive = f.active || i === 1;
@@ -135,8 +135,8 @@ export function WeatherNowCard({ brief }) {
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
-      <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        Now
+      <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+        NOW
       </p>
 
       <div className="mt-2 flex items-center justify-between">

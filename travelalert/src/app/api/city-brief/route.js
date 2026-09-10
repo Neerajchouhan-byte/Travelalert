@@ -2,24 +2,6 @@ import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile } from "@/lib/auth-server";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-export async function GET(request) {
-  const profile = await getRequestProfile(request);
-  if (!profile.user) {
-    return Response.json({ error: "sign in required" }, { status: 401 });
-  }
-
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown";
-  const { checkRateLimit } = await import("@/lib/rate-limit");
-  const limit = checkRateLimit(`city-brief:${profile.user.id}`, 60);
-  if (!limit.ok) {
-    return Response.json({ error: "Too many requests" }, { status: 429 });
-  }
-  // ... rest of existing GET unchanged
-}
-
 export const maxDuration = 15;
 
 const currencyByCountry = {
@@ -161,16 +143,21 @@ export async function GET(request) {
     return Response.json({ error: "sign in required" }, { status: 401 });
   }
 
+  const limit = checkRateLimit(`city-brief:${profile.user.id}`, 60);
+  if (!limit.ok) {
+    return Response.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const rawCity = request.nextUrl.searchParams.get("city") || "";
-  
+
   // Try to resolve city using fuzzy matching first
   let city = resolveCity(rawCity);
-  
+
   // Fallback to simple normalization
   if (!city) {
     city = normalizeCity(rawCity);
   }
-  
+
   if (!city) {
     return Response.json(
       { error: `Could not recognize "${rawCity}" as a valid city name` },
@@ -214,7 +201,7 @@ export async function GET(request) {
 
   const wx = wxData.status === "fulfilled" ? wxData.value : null;
   const cur = wx?.current || null;
-  
+
   let usd = null;
   let inr = null;
   let eur = null;

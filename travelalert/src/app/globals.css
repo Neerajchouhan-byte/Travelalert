@@ -73,12 +73,11 @@ a {
   text-decoration: none;
 }
 
-button {
-  font-family: inherit;
-  border: none;
-  cursor: pointer;
-  background: none;
-  color: inherit;
+@layer base {
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
 }
 
 .no-scrollbar {

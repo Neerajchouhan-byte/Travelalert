@@ -21,13 +21,27 @@ import { useRouter, useSearchParams } from "next/navigation";
 const dashboardCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
+// Prevent cross-user cache leakage: drop every cached briefing when the
+// signed-in user changes (sign-out). The next sign-in on this browser then
+// starts with an empty cache and cannot read the previous user's plan,
+// locked-alert counts, or alerts.
+if (supabase) {
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT") {
+      dashboardCache.clear();
+    }
+  });
+}
+
 function getCachedData(key) {
   const cached = dashboardCache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
   }
   return null;
+  
 }
+
 
 function setCachedData(key, data) {
   dashboardCache.set(key, { data, timestamp: Date.now() });
@@ -66,74 +80,73 @@ function DashboardContent() {
   );
   const [refreshing, setRefreshing] = useState(false);
 
-useEffect(() => {
-  if (searchParams.get("billing") !== "success") return;
+  useEffect(() => {
+    if (searchParams.get("billing") !== "success") return;
 
-  async function activatePro() {
-    const { data } = await supabase?.auth.getSession();
-    const token = data?.session?.access_token;
-    if (!token) return;
+    async function activatePro() {
+      const { data } = await supabase?.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
 
-    async function syncOnce() {
-      return fetch("/api/billing/sync", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
-
-    try {
-      let res = await syncOnce();
-      if (res.status === 202) {
-        await new Promise((r) => setTimeout(r, 2000));
-        res = await syncOnce();
+      async function syncOnce() {
+        return fetch("/api/billing/sync", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
       }
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        if (body.plan) {
-          setPlan(body.plan);
-          setLockedAlerts(0);
-          setLockedTips(0);
+
+      try {
+        let res = await syncOnce();
+        if (res.status === 202) {
+          await new Promise((r) => setTimeout(r, 2000));
+          res = await syncOnce();
         }
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (body.plan) {
+            setPlan(body.plan);
+            setLockedAlerts(0);
+            setLockedTips(0);
+          }
+        }
+      } catch (err) {
+        console.error("[Dashboard] Activation error:", err);
+      } finally {
+        router.replace(
+          `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
+        );
       }
-    } catch (err) {
-      console.error("[Dashboard] Activation error:", err);
-    } finally {
-      router.replace(
-        `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
-      );
     }
-  }
 
-  activatePro();
-}, [searchParams, city, router]);
+    activatePro();
+  }, [searchParams, city, router]);
 
   async function handleRefresh() {
     if (refreshing || loading) return;
     setRefreshing(true);
 
     try {
-      let headers = await getAuthHeaders();
-      const res = await fetch(
-        `/api/briefing?city=${encodeURIComponent(city)}&refresh=1`,
-        { headers, cache: "no-store" },
-      );
-
-      if (res.ok) {
-        const bData = await res.json();
-        setAlerts(bData.alerts || []);
-        setTips(bData.tips || []);
-        setLockedAlerts(bData.lockedAlerts || 0);
-        setLockedTips(bData.lockedTips || 0);
-        setPlan(bData.plan || "free");
-        setSource("live");
-        if (bData.safety) setSafety(String(bData.safety));
-
-        setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const res = await syncOnce();
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (body.plan) {
+            setPlan(body.plan);
+            setLockedAlerts(0);
+            setLockedTips(0);
+          }
+          break;
+        }
+        if (attempt < MAX_ATTEMPTS) {
+          // 402 = webhook has not landed yet. Retry with backoff.
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
       }
     } catch (err) {
-      console.error("Refresh failed:", err);
+      console.error("[Dashboard] Activation error:", err);
     } finally {
-      setRefreshing(false);
+      router.replace(`/dashboard?city=${encodeURIComponent(city)}&refresh=1`);
     }
   }
 
@@ -190,11 +203,11 @@ useEffect(() => {
         setSafety(data.safety || null);
 
         if (data.limitReached) {
-  setShowUpgradeModal(true);
-  setError("");
-} else if (data.error && !(data.alerts || []).length) {
-  setError(data.error);
-}
+          setShowUpgradeModal(true);
+          setError("");
+        } else if (data.error && !(data.alerts || []).length) {
+          setError(data.error);
+        }
 
         setCachedData(cacheKey, data);
       } catch (err) {
@@ -203,6 +216,14 @@ useEffect(() => {
         }
       } finally {
         if (!cancelled) setLoading(false);
+        if (!cancelled && refresh) {
+          // Strip ?refresh=1 so a reload, bookmark, or shared link does not
+          // keep forcing a fresh scrape. Preserve every other query param.
+          const params = new URLSearchParams(searchParams.toString());
+          params.delete("refresh");
+          const qs = params.toString();
+          router.replace(qs ? `/dashboard?${qs}` : "/dashboard");
+        }
       }
     }
 
@@ -211,7 +232,7 @@ useEffect(() => {
       cancelled = true;
       controller.abort();
     };
-  }, [city, refresh, router]);
+  }, [city, refresh, router, searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -279,10 +300,10 @@ useEffect(() => {
             </p>
           )}
 
-          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 3) */}
-          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-12">
-            {/* Left Column: Safety Overview & Intel (6 cols) */}
-            <div className="space-y-5 xl:col-span-6">
+          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 2) */}
+          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
+            {/* Left Column: Safety Overview & Intel */}
+            <div className="space-y-5">
               <DestinationHeader
                 city={city}
                 brief={activeBrief}
@@ -301,20 +322,20 @@ useEffect(() => {
               />
             </div>
 
-            {/* Middle Column: Weather (3 cols) */}
-            <div className="space-y-5 xl:col-span-3">
+            {/* Middle Column: Weather */}
+            <div className="space-y-5">
               <Weather7DayCard brief={activeBrief} />
               <WeatherNowCard brief={activeBrief} />
             </div>
 
-            {/* Right Column: Currency & Rates (3 cols) */}
-            <div className="space-y-5 xl:col-span-3">
+            {/* Right Column: Currency & Rates */}
+            <div className="space-y-5">
               <UsdConversionCard brief={activeBrief} />
               <ExchangeRateCard brief={activeBrief} />
             </div>
           </div>
 
-          {/* 2. TABLET 2-COLUMN LAYOUT (Image 2) */}
+          {/* 2. TABLET 2-COLUMN LAYOUT (Image 3) */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
             {/* Left Column */}
             <div className="space-y-5">

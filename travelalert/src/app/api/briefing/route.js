@@ -47,7 +47,6 @@ export async function GET(request) {
     );
   }
 
-  // 2. DEFENSIVE RATE LIMIT: Prevent API abuse
   // 2. Billing state — needed for both the Pro refresh gate AND the plan slice.
   //    Compute this BEFORE the rate-limit block so we can gate force-refresh.
   let billingState = {
@@ -106,6 +105,7 @@ export async function GET(request) {
     }
   }
 
+  // 5. Free-tier monthly limit: 3 distinct cities per calendar month.
   const month = monthKey();
   const searched =
     profile.search_month === month ? profile.searched_cities || [] : [];
@@ -192,8 +192,9 @@ export async function GET(request) {
       };
     }
   }
+
   if (!hasAccess) {
-    await adminDb()
+    const { error: profileUpdateError } = await adminDb()
       .from("profiles")
       .update({
         search_count: distinctCount,
@@ -202,6 +203,13 @@ export async function GET(request) {
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", profile.user.id);
+
+    if (profileUpdateError) {
+      console.error(
+        "[Briefing] profiles update failed:",
+        profileUpdateError.message,
+      );
+    }
   }
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
