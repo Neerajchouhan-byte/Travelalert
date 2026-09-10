@@ -1,6 +1,7 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Search, Radar } from "lucide-react";
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -95,6 +96,10 @@ export function Topbar({ city, brief }) {
     );
   }
 
+  function handleProfileClick() {
+    router.push("/profile");
+  }
+
   function getInitials() {
     if (user?.user_metadata?.name) {
       return user.user_metadata.name
@@ -114,7 +119,7 @@ export function Topbar({ city, brief }) {
   const countryCode = (
     brief?.country_code ||
     flagToCode(meta?.flag) ||
-    (city.toLowerCase().includes("bali") ? "ID" : "TH")
+    ""
   ).toUpperCase();
 
   const displayName = brief?.city
@@ -124,15 +129,21 @@ export function Topbar({ city, brief }) {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-        {/* Mobile & Tablet top status bar */}
-        <div className="flex items-center justify-between xl:hidden">
-          <div className="flex items-center gap-2">
+        {/* Mobile top status bar (<md) */}
+        <div className="flex items-center justify-between md:hidden">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/?home=1"
+              aria-label="TravelRadar home"
+              className="flex items-center gap-2 transition-opacity hover:opacity-90"
+            >
+              <span className="flex size-7 items-center justify-center rounded-lg bg-[#e5283b] text-white">
+                <Radar className="size-4" />
+              </span>
+            </Link>
             <span className="live-dot" />
             <span className="font-mono text-xs font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
               LIVE RADAR
-            </span>
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              2m ago
             </span>
           </div>
 
@@ -145,18 +156,24 @@ export function Topbar({ city, brief }) {
             >
               <Search className="size-4.5" />
             </button>
-            <Avatar size="sm" className="size-8">
-              <AvatarImage src={avatarUrl} alt="Avatar" />
-              <AvatarFallback className="bg-[#e5283b] text-xs font-bold text-white">
-                {getInitials()}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={handleProfileClick}
+              aria-label="Open profile"
+              className="rounded-full outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#e5283b]/40"
+            >
+              <Avatar size="sm" className="size-8">
+                <AvatarImage src={avatarUrl} alt="Avatar" />
+                <AvatarFallback className="bg-[#e5283b] text-xs font-bold text-white">
+                  {getInitials()}
+                </AvatarFallback>
+              </Avatar>
+            </button>
           </div>
         </div>
 
-        {/* Mobile & Tablet search dropdown if toggled */}
         {mobileSearchOpen && (
-          <form onSubmit={handleSearch} className="mt-2.5 xl:hidden">
+          <form onSubmit={handleSearch} className="mt-2.5 md:hidden">
             <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
               <Search className="size-4 text-zinc-400" />
               <input
@@ -171,29 +188,45 @@ export function Topbar({ city, brief }) {
           </form>
         )}
 
-        {/* Sub-row for Mobile/Tablet: Destination Heading */}
-        <div className="mt-2 flex items-center gap-2.5 xl:hidden">
+        {/* Sub-row for mobile-only: destination heading */}
+        <div className="mt-2 flex items-center gap-2.5 md:hidden">
           <h1 className="text-2xl font-black tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
             {displayName}
           </h1>
-          <span className="rounded-full bg-rose-100 px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
-            {countryCode}
-          </span>
-        </div>
-
-        {/* Desktop Single-Row Layout (Image 2) */}
-        <div className="hidden items-center justify-between gap-6 xl:flex">
-          {/* Destination Heading & Code */}
-          <div className="flex shrink-0 items-center gap-2.5">
-            <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white">
-              {displayName}
-            </h1>
+          {countryCode && (
             <span className="rounded-full bg-rose-100 px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
               {countryCode}
             </span>
+          )}
+        </div>
+
+        {/* Desktop & tablet single-row layout (md+) */}
+        <div className="hidden items-center justify-between gap-4 md:flex">
+          <div className="flex shrink-0 items-center gap-2.5">
+            <Link
+              href="/?home=1"
+              aria-label="TravelRadar home"
+              className="flex items-center gap-2 transition-opacity hover:opacity-90"
+            >
+              <span className="flex size-8 items-center justify-center rounded-lg bg-[#e5283b] text-white">
+                <Radar className="size-4.5" />
+              </span>
+              <span className="hidden text-lg font-black tracking-tight text-zinc-900 lg:inline dark:text-white">
+                TravelRadar
+              </span>
+            </Link>
+            <div className="flex items-center gap-2.5 border-l border-zinc-200 pl-3 dark:border-white/10">
+              <h1 className="text-2xl font-black tracking-tight text-zinc-900 xl:text-3xl dark:text-white">
+                {displayName}
+              </h1>
+              {countryCode && (
+                <span className="rounded-full bg-rose-100 px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
+                  {countryCode}
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Desktop Search Bar */}
           <div className="relative w-full max-w-md">
             <form
               onSubmit={handleSearch}
@@ -214,7 +247,6 @@ export function Topbar({ city, brief }) {
               )}
             </form>
 
-            {/* Suggestions dropdown */}
             {showSuggestions && suggestions.length > 0 && (
               <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#16161b]">
                 {suggestions.map((item, idx) => (
@@ -233,9 +265,8 @@ export function Topbar({ city, brief }) {
             )}
           </div>
 
-          {/* Right Status & Profile Avatar */}
           <div className="flex shrink-0 items-center gap-4">
-            <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 lg:flex">
               <span className="live-dot" />
               <span className="font-mono text-xs font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
                 LIVE RADAR
@@ -245,12 +276,19 @@ export function Topbar({ city, brief }) {
               </span>
             </div>
 
-            <Avatar size="sm" className="size-9">
-              <AvatarImage src={avatarUrl} alt="Avatar" />
-              <AvatarFallback className="bg-[#e5283b] text-xs font-bold text-white">
-                {getInitials()}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={handleProfileClick}
+              aria-label="Open profile"
+              className="rounded-full outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#e5283b]/40"
+            >
+              <Avatar size="sm" className="size-9">
+                <AvatarImage src={avatarUrl} alt="Avatar" />
+                <AvatarFallback className="bg-[#e5283b] text-xs font-bold text-white">
+                  {getInitials()}
+                </AvatarFallback>
+              </Avatar>
+            </button>
           </div>
         </div>
       </div>

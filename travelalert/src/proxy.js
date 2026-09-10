@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 
 /**
  * Next.js 16 "proxy" convention (replaces middleware.js).
- * Guards /dashboard and /profile — redirects unauthenticated
- * visitors to /login, preserving the ?city param. The public root page remains
- * available to authenticated users so dashboard navigation can return home.
- * 
- * Also handles session refresh to keep users logged in across requests.
+ *
+ * Guards:
+ *   - /dashboard and /profile require auth → redirect to /login if missing.
+ *   - / requires an explicit opt-in (?home=1) for signed-in users; otherwise
+ *     they are redirected to /dashboard so repeat visits skip the landing page.
+ *     The dashboard logo links to /?home=1 to opt back in.
  */
 export default async function proxy(request) {
   let response = NextResponse.next({ request });
@@ -36,11 +37,10 @@ export default async function proxy(request) {
     data: { user },
   } = await supabase.auth.getUser();
 
-
   const path = request.nextUrl.pathname;
 
-  const protectedPath = 
-    path.startsWith("/dashboard") || 
+  const protectedPath =
+    path.startsWith("/dashboard") ||
     path.startsWith("/profile");
 
   if (protectedPath && !user) {
@@ -48,6 +48,16 @@ export default async function proxy(request) {
     next.pathname = "/login";
     const city = request.nextUrl.searchParams.get("city");
     if (city) next.searchParams.set("city", city);
+    return NextResponse.redirect(next);
+  }
+
+  // Signed-in users land on the dashboard on any fresh visit to "/", unless
+  // they explicitly opted into the landing page via ?home=1 (the dashboard
+  // logo links with that flag).
+  if (path === "/" && user && !request.nextUrl.searchParams.has("home")) {
+    const next = request.nextUrl.clone();
+    next.pathname = "/dashboard";
+    next.search = "";
     return NextResponse.redirect(next);
   }
 

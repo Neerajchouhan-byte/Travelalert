@@ -2,16 +2,21 @@
 
 import { Calendar, CloudRain, Sun, CloudSun, CloudLightning } from "lucide-react";
 
+const FALLBACK_FORECAST = [
+  { day: "MON", temp: 29, low: 24, type: "rain" },
+  { day: "TUE", temp: 29, low: 24, type: "rain", active: true, rain: "88% rain" },
+  { day: "WED", temp: 30, low: 24, type: "rain" },
+  { day: "THU", temp: 30, low: 24, type: "rain" },
+  { day: "FRI", temp: 29, low: 24, type: "rain" },
+  { day: "SAT", temp: 31, low: 24, type: "sun" },
+  { day: "SUN", temp: 31, low: 24, type: "sun" },
+];
+
 export function Weather7DayCard({ brief }) {
-  const forecast = brief?.forecast || [
-    { day: "MON", temp: 29, low: 24, type: "rain" },
-    { day: "TUE", temp: 29, low: 24, type: "rain", active: true, rain: "88% rain" },
-    { day: "WED", temp: 30, low: 24, type: "rain" },
-    { day: "THU", temp: 30, low: 24, type: "rain" },
-    { day: "FRI", temp: 29, low: 24, type: "rain" },
-    { day: "SAT", temp: 31, low: 24, type: "sun" },
-    { day: "SUN", temp: 31, low: 24, type: "sun" },
-  ];
+  const forecast =
+    Array.isArray(brief?.forecast) && brief.forecast.length > 0
+      ? brief.forecast
+      : FALLBACK_FORECAST;
 
   const renderIcon = (type, isHighlighted = false) => {
     if (type === "sun") {
@@ -32,7 +37,6 @@ export function Weather7DayCard({ brief }) {
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
-      {/* Title */}
       <div className="flex items-center justify-between">
         <h3 className="text-base font-black tracking-tight text-zinc-900 sm:text-lg dark:text-white">
           7-Day Weather
@@ -40,7 +44,6 @@ export function Weather7DayCard({ brief }) {
         <Calendar className="size-4 text-zinc-400 dark:text-zinc-500" />
       </div>
 
-      {/* Desktop & Tablet: Vertical List (Image 2 & 3) */}
       <div className="mt-4 hidden space-y-1.5 md:block">
         {forecast.map((f, i) => {
           const isActive = f.active || i === 1;
@@ -80,7 +83,6 @@ export function Weather7DayCard({ brief }) {
         })}
       </div>
 
-      {/* Mobile: Horizontal Carousel (Image 1) */}
       <div className="no-scrollbar mt-4 flex items-center gap-2.5 overflow-x-auto pb-1 md:hidden">
         {forecast.map((f, i) => {
           const isActive = f.active || i === 1;
@@ -128,10 +130,13 @@ export function Weather7DayCard({ brief }) {
 
 export function WeatherNowCard({ brief }) {
   const w = brief?.weather;
-  const temp = w?.temp ?? 29;
-  const rainProb = w?.rain_chance ?? 88;
-  const feels = w?.feels ?? 32;
-  const humidity = w?.humidity ?? 81;
+  const hasWeather =
+    w && typeof w.temp === "number" && !Number.isNaN(w.temp);
+
+  const temp = hasWeather ? w.temp : 29;
+  const rainProb = hasWeather && typeof w.rain_chance === "number" ? w.rain_chance : 88;
+  const feels = hasWeather && typeof w.feels === "number" ? w.feels : 32;
+  const humidity = hasWeather && typeof w.humidity === "number" ? w.humidity : 81;
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">

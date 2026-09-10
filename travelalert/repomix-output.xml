@@ -104,21 +104,15 @@ src/
     globals.css
     layout.js
     page.js
-    robot.js
+    robots.js
     sitemap.js
   components/
     dashboard/
-      CityDisambiguation.js
       CurrencyCard.js
       DestinationChips.js
       DestinationHeader.js
-      ExpandableCard.js
       IntelTabs.js
-      LiveTicker.js
-      Panel.js
-      RecentActivity.js
       RequireAuth.js
-      ThreatOverview.js
       Topbar.js
       WeatherCard.js
     ui/
@@ -984,7 +978,7 @@ export async function POST(request) {
     // 1. Check if the webhook already registered the payment
     const { data: sub } = await admin
       .from("billing_subscriptions")
-      .select("status, plan_key")
+      .select("status, plan_key, dodo_customer_id")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -994,51 +988,43 @@ export async function POST(request) {
 
     // 2. DEFENSIVE CHECK: Query Dodo Payments API directly to verify real payment
     const dodo = getDodoClient();
-    
-    // Look up customer by verified email
-    const customers = await dodo.customers.list({ email: user.email });
-    const customer = customers?.items?.[0];
 
-    if (!customer) {
-      return Response.json({ 
-        ok: false, 
-        message: "No payment record found with payment processor." 
-      }, { status: 402 });
+    // Prefer our own stored customer id from the billing row; fall back to
+    // looking up the customer by verified email on first sync.
+    let customerId = sub?.dodo_customer_id || null;
+
+    if (!customerId) {
+      const customers = await dodo.customers.list({ email: user.email });
+      customerId = customers?.items?.[0]?.customer_id || null;
     }
 
-    // Check customer's active subscriptions in Dodo
-    // NEW — try our own subscription record first
-const { data: existingRow } = await admin
-  .from("billing_subscriptions")
-  .select("dodo_customer_id")
-  .eq("user_id", user.id)
-  .maybeSingle();
+    if (!customerId) {
+      return Response.json(
+        { ok: false, message: "No payment record found with payment processor." },
+        { status: 402 },
+      );
+    }
 
-let customerId = existingRow?.dodo_customer_id;
-
-if (!customerId) {
-  const customers = await dodo.customers.list({ email: user.email });
-  customerId = customers?.items?.[0]?.customer_id;
-}
-
-if (!customerId) {
-  return Response.json(
-    { ok: false, message: "No payment record found with payment processor." },
-    { status: 402 },
-  );
-}
-
-const subs = await dodo.subscriptions.list({ customer_id: customerId });
+    // 3. Confirm an active subscription exists for this customer.
+    const subs = await dodo.subscriptions.list({ customer_id: customerId });
+    const activeSub = subs?.items?.find((s) =>
+      ["active", "pending"].includes(s.status),
+    );
 
     if (!activeSub) {
-      return Response.json({ 
-        ok: false, 
-        message: "Payment processor did not confirm an active subscription." 
-      }, { status: 402 });
+      return Response.json(
+        {
+          ok: false,
+          message: "Payment processor did not confirm an active subscription.",
+        },
+        { status: 402 },
+      );
     }
 
-    // 3. SECURE UPGRADE: Verified directly with payment processor
-    const periodEnd = activeSub.next_billing_date || new Date(Date.now() + 365 * 86400000).toISOString();
+    // 4. SECURE UPGRADE: Verified directly with payment processor
+    const periodEnd =
+      activeSub.next_billing_date ||
+      new Date(Date.now() + 365 * 86400000).toISOString();
 
     await admin.from("profiles").upsert({
       user_id: user.id,
@@ -1046,15 +1032,18 @@ const subs = await dodo.subscriptions.list({ customer_id: customerId });
       updated_at: new Date().toISOString(),
     });
 
-    await admin.from("billing_subscriptions").upsert({
-      user_id: user.id,
-      dodo_customer_id: customer.customer_id,
-      dodo_subscription_id: activeSub.subscription_id,
-      plan_key: "annual",
-      status: "active",
-      current_period_end: periodEnd,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
+    await admin.from("billing_subscriptions").upsert(
+      {
+        user_id: user.id,
+        dodo_customer_id: customerId,
+        dodo_subscription_id: activeSub.subscription_id,
+        plan_key: "annual",
+        status: "active",
+        current_period_end: periodEnd,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
 
     return Response.json({ ok: true, plan: "annual" });
   } catch (error) {
@@ -1147,11 +1136,17 @@ export async function POST(request) {
 
   // 4. Route by event family.
   try {
+    if (eventType.startsWith("subscription.")) {
       const annualProduct = process.env.DODO_ANNUAL_PRODUCT_ID;
-  if (annualProduct && data?.product_id && data.product_id !== annualProduct) {
-    console.info("[Webhook] ignoring non-annual subscription product");
-    return;
-  } else if (eventType.startsWith("payment.") || eventType.startsWith("refund.")) {
+      if (annualProduct && data?.product_id && data.product_id !== annualProduct) {
+        console.info("[Webhook] ignoring non-annual subscription product");
+        return Response.json({ ok: true, ignored: true });
+      }
+      await handleSubscription(eventType, data, occurredAt, eventId, admin);
+    } else if (
+      eventType.startsWith("payment.") ||
+      eventType.startsWith("refund.")
+    ) {
       await handlePayment(eventType, data, occurredAt, admin);
     }
     // Silently ignore unknown events — we already logged them.
@@ -1164,7 +1159,7 @@ export async function POST(request) {
   }
 }
 
-async function handleSubscription(eventType, data, occurredAt, admin) {
+async function handleSubscription(eventType, data, occurredAt, eventId, admin) {
   const userId = pickUserId(data);
   if (!userId) {
     console.warn("[Webhook] subscription event missing travelradar_user_id");
@@ -1185,7 +1180,7 @@ async function handleSubscription(eventType, data, occurredAt, admin) {
     current_period_end: data?.next_billing_date || null,
     cancel_at_period_end: Boolean(data?.cancel_at_next_billing_date),
     last_event_at: occurredAt,
-    last_event_id: null,
+    last_event_id: eventId,
     metadata: data?.metadata || {},
     updated_at: new Date().toISOString(),
   };
@@ -1319,7 +1314,6 @@ export async function GET(request) {
     );
   }
 
-  // 2. DEFENSIVE RATE LIMIT: Prevent API abuse
   // 2. Billing state — needed for both the Pro refresh gate AND the plan slice.
   //    Compute this BEFORE the rate-limit block so we can gate force-refresh.
   let billingState = {
@@ -1378,6 +1372,7 @@ export async function GET(request) {
     }
   }
 
+  // 5. Free-tier monthly limit: 3 distinct cities per calendar month.
   const month = monthKey();
   const searched =
     profile.search_month === month ? profile.searched_cities || [] : [];
@@ -1464,8 +1459,9 @@ export async function GET(request) {
       };
     }
   }
+
   if (!hasAccess) {
-    await adminDb()
+    const { error: profileUpdateError } = await adminDb()
       .from("profiles")
       .update({
         search_count: distinctCount,
@@ -1474,6 +1470,13 @@ export async function GET(request) {
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", profile.user.id);
+
+    if (profileUpdateError) {
+      console.error(
+        "[Briefing] profiles update failed:",
+        profileUpdateError.message,
+      );
+    }
   }
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
@@ -1505,24 +1508,6 @@ export async function GET(request) {
 import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile } from "@/lib/auth-server";
 import { checkRateLimit } from "@/lib/rate-limit";
-
-export async function GET(request) {
-  const profile = await getRequestProfile(request);
-  if (!profile.user) {
-    return Response.json({ error: "sign in required" }, { status: 401 });
-  }
-
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown";
-  const { checkRateLimit } = await import("@/lib/rate-limit");
-  const limit = checkRateLimit(`city-brief:${profile.user.id}`, 60);
-  if (!limit.ok) {
-    return Response.json({ error: "Too many requests" }, { status: 429 });
-  }
-  // ... rest of existing GET unchanged
-}
 
 export const maxDuration = 15;
 
@@ -1659,22 +1644,27 @@ function gmtOffset(timeZone) {
   }
 }
 
-export async function POST(request) {
+export async function GET(request) {
   const profile = await getRequestProfile(request);
   if (!profile.user) {
     return Response.json({ error: "sign in required" }, { status: 401 });
   }
 
+  const limit = checkRateLimit(`city-brief:${profile.user.id}`, 60);
+  if (!limit.ok) {
+    return Response.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const rawCity = request.nextUrl.searchParams.get("city") || "";
-  
+
   // Try to resolve city using fuzzy matching first
   let city = resolveCity(rawCity);
-  
+
   // Fallback to simple normalization
   if (!city) {
     city = normalizeCity(rawCity);
   }
-  
+
   if (!city) {
     return Response.json(
       { error: `Could not recognize "${rawCity}" as a valid city name` },
@@ -1718,7 +1708,7 @@ export async function POST(request) {
 
   const wx = wxData.status === "fulfilled" ? wxData.value : null;
   const cur = wx?.current || null;
-  
+
   let usd = null;
   let inr = null;
   let eur = null;
@@ -1864,18 +1854,32 @@ function flagFromCountryCode(code) {
 </file>
 
 <file path="src/app/api/me/route.js">
-import { getRequestProfile } from "@/lib/auth-server";
+import { getRequestUser } from "@/lib/auth-server";
+import { getBillingState, publicSubscription } from "@/lib/billing";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(request) {
-  const billing = await getBillingState(profile.user.id);
-  const published = publicSubscription(billing);
+  const user = await getRequestUser(request);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  return Response.json({
-    plan: published.plan, // "annual" | "trip_pass" | "free"
-    email: profile.user.email,
-    userId: profile.user.id,
-    destinationPacks: billing.destinationPacks,
-  });
+  try {
+    const billing = await getBillingState(user.id);
+    const published = publicSubscription(billing);
+
+    return Response.json({
+      plan: published.plan, // "annual" | "trip_pass" | "free"
+      email: user.email,
+      userId: user.id,
+      destinationPacks: billing.destinationPacks,
+    });
+  } catch (error) {
+    console.error("[Me]", error?.message || error);
+    return Response.json({ error: "Could not load account state" }, { status: 500 });
+  }
 }
 </file>
 
@@ -1976,13 +1980,27 @@ import { useRouter, useSearchParams } from "next/navigation";
 const dashboardCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
+// Prevent cross-user cache leakage: drop every cached briefing when the
+// signed-in user changes (sign-out). The next sign-in on this browser then
+// starts with an empty cache and cannot read the previous user's plan,
+// locked-alert counts, or alerts.
+if (supabase) {
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT") {
+      dashboardCache.clear();
+    }
+  });
+}
+
 function getCachedData(key) {
   const cached = dashboardCache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
   }
   return null;
+  
 }
+
 
 function setCachedData(key, data) {
   dashboardCache.set(key, { data, timestamp: Date.now() });
@@ -2021,74 +2039,73 @@ function DashboardContent() {
   );
   const [refreshing, setRefreshing] = useState(false);
 
-useEffect(() => {
-  if (searchParams.get("billing") !== "success") return;
+  useEffect(() => {
+    if (searchParams.get("billing") !== "success") return;
 
-  async function activatePro() {
-    const { data } = await supabase?.auth.getSession();
-    const token = data?.session?.access_token;
-    if (!token) return;
+    async function activatePro() {
+      const { data } = await supabase?.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
 
-    async function syncOnce() {
-      return fetch("/api/billing/sync", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
-
-    try {
-      let res = await syncOnce();
-      if (res.status === 202) {
-        await new Promise((r) => setTimeout(r, 2000));
-        res = await syncOnce();
+      async function syncOnce() {
+        return fetch("/api/billing/sync", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
       }
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        if (body.plan) {
-          setPlan(body.plan);
-          setLockedAlerts(0);
-          setLockedTips(0);
+
+      try {
+        let res = await syncOnce();
+        if (res.status === 202) {
+          await new Promise((r) => setTimeout(r, 2000));
+          res = await syncOnce();
         }
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (body.plan) {
+            setPlan(body.plan);
+            setLockedAlerts(0);
+            setLockedTips(0);
+          }
+        }
+      } catch (err) {
+        console.error("[Dashboard] Activation error:", err);
+      } finally {
+        router.replace(
+          `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
+        );
       }
-    } catch (err) {
-      console.error("[Dashboard] Activation error:", err);
-    } finally {
-      router.replace(
-        `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
-      );
     }
-  }
 
-  activatePro();
-}, [searchParams, city, router]);
+    activatePro();
+  }, [searchParams, city, router]);
 
   async function handleRefresh() {
     if (refreshing || loading) return;
     setRefreshing(true);
 
     try {
-      let headers = await getAuthHeaders();
-      const res = await fetch(
-        `/api/briefing?city=${encodeURIComponent(city)}&refresh=1`,
-        { headers, cache: "no-store" },
-      );
-
-      if (res.ok) {
-        const bData = await res.json();
-        setAlerts(bData.alerts || []);
-        setTips(bData.tips || []);
-        setLockedAlerts(bData.lockedAlerts || 0);
-        setLockedTips(bData.lockedTips || 0);
-        setPlan(bData.plan || "free");
-        setSource("live");
-        if (bData.safety) setSafety(String(bData.safety));
-
-        setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const res = await syncOnce();
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (body.plan) {
+            setPlan(body.plan);
+            setLockedAlerts(0);
+            setLockedTips(0);
+          }
+          break;
+        }
+        if (attempt < MAX_ATTEMPTS) {
+          // 402 = webhook has not landed yet. Retry with backoff.
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
       }
     } catch (err) {
-      console.error("Refresh failed:", err);
+      console.error("[Dashboard] Activation error:", err);
     } finally {
-      setRefreshing(false);
+      router.replace(`/dashboard?city=${encodeURIComponent(city)}&refresh=1`);
     }
   }
 
@@ -2145,11 +2162,11 @@ useEffect(() => {
         setSafety(data.safety || null);
 
         if (data.limitReached) {
-  setShowUpgradeModal(true);
-  setError("");
-} else if (data.error && !(data.alerts || []).length) {
-  setError(data.error);
-}
+          setShowUpgradeModal(true);
+          setError("");
+        } else if (data.error && !(data.alerts || []).length) {
+          setError(data.error);
+        }
 
         setCachedData(cacheKey, data);
       } catch (err) {
@@ -2158,6 +2175,14 @@ useEffect(() => {
         }
       } finally {
         if (!cancelled) setLoading(false);
+        if (!cancelled && refresh) {
+          // Strip ?refresh=1 so a reload, bookmark, or shared link does not
+          // keep forcing a fresh scrape. Preserve every other query param.
+          const params = new URLSearchParams(searchParams.toString());
+          params.delete("refresh");
+          const qs = params.toString();
+          router.replace(qs ? `/dashboard?${qs}` : "/dashboard");
+        }
       }
     }
 
@@ -2166,7 +2191,7 @@ useEffect(() => {
       cancelled = true;
       controller.abort();
     };
-  }, [city, refresh, router]);
+  }, [city, refresh, router, searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2234,10 +2259,10 @@ useEffect(() => {
             </p>
           )}
 
-          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 3) */}
-          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-12">
-            {/* Left Column: Safety Overview & Intel (6 cols) */}
-            <div className="space-y-5 xl:col-span-6">
+          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 2) */}
+          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
+            {/* Left Column: Safety Overview & Intel */}
+            <div className="space-y-5">
               <DestinationHeader
                 city={city}
                 brief={activeBrief}
@@ -2256,20 +2281,20 @@ useEffect(() => {
               />
             </div>
 
-            {/* Middle Column: Weather (3 cols) */}
-            <div className="space-y-5 xl:col-span-3">
+            {/* Middle Column: Weather */}
+            <div className="space-y-5">
               <Weather7DayCard brief={activeBrief} />
               <WeatherNowCard brief={activeBrief} />
             </div>
 
-            {/* Right Column: Currency & Rates (3 cols) */}
-            <div className="space-y-5 xl:col-span-3">
+            {/* Right Column: Currency & Rates */}
+            <div className="space-y-5">
               <UsdConversionCard brief={activeBrief} />
               <ExchangeRateCard brief={activeBrief} />
             </div>
           </div>
 
-          {/* 2. TABLET 2-COLUMN LAYOUT (Image 2) */}
+          {/* 2. TABLET 2-COLUMN LAYOUT (Image 3) */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
             {/* Left Column */}
             <div className="space-y-5">
@@ -3319,12 +3344,17 @@ export default function ScamsIndexPage() {
 <file path="src/app/signup/page.js">
 import { redirect } from "next/navigation";
 
-export default function SignupPage({ searchParams }) {
-  const city = searchParams?.city || "";
-  const destination = searchParams?.redirect || "/dashboard";
+export default async function SignupPage({ searchParams }) {
+  const resolved = (await searchParams) || {};
+  const city = resolved.city || "";
+  const destination = resolved.redirect || "/dashboard";
+
   const params = new URLSearchParams({ mode: "signup" });
   if (city) params.set("city", city);
-  if (destination.startsWith("/") && !destination.startsWith("//")) params.set("redirect", destination);
+  if (destination.startsWith("/") && !destination.startsWith("//")) {
+    params.set("redirect", destination);
+  }
+
   redirect(`/login?${params.toString()}`);
 }
 </file>
@@ -3454,12 +3484,11 @@ a {
   text-decoration: none;
 }
 
-button {
-  font-family: inherit;
-  border: none;
-  cursor: pointer;
-  background: none;
-  color: inherit;
+@layer base {
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
 }
 
 .no-scrollbar {
@@ -4234,15 +4263,7 @@ button {
   }
 }
 
-@media (prefers-color-scheme: light) {
-  .nav-island,
-  .command-dialog,
-  .signal-chart-panel,
-  .coverage-pane,
-  .signal-feature {
-    background-color: rgba(255, 255, 255, 0.9) !important;
-    color: var(--text);
-  }
+
   .p-card.pop {
     background:
       linear-gradient(160deg, rgba(229, 72, 74, 0.13), transparent 62%),
@@ -6264,7 +6285,7 @@ export default function Home() {
 }
 </file>
 
-<file path="src/app/robot.js">
+<file path="src/app/robots.js">
 export default function robots() {
   const base =
     process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live";
@@ -6282,7 +6303,7 @@ export default function sitemap() {
   const base =
     process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live";
   const now = new Date();
-  const staticRoutes = ["/", "/scams", "/pricing", "/terms", "/privacy"].map((p) => ({
+  const staticRoutes = ["/", "/scams", "/terms", "/privacy"].map((p) => ({
     url: `${base}${p}`,
     lastModified: now,
     changeFrequency: "weekly",
@@ -6295,160 +6316,6 @@ export default function sitemap() {
     priority: 0.8,
   }));
   return [...staticRoutes, ...cityRoutes];
-}
-</file>
-
-<file path="src/components/dashboard/CityDisambiguation.js">
-"use client";
-
-import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Search } from "lucide-react";
-
-/**
- * CityDisambiguation - A search component that handles cities with the same name
- * by showing a dropdown with country flags and full location names.
- */
-export function CityDisambiguation({ onSelect, onClose }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(-1);
-  const inputRef = useRef(null);
-  const resultsRef = useRef(null);
-
-  // Focus input on mount
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Search cities when query changes
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      const reset = setTimeout(() => setResults([]), 0);
-      return () => clearTimeout(reset);
-    }
-
-    const timeout = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(
-          `/api/city-search?q=${encodeURIComponent(trimmed)}`
-        );
-        const data = await res.json();
-        setResults(data.cities || []);
-        setSelectedIndex(-1);
-      } catch {
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeout);
-  }, [query]);
-
-  // Handle keyboard navigation
-  function handleKeyDown(e) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelectedIndex((prev) => Math.max(prev - 1, -1));
-    } else if (e.key === "Enter" && selectedIndex >= 0) {
-      e.preventDefault();
-      handleSelect(results[selectedIndex]);
-    } else if (e.key === "Escape") {
-      onClose?.();
-    }
-  }
-
-  function handleSelect(city) {
-    onSelect?.(city);
-  }
-
-  // Scroll selected item into view
-  useEffect(() => {
-    if (selectedIndex >= 0 && resultsRef.current) {
-      const item = resultsRef.current.children[selectedIndex];
-      item?.scrollIntoView({ block: "nearest" });
-    }
-  }, [selectedIndex]);
-
-  return (
-    <div className="relative w-full">
-      {/* Search Input */}
-      <div className="group flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 focus-within:border-white/20 focus-within:bg-white/[0.07]">
-        <Search className="size-3.5 shrink-0 text-[#68686f] group-focus-within:text-[#a6a6ad]" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Search a city..."
-          className="min-w-0 flex-1 bg-transparent text-sm text-[#f3f3f2] outline-none placeholder:text-[#68686f]"
-        />
-        {loading && (
-          <div className="size-3.5 animate-spin rounded-full border border-white/20 border-t-[#5b9dee]" />
-        )}
-      </div>
-
-      {/* Results Dropdown */}
-      <AnimatePresence>
-        {results.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-[#141417] shadow-xl shadow-black/40"
-            ref={resultsRef}
-          >
-            <div className="p-1.5">
-              <p className="px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#68686f]">
-                Select a city
-              </p>
-              {results.map((city, index) => (
-                <button
-                  key={`${city.name}-${city.country}-${index}`}
-                  type="button"
-                  onClick={() => handleSelect(city)}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors ${
-                    index === selectedIndex
-                      ? "bg-white/[0.08]"
-                      : "hover:bg-white/[0.05]"
-                  }`}
-                >
-                  <span className="text-lg">{city.flag || "🌍"}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-[#f3f3f2]">
-                      {city.name}
-                    </p>
-                    <p className="truncate text-xs text-[#68686f]">
-                      {city.country}
-                      {city.admin1 ? ` · ${city.admin1}` : ""}
-                    </p>
-                  </div>
-                  <MapPin className="size-3 shrink-0 text-[#68686f]" />
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Hint for multiple results */}
-      {results.length > 1 && (
-        <p className="mt-1.5 px-3.5 text-xs text-[#68686f]">
-          Multiple cities found — select the one you want
-        </p>
-      )}
-    </div>
-  );
 }
 </file>
 
@@ -6473,8 +6340,8 @@ export function UsdConversionCard({ brief }) {
         1 USD = {usd} {code}
       </p>
 
-      {/* Red wavy sparkline line matching mockup */}
-      <div className="mt-3 h-8 w-full">
+      {/* Mobile & Desktop: Wavy red line sparkline (Image 1 & Image 2) */}
+      <div className="mt-3 h-8 w-full md:hidden xl:block">
         <svg viewBox="0 0 200 40" className="h-full w-full overflow-visible" preserveAspectRatio="none">
           <path
             d="M0,32 Q25,28 50,29 T100,22 T150,18 T200,10"
@@ -6484,6 +6351,17 @@ export function UsdConversionCard({ brief }) {
             strokeLinecap="round"
           />
         </svg>
+      </div>
+
+      {/* Tablet: Vertical red bars sparkline (Image 3) */}
+      <div className="mt-3 hidden h-9 w-full items-end gap-1.5 md:flex xl:hidden">
+        {[25, 38, 30, 48, 62, 78, 92].map((h, idx) => (
+          <div
+            key={idx}
+            style={{ height: `${h}%` }}
+            className="w-2.5 rounded-full bg-[#e5283b]"
+          />
+        ))}
       </div>
 
       {/* DCC warning pill */}
@@ -6529,8 +6407,8 @@ export function ExchangeRateCard({ brief }) {
         24H · USD/{code}
       </p>
 
-      {/* Area Chart */}
-      <div className="mt-3 h-24 w-full">
+      {/* Mobile & Desktop: Area chart with gradient fill (Image 1 & Image 2) */}
+      <div className="mt-3 h-24 w-full md:hidden xl:block">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
             <defs>
@@ -6550,6 +6428,17 @@ export function ExchangeRateCard({ brief }) {
             />
           </AreaChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Tablet: Vertical red bars matching Image 3 */}
+      <div className="mt-3 hidden h-24 w-full items-end justify-between px-2 md:flex xl:hidden">
+        {[30, 42, 36, 54, 48, 68, 76, 94].map((h, i) => (
+          <div
+            key={i}
+            style={{ height: `${h}%` }}
+            className="w-3 rounded-full bg-[#e5283b]"
+          />
+        ))}
       </div>
 
       {/* Time marks */}
@@ -6772,136 +6661,6 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
 }
 </file>
 
-<file path="src/components/dashboard/ExpandableCard.js">
-"use client";
-
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, Lock } from "lucide-react";
-
-const spring = { type: "spring", duration: 0.5, bounce: 0.2 };
-
-export function ExpandableCard({
-  title,
-  badge,
-  preview,
-  children,
-  locked = false,
-  accent = "medium",
-  index = 0,
-}) {
-  const [open, setOpen] = useState(false);
-
-  const bar = {
-    high: "bg-[#e5484a]",
-    medium: "bg-[#f0a63d]",
-    tip: "bg-[#3ecf8e]",
-    low: "bg-[#3ecf8e]",
-  }[accent] || "bg-[#f0a63d]";
-
-  const badgeCls = {
-    high: "bg-[rgba(229,72,74,0.18)] text-[#e5484a]",
-    medium: "bg-[rgba(240,166,61,0.18)] text-[#f0a63d]",
-    tip: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]",
-    low: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]",
-  }[accent] || "bg-white/10 text-[#a6a6ad]";
-
-  if (locked) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.05, duration: 0.4 }}
-        className="relative select-none overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]"
-      >
-        <div className={`absolute inset-y-0 left-0 w-1 ${bar} opacity-40`} />
-        <div className="flex items-center gap-3 px-4 py-3 pl-5">
-          <div className="min-w-0 flex-1 blur-[3px]">
-            <p className="truncate text-sm font-semibold">{title}</p>
-            {preview && (
-              <p className="mt-0.5 truncate text-xs text-[#a6a6ad]">{preview}</p>
-            )}
-          </div>
-          <Lock className="size-3.5 shrink-0 text-[#68686f]" />
-        </div>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.06, duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
-      className="dashboard-expandable overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] transition-[border-color,background-color,transform] duration-200 hover:border-white/20 hover:bg-white/[0.05]"
-    >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="dashboard-press flex w-full items-start gap-3 px-3 py-3 text-left sm:px-4"
-      >
-        <motion.span
-          animate={open ? { scale: [1, 1.5, 1] } : { scale: 1 }}
-          transition={{ duration: 0.4 }}
-          className={`mt-1.5 size-1.5 shrink-0 rounded-full ${bar}`}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold leading-snug">{title}</span>
-            {badge && (
-              <span
-                className={`rounded-full px-2 py-0.5 font-mono text-[10px] uppercase ${badgeCls}`}
-              >
-                {badge}
-              </span>
-            )}
-          </span>
-          <AnimatePresence initial={false}>
-            {!open && preview && (
-              <motion.span
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.25 }}
-                className="mt-1 block overflow-hidden text-xs leading-relaxed text-[#a6a6ad]"
-              >
-                <span className="line-clamp-2">{preview}</span>
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </span>
-        <motion.span
-          animate={{ rotate: open ? 180 : 0 }}
-          transition={spring}
-          className="mt-0.5 shrink-0 text-[#68686f]"
-        >
-          <ChevronDown className="size-4" />
-        </motion.span>
-      </button>
-
-      {/* height-auto spring expansion */}
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            key="content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={spring}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-white/10 px-3 pb-3 pt-2 sm:px-4">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-</file>
-
 <file path="src/components/dashboard/IntelTabs.js">
 "use client";
 
@@ -6922,51 +6681,54 @@ export function IntelTabs({
   const [tab, setTab] = useState("alerts");
   const [expandedIndex, setExpandedIndex] = useState(null);
 
-    const hasAccess = plan !== "free";
-  const alertList = alerts;
-  const tipList = tips;
+  const hasAccess = plan !== "free";
+
+  const defaultAlerts = [
+    {
+      name: "ATM Skimming Notice · Canggu",
+      severity: "high",
+      description:
+        "Card skimmers detected at standalone tourist ATMs near Batu Bolong.",
+      avoid: "Use ATMs inside official bank branches.",
+      time: "1h ago",
+    },
+    {
+      name: "Fake Taxi Meters · Airport Rd",
+      severity: "medium",
+      description:
+        "Unlicensed drivers quoting inflated fixed fares instead of running the meter.",
+      avoid: "Book Grab or official Bluebird taxis via their app.",
+      time: "3h ago",
+    },
+  ];
+
+  const defaultTips = [
+    {
+      name: "Best Money Exchange · Central Kuta",
+      description: "BMC or Central Kuta Money Exchange offer zero commission.",
+      avoid: "Never use small alley exchange booths.",
+      time: "2h ago",
+    },
+    {
+      name: "Airport Grab Pickup Point · Domestic Terminal",
+      description: "Follow the green Grab Lounge signs on Level 2 for set rates.",
+      avoid: "Decline arrivals curb offers.",
+      time: "4h ago",
+    },
+  ];
+
+  const alertList = alerts.length > 0 ? alerts : defaultAlerts;
+  const tipList = tips.length > 0 ? tips : defaultTips;
+
   const activeItems = tab === "alerts" ? alertList : tipList;
-  const lockedCount = tab === "alerts" ? lockedAlerts || 0 : lockedTips || 0; [
-          {
-            name: "ATM Skimming Notice · Canggu",
-            severity: "high",
-            description:
-              "Card skimmers detected at standalone tourist ATMs near Batu Bolong.",
-            avoid: "Use ATMs inside official bank branches.",
-            time: "1h ago",
-          },
-          {
-            name: "Fake Taxi Meters · Airport Rd",
-            severity: "medium",
-            description:
-              "Unlicensed drivers quoting inflated fixed fares instead of running the meter.",
-            avoid: "Book Grab or official Bluebird taxis via their app.",
-            time: "3h ago",
-          },
-        ];
-
-  const alltipList =
-    tips.length > 0
-      ? tips
-      : [
-          {
-            name: "Best Money Exchange · Central Kuta",
-            description: "BMC or Central Kuta Money Exchange offer zero commission.",
-            avoid: "Never use small alley exchange booths.",
-            time: "2h ago",
-          },
-        ];
-
-  const allactiveItems = tab === "alerts" ? alertList : tipList;
-
-  const alllockedCount =
+  const lockedCount =
     tab === "alerts"
       ? hasAccess
         ? 0
-        : Math.max(10, lockedAlerts || 10)
+        : lockedAlerts || 10
       : hasAccess
         ? 0
-        : Math.max(10, lockedTips || 10);
+        : lockedTips || 10;
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-6 shadow-sm sm:p-7 dark:border-white/10 dark:bg-[#16161b]">
@@ -6992,26 +6754,32 @@ export function IntelTabs({
       <div className="mt-5 flex items-center gap-2.5">
         <button
           type="button"
-          onClick={() => setTab("alerts")}
+          onClick={() => {
+            setTab("alerts");
+            setExpandedIndex(null);
+          }}
           className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
             tab === "alerts"
               ? "bg-[#fee2e2] text-[#dc2626] dark:bg-[#3a1417] dark:text-[#f87171]"
               : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:bg-white/5 dark:text-zinc-400"
           }`}
         >
-          Scam Alerts: {alerts.length || 4}
+          Scam Alerts: {alertList.length}
         </button>
 
         <button
           type="button"
-          onClick={() => setTab("tips")}
+          onClick={() => {
+            setTab("tips");
+            setExpandedIndex(null);
+          }}
           className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
             tab === "tips"
               ? "bg-[#fef3c7] text-[#d97706] dark:bg-[#332210] dark:text-[#fbbf24]"
               : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:bg-white/5 dark:text-zinc-400"
           }`}
         >
-          Insider Tips: {tips.length || 9}
+          Insider Tips: {tipList.length}
         </button>
       </div>
 
@@ -7048,11 +6816,11 @@ export function IntelTabs({
                     {item.time || `${idx + 1}h ago`}
                   </p>
                 </div>
-                <ChevronDown
-                  className={`size-4 shrink-0 text-zinc-400 transition-transform duration-200 ${
-                    isExpanded ? "rotate-180" : ""
-                  }`}
-                />
+                {isExpanded ? (
+                  <ChevronDown className="size-4 shrink-0 text-zinc-400" />
+                ) : (
+                  <ChevronRight className="size-4 shrink-0 text-zinc-400" />
+                )}
               </button>
 
               <AnimatePresence>
@@ -7081,7 +6849,7 @@ export function IntelTabs({
           <>
             <div className="flex items-center justify-between py-3.5">
               <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
-                <p className="text-sm font-bold">Tour Guide Deposit Scam</p>
+                <p className="text-sm font-bold">Tour Guide Deposit Scam · Seminyak</p>
                 <p className="text-xs">4h ago</p>
               </div>
               <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
@@ -7089,7 +6857,7 @@ export function IntelTabs({
 
             <div className="flex items-center justify-between py-3.5">
               <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
-                <p className="text-sm font-bold">Counterfeit Ferry Tickets</p>
+                <p className="text-sm font-bold">Counterfeit Fast Boat Tickets · Sanur</p>
                 <p className="text-xs">5h ago</p>
               </div>
               <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
@@ -7103,210 +6871,13 @@ export function IntelTabs({
         <button
           type="button"
           onClick={onUpgrade}
-          className="mt-5 flex w-full items-center justify-between rounded-full bg-[#fef08a] px-6 py-3.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-[#fde047] dark:bg-[#fde047] dark:text-zinc-950 dark:hover:bg-[#facc15]"
+          className="mt-5 flex w-full items-center justify-between rounded-2xl bg-[#fef08a] px-6 py-3.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-[#fde047] sm:rounded-full dark:bg-[#fde047] dark:text-zinc-950 dark:hover:bg-[#facc15]"
         >
           <span>Unlock {lockedCount} more scam patterns with Pro</span>
           <ChevronRight className="size-4" />
         </button>
       )}
     </div>
-  );
-}
-</file>
-
-<file path="src/components/dashboard/LiveTicker.js">
-"use client";
-
-import { useMemo } from "react";
-import { TrendingDown, TrendingUp } from "lucide-react";
-import { cities } from "@/lib/dashboard-data";
-
-/**
- * Live intel ticker — seamless CSS marquee of safety scores.
- * Pauses on hover (works because it's a real CSS animation),
- * duplicate track is hidden from assistive tech.
- */
-export function LiveTicker({ city }) {
-  const items = useMemo(() => {
-    const sorted = [...cities].sort((a, b) => b.score - a.score);
-    // Active city first for relevance
-    return [
-      ...sorted.filter((c) => c.name === city),
-      ...sorted.filter((c) => c.name !== city),
-    ];
-  }, [city]);
-
-  return (
-    <div
-      className="group/ticker relative overflow-hidden rounded-xl border border-white/10 bg-[#101013]"
-      role="marquee"
-      aria-label="Live destination safety scores"
-    >
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-10 bg-gradient-to-r from-[#101013] to-transparent sm:w-16" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-[#101013] to-transparent sm:w-16" />
-
-      <div className="flex items-center gap-3 py-2 pl-4">
-        <span className="live-dot z-20 shrink-0" />
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="animate-ticker flex w-max cursor-default group-hover/ticker:[animation-play-state:paused]">
-            {/* Track is rendered twice for the seamless -50% loop; the
-                second copy is aria-hidden so screen readers hear it once. */}
-            {[0, 1].map((copy) => (
-              <div
-                key={copy}
-                aria-hidden={copy === 1}
-                className="flex"
-              >
-                {items.map((c) => (
-                  <span
-                    key={`${copy}-${c.name}`}
-                    className="flex items-center gap-2 whitespace-nowrap border-r border-white/10 px-4 font-mono text-[11px] text-[#a6a6ad]"
-                  >
-                    <span aria-hidden="true">{c.flag}</span>
-                    <span className="text-[#f3f3f2]">{c.name}</span>
-                    {c.name === city ? (
-                      <span className="flex items-center gap-1 text-[#e5484a]">
-                        <span className="size-1 rounded-full bg-[#e5484a]" />
-                        VIEWING
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1">
-                        {c.tone === "good" ? (
-                          <TrendingUp
-                            aria-label="safe"
-                            className="size-3 text-[#3ecf8e]"
-                          />
-                        ) : (
-                          <TrendingDown
-                            aria-label="elevated risk"
-                            className="size-3 rotate-180 text-[#f0a63d]"
-                          />
-                        )}
-                        <span
-                          className={
-                            c.tone === "good"
-                              ? "text-[#3ecf8e]"
-                              : "text-[#f0a63d]"
-                          }
-                        >
-                          {c.score}
-                        </span>
-                      </span>
-                    )}
-                  </span>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-</file>
-
-<file path="src/components/dashboard/Panel.js">
-"use client";
-
-import { motion } from "framer-motion";
-
-/**
- * Bezel panel — nested rounded surfaces, now with a staggered
- * scroll-entrance micro-interaction.
- */
-export function Panel({ children, className = "", delay = 0 }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 18, scale: 0.985 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true, margin: "-32px" }}
-      transition={{ duration: 0.55, delay, ease: [0.23, 1, 0.32, 1] }}
-      className={`dashboard-panel rounded-[1.1rem] border border-white/10 bg-white/[0.045] p-[0.3rem] ${className}`}
-    >
-      <div className="dashboard-panel-inner h-full rounded-[0.8rem] bg-[#141418] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
-        {children}
-      </div>
-    </motion.div>
-  );
-}
-</file>
-
-<file path="src/components/dashboard/RecentActivity.js">
-"use client";
-
-import { motion } from "framer-motion";
-import { Activity } from "lucide-react";
-import { Panel } from "./Panel";
-
-const TONE = {
-  high: { dot: "#e5484a", chip: "bg-[rgba(229,72,74,0.18)] text-[#e5484a]" },
-  medium: { dot: "#f0a63d", chip: "bg-[rgba(240,166,61,0.18)] text-[#f0a63d]" },
-  tip: { dot: "#3ecf8e", chip: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]" },
-  low: { dot: "#3ecf8e", chip: "bg-[rgba(62,207,142,0.18)] text-[#3ecf8e]" },
-};
-
-export function RecentActivity({ city, alerts = [], loading }) {
-  const rows = alerts.slice(0, 5);
-
-  return (
-    <Panel delay={0.1}>
-      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <Activity className="size-4 text-[#e5484a]" />
-          Recent for {city}
-        </div>
-        <span className="live-dot" />
-      </div>
-      <div className="relative p-3">
-        {/* timeline rail */}
-        {rows.length > 0 && !loading && (
-          <div className="absolute bottom-6 left-[1.65rem] top-6 w-px bg-white/10" />
-        )}
-        {loading && (
-          <p className="px-2 py-3 text-xs text-[#a6a6ad]">Loading…</p>
-        )}
-        {!loading && rows.length === 0 && (
-          <p className="px-2 py-3 text-xs text-[#a6a6ad]">
-            No live reports yet.
-          </p>
-        )}
-        {rows.map((a, i) => {
-          const sev = (a.severity || "medium").toLowerCase();
-          const tone = TONE[sev] || TONE.medium;
-          return (
-            <motion.div
-              key={a.name + i}
-              initial={{ opacity: 0, x: -14 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{
-                delay: i * 0.07,
-                type: "spring",
-                stiffness: 160,
-                damping: 20,
-              }}
-              className="relative flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-white/[0.04]"
-            >
-              <span
-                className="relative z-10 size-2.5 shrink-0 rounded-full ring-4 ring-[#141418]"
-                style={{ background: tone.dot }}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold">{a.name}</div>
-                <div className="truncate text-[11px] text-[#a6a6ad]">
-                  {a.description || a.desc || city}
-                </div>
-              </div>
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase ${tone.chip}`}
-              >
-                {sev}
-              </span>
-            </motion.div>
-          );
-        })}
-      </div>
-    </Panel>
   );
 }
 </file>
@@ -7369,188 +6940,12 @@ export function RequireAuth({ children }) {
 }
 </file>
 
-<file path="src/components/dashboard/ThreatOverview.js">
-"use client";
-
-import { useMemo } from "react";
-import {
-  RadialBar,
-  RadialBarChart,
-  PolarAngleAxis,
-  ResponsiveContainer,
-} from "recharts";
-import { motion } from "framer-motion";
-import { AnimatedNumber } from "@/components/ui/animated-number";
-import { CardGlow } from "@/components/ui/card-glow";
-import {
-  getDestination,
-  isKnownCity,
-  estimateSafety,
-} from "@/lib/dashboard-data";
-
-function severityTone(sev) {
-  const s = (sev || "").toLowerCase();
-  if (s === "high") return "high";
-  if (s === "low" || s === "tip") return "safe";
-  return "med";
-}
-
-const TONE = {
-  high: { color: "#e5484a", label: "High risk" },
-  med: { color: "#f0a63d", label: "Medium" },
-  safe: { color: "#3ecf8e", label: "Low / tip" },
-};
-
-/**
- * Threat overview — Recharts radial gauge (safety score) plus a
- * severity distribution bar rendered with Framer Motion physics.
- */
-export function ThreatOverview({ city, brief, alertCount, alerts = [], safety }) {
-  const score = useMemo(() => {
-    // Server-computed safety (briefing response) wins when present.
-    const fromSafety = parseFloat(String(safety ?? ""));
-    if (!Number.isNaN(fromSafety) && fromSafety > 0) return fromSafety;
-    // Curated rating for the pre-loaded destinations.
-    const fromBrief = parseFloat(brief?.safety || "");
-    if (!Number.isNaN(fromBrief) && fromBrief > 0) return fromBrief;
-    const meta = getDestination(city);
-    const fromMeta = parseFloat(meta?.safety || "");
-    if (!Number.isNaN(fromMeta) && isKnownCity(city)) return fromMeta;
-    // Heuristic derived from the visible alert mix for fresh searches.
-    const fromAlerts = estimateSafety(alerts);
-    if (fromAlerts != null) return fromAlerts;
-    return Number.isNaN(fromMeta) ? null : fromMeta;
-  }, [brief, city, alerts, safety]);
-
-  const dist = useMemo(() => {
-    const d = { high: 0, med: 0, safe: 0 };
-    for (const a of alerts) d[severityTone(a.severity || a.level)]++;
-    return d;
-  }, [alerts]);
-
-  const total = dist.high + dist.med + dist.safe || 1;
-  const gaugeData = [{ value: score ?? 0, fill: scoreColor(score) }];
-
-  return (
-    <CardGlow>
-      <div className="flex h-full flex-col p-5">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-[#68686f]">
-            Threat overview
-          </span>
-          <span className="live-dot" />
-        </div>
-
-        <div className="mt-2 flex flex-col items-center gap-4 min-[400px]:flex-row min-[400px]:items-center min-[400px]:gap-5">
-          {/* Radial gauge */}
-          <div className="relative size-28 shrink-0 min-[400px]:size-[124px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadialBarChart
-                data={gaugeData}
-                innerRadius="74%"
-                outerRadius="100%"
-                startAngle={220}
-                endAngle={-40}
-                barSize={10}
-              >
-                <PolarAngleAxis
-                  type="number"
-                  domain={[0, 10]}
-                  tick={false}
-                  axisLine={false}
-                />
-                <RadialBar
-                  dataKey="value"
-                  background={{ fill: "rgba(255,255,255,0.07)" }}
-                  cornerRadius={8}
-                  isAnimationActive
-                  animationDuration={1200}
-                />
-              </RadialBarChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              {score != null ? (
-                <AnimatedNumber
-                  value={score}
-                  decimals={1}
-                  className="font-mono text-2xl font-bold"
-                />
-              ) : (
-                <span className="font-mono text-2xl font-bold text-[#68686f]">
-                  —
-                </span>
-              )}
-              <span className="text-[9px] font-semibold uppercase tracking-widest text-[#68686f]">
-                Safety
-              </span>
-            </div>
-          </div>
-
-          {/* Severity distribution */}
-          <div className="min-w-0 flex-1 space-y-2.5">
-            {(["high", "med", "safe"]).map((tone, idx) => (
-              <div key={tone}>
-                <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-[#a6a6ad]">
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="size-1.5 rounded-full"
-                      style={{ background: TONE[tone].color }}
-                    />
-                    {TONE[tone].label}
-                  </span>
-                  <span className="font-mono">{dist[tone]}</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ background: TONE[tone].color }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(dist[tone] / total) * 100}%` }}
-                    transition={{
-                      type: "spring",
-                      stiffness: 60,
-                      damping: 18,
-                      delay: 0.15 + idx * 0.1,
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <p className="mt-4 border-t border-white/10 pt-3 text-[11px] text-[#a6a6ad]">
-          {alertCount > 0 ? (
-            <>
-              <span className="font-semibold text-[#f0a63d]">
-                {alertCount} active signals
-              </span>{" "}
-              tracked for {city}. Tap any alert card for the full pattern.
-            </>
-          ) : (
-            <>No active signals for {city} — check back soon.</>
-          )}
-        </p>
-      </div>
-    </CardGlow>
-  );
-}
-
-function scoreColor(score) {
-  if (score == null || Number.isNaN(score)) return "#68686f";
-  if (score >= 8) return "#3ecf8e";
-  if (score >= 6.5) return "#f0a63d";
-  return "#e5484a";
-}
-</file>
-
 <file path="src/components/dashboard/Topbar.js">
 "use client";
 
 import { Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { openCommandMenu } from "@/components/ui/command-menu";
 import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { findKnownCity } from "@/lib/dashboard-data";
@@ -7670,10 +7065,10 @@ export function Topbar({ city, brief }) {
     : meta?.name || city;
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-[#e8e6df]/70 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
+    <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
         {/* Mobile & Tablet top status bar */}
-        <div className="flex items-center justify-between lg:hidden">
+        <div className="flex items-center justify-between xl:hidden">
           <div className="flex items-center gap-2">
             <span className="live-dot" />
             <span className="font-mono text-xs font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
@@ -7702,9 +7097,9 @@ export function Topbar({ city, brief }) {
           </div>
         </div>
 
-        {/* Mobile search input dropdown if toggled */}
+        {/* Mobile & Tablet search dropdown if toggled */}
         {mobileSearchOpen && (
-          <form onSubmit={handleSearch} className="mt-2.5 lg:hidden">
+          <form onSubmit={handleSearch} className="mt-2.5 xl:hidden">
             <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
               <Search className="size-4 text-zinc-400" />
               <input
@@ -7720,23 +7115,23 @@ export function Topbar({ city, brief }) {
         )}
 
         {/* Sub-row for Mobile/Tablet: Destination Heading */}
-        <div className="mt-2 flex items-center gap-2.5 lg:hidden">
+        <div className="mt-2 flex items-center gap-2.5 xl:hidden">
           <h1 className="text-2xl font-black tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
             {displayName}
           </h1>
-          <span className="rounded-full bg-rose-100 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
+          <span className="rounded-full bg-rose-100 px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
             {countryCode}
           </span>
         </div>
 
-        {/* Desktop Single-Row Layout */}
-        <div className="hidden items-center justify-between gap-4 lg:flex">
+        {/* Desktop Single-Row Layout (Image 2) */}
+        <div className="hidden items-center justify-between gap-6 xl:flex">
           {/* Destination Heading & Code */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2.5">
             <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white">
               {displayName}
             </h1>
-            <span className="rounded-full bg-rose-100 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
+            <span className="rounded-full bg-rose-100 px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase text-[#e5283b] dark:bg-rose-950/70 dark:text-[#f87171]">
               {countryCode}
             </span>
           </div>
@@ -7782,7 +7177,7 @@ export function Topbar({ city, brief }) {
           </div>
 
           {/* Right Status & Profile Avatar */}
-          <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="live-dot" />
               <span className="font-mono text-xs font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
@@ -7823,7 +7218,7 @@ export function Weather7DayCard({ brief }) {
     { day: "SUN", temp: 31, low: 24, type: "sun" },
   ];
 
-  const renderIcon = (type, isRed = false) => {
+  const renderIcon = (type, isHighlighted = false) => {
     if (type === "sun") {
       return <Sun className="size-4 text-amber-500" />;
     }
@@ -7835,7 +7230,7 @@ export function Weather7DayCard({ brief }) {
     }
     return (
       <CloudRain
-        className={`size-4 ${isRed ? "text-white" : "text-zinc-400 dark:text-zinc-500"}`}
+        className={`size-4 ${isHighlighted ? "text-white" : "text-zinc-400 dark:text-zinc-500"}`}
       />
     );
   };
@@ -7850,8 +7245,8 @@ export function Weather7DayCard({ brief }) {
         <Calendar className="size-4 text-zinc-400 dark:text-zinc-500" />
       </div>
 
-      {/* Desktop & Tablet: Vertical List */}
-      <div className="mt-4 hidden space-y-2 md:block">
+      {/* Desktop & Tablet: Vertical List (Image 2 & 3) */}
+      <div className="mt-4 hidden space-y-1.5 md:block">
         {forecast.map((f, i) => {
           const isActive = f.active || i === 1;
 
@@ -7890,7 +7285,7 @@ export function Weather7DayCard({ brief }) {
         })}
       </div>
 
-      {/* Mobile: Horizontal Carousel */}
+      {/* Mobile: Horizontal Carousel (Image 1) */}
       <div className="no-scrollbar mt-4 flex items-center gap-2.5 overflow-x-auto pb-1 md:hidden">
         {forecast.map((f, i) => {
           const isActive = f.active || i === 1;
@@ -7945,8 +7340,8 @@ export function WeatherNowCard({ brief }) {
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
-      <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        Now
+      <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+        NOW
       </p>
 
       <div className="mt-2 flex items-center justify-between">
@@ -11424,7 +10819,7 @@ export async function getRequestProfile(request) {
     await Promise.all([
       admin
         .from("profiles")
-        .select("plan, search_count, search_month")
+        .select("plan, search_count, search_month, searched_cities")
         .eq("user_id", user.id)
         .maybeSingle(),
       admin
@@ -11448,6 +10843,9 @@ export async function getRequestProfile(request) {
     plan,
     search_count: profile?.search_count || 0,
     search_month: profile?.search_month || null,
+    searched_cities: Array.isArray(profile?.searched_cities)
+      ? profile.searched_cities
+      : [],
   };
 }
 
@@ -13276,17 +12674,25 @@ City scam briefings for travelers. Search a city, sign in, and see actionable al
 
 ## Stack
 
-Next.js App Router, Supabase Auth + Postgres, Gemini, and Dodo Payments.
+Next.js App Router, Supabase Auth + Postgres, Gemini, Serper (Google SERP), and Dodo Payments.
 
 ## Environment
 
 ```bash
+# Public site URL — used for sitemap, robots, OG tags, and checkout return URLs.
+NEXT_PUBLIC_SITE_URL=https://travelradar.live
+
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
+# Gemini (Google AI Studio key — must start with "AIza")
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.8-flash
+
+# Serper.dev key — powers the live Reddit-via-Google discovery step.
+# Without it, every city falls back to seed data (src/lib/seed-intel.js).
+SERPER_API_KEY=
 
 # Server-only Dodo credentials. Never add NEXT_PUBLIC_ to these names.
 DODO_PAYMENTS_API_KEY=
@@ -13297,53 +12703,6 @@ DODO_PAYMENTS_ENVIRONMENT=test_mode
 DODO_TRIP_PASS_PRODUCT_ID=
 DODO_ANNUAL_PRODUCT_ID=
 DODO_DESTINATION_PACK_PRODUCT_ID=
-```
-
-Use Dodo `test_mode` while testing. When deploying, change the API key, product IDs, and environment together to `live_mode`. Dodo amounts use the currency’s lowest denomination in API responses.
-
-## Offerings and access rules
-
-- **Per-trip Pass — $7:** one-time payment; full access to all destinations for exactly 30 days from successful payment. It does not renew.
-- **Annual — $29/year:** the only recurring product; full access to all destinations while the yearly subscription is active. The renewal can be canceled at the current period’s end.
-- **Destination Pack — $19:** one-time payment; permanent full access only to the normalized destination selected during checkout. It does not unlock other destinations and does not renew.
-
-## Billing setup
-
-1. Apply [`20260906113000_dodo_billing.sql`](supabase/migrations/20260906113000_dodo_billing.sql) and [`20260906114500_trip_pass_and_destination_entitlements.sql`](supabase/migrations/20260906114500_trip_pass_and_destination_entitlements.sql) through the Supabase migration workflow.
-2. In Dodo, create two one-time products (Per-trip Pass and Destination Pack) and one annual subscription product. Copy their product IDs into the matching server-only environment variables.
-3. Register `https://your-domain.example/api/billing/webhook` in Dodo’s Developer → Webhooks settings and store the signing secret in `DODO_PAYMENTS_WEBHOOK_SECRET`.
-4. Subscribe to all checkout/payment/refund events and Annual subscription events. At minimum test `payment.succeeded`, payment failure, refunds, `subscription.active`, `subscription.updated`, `subscription.renewed`, `subscription.past_due`, `subscription.cancelled`, and `subscription.expired`.
-5. In Dodo test mode, validate successful checkout for all three offerings, a duplicate webhook, an invalid signature, a Per-trip expiry boundary, a Destination Pack for one city versus another, Annual renewal, Annual cancellation, payment failure, and refund revocation.
-
-The browser never receives Dodo credentials, product IDs, customer IDs, or webhook secrets. Authenticated server routes create checkout and portal sessions. The webhook verifies Dodo Standard Webhooks signatures against the untouched raw request body, records delivery IDs idempotently, and rejects stale subscription events.
-
-## Entitlements
-
-The briefing endpoint decides access server-side for the requested city:
-
-- active Annual or Per-trip Pass: all destinations, fully unlocked;
-- active Destination Pack: only the purchased destination, fully unlocked;
-- otherwise (free): every destination still returns a brief — a small preview
-  of alerts and tips stays visible and the remaining items are returned as
-  locked counts for the upgrade prompt. There is no hard search-count wall.
-
-A known inactive billing record overrides legacy profile values. The `profiles.plan` column is retained only as an Annual compatibility projection; it is not used for one-time access control.
-
-## Local
-
-```bash
-npm install
-npm run dev
-npm run lint
-npm run build
-```
-
-## Official Dodo references
-
-- [Checkout sessions](https://docs.dodopayments.com/developer-resources/checkout-session)
-- [Subscription integration](https://docs.dodopayments.com/developer-resources/subscription-integration-guide)
-- [Webhooks](https://docs.dodopayments.com/developer-resources/webhooks)
-- [Customer portal sessions](https://docs.dodopayments.com/api-reference/customers/create-customer-portal-session)
 </file>
 
 </files>

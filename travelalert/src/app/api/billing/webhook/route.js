@@ -129,7 +129,6 @@ async function handleSubscription(eventType, data, occurredAt, eventId, admin) {
     updated_at: new Date().toISOString(),
   };
 
-  // Stale-event guard against out-of-order delivery.
   const { data: existing } = await admin
     .from("billing_subscriptions")
     .select("status, last_event_at")
@@ -158,10 +157,8 @@ async function handlePayment(eventType, data, occurredAt, admin) {
   const productId = data?.product_id || null;
   const paymentId = data?.payment_id || data?.id || null;
   const offeringKey = data?.metadata?.offering_key || null;
-  const destinationKey = data?.metadata?.destination_key || null;
 
   const tripPassProduct = process.env.DODO_TRIP_PASS_PRODUCT_ID;
-  const destinationProduct = process.env.DODO_DESTINATION_PACK_PRODUCT_ID;
 
   let entitlementType = null;
   let expiresAt = null;
@@ -169,11 +166,9 @@ async function handlePayment(eventType, data, occurredAt, admin) {
   if (offeringKey === "trip_pass" || productId === tripPassProduct) {
     entitlementType = "trip_pass";
     expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  } else if (offeringKey === "destination_pack" || productId === destinationProduct) {
-    entitlementType = "destination_pack";
-    expiresAt = null;
   } else {
-    // Unknown product (maybe an old event) — log and move on.
+    // Unknown product (maybe an old event, or a Destination Pack that is no
+    // longer sold) — log and move on.
     console.info("[Webhook] payment for unrecognized product, ignoring");
     return;
   }
@@ -181,15 +176,10 @@ async function handlePayment(eventType, data, occurredAt, admin) {
   const isRefund = eventType.startsWith("refund.");
   const status = isRefund ? "refunded" : "active";
 
-  if (entitlementType === "destination_pack" && !destinationKey) {
-    console.warn("[Webhook] destination_pack payment without destination_key");
-    return;
-  }
-
   const row = {
     user_id: userId,
     entitlement_type: entitlementType,
-    destination_key: destinationKey,
+    destination_key: null,
     dodo_payment_id: paymentId,
     dodo_customer_id: pickCustomerId(data),
     product_id: productId,

@@ -18,7 +18,6 @@ export async function GET(request) {
       plan: published.plan, // "annual" | "trip_pass" | "free"
       email: user.email,
       userId: user.id,
-      destinationPacks: billing.destinationPacks,
     });
   } catch (error) {
     console.error("[Me]", error?.message || error);

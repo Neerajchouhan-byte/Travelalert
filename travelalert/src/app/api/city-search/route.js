@@ -1,4 +1,5 @@
 import { normalizeCity } from "@/lib/city";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 10;
 
@@ -11,13 +12,21 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const rawQuery = searchParams.get("q") || "";
 
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  const limit = checkRateLimit(`city-search:${ip}`, 30);
+  if (!limit.ok) {
+    return Response.json({ cities: [], error: "Too many requests" }, { status: 429 });
+  }
+
   const query = normalizeCity(rawQuery);
   if (!query) {
     return Response.json({ cities: [] });
   }
 
   try {
-    // Fetch multiple results to handle same-name cities
     const geoRes = await fetch(
       `https://geocoding-api.open-meteo.com/v1/search?count=8&name=${encodeURIComponent(query)}&language=en&format=json`
     );
@@ -29,7 +38,6 @@ export async function GET(request) {
     const geo = await geoRes.json();
     const results = geo.results || [];
 
-    // Map results to a consistent format with flags
     const cities = results.map((hit) => ({
       name: hit.name,
       country: hit.country,
@@ -39,7 +47,6 @@ export async function GET(request) {
       longitude: hit.longitude,
       timezone: hit.timezone || null,
       flag: flagFromCountryCode(hit.country_code),
-      // Create a unique key for this city
       key: `${hit.name}-${hit.country_code}-${hit.admin1 || ""}`.toLowerCase().replace(/\s+/g, "-"),
     }));
 

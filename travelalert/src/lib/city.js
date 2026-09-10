@@ -6,23 +6,18 @@ export function normalizeCity(raw) {
   
   let city = String(raw).trim().replace(/\s+/g, " ");
   
-  // Decode URL-encoded characters
   try {
     city = decodeURIComponent(city);
   } catch {
     // If decoding fails, use the original string
   }
   
-  // Accept "Paris, France" style input by keeping only the city part —
-  // commas would otherwise fail validation and look like a broken search.
   if (city.includes(",")) city = city.split(",")[0].trim().replace(/\s+/g, " ");
   
-  // Remove any trailing special characters
   city = city.replace(/[^\p{L}\p{M}\s.'()-]+$/gu, "");
   
   if (!CITY_RE.test(city)) return "";
   
-  // Capitalize first letter of each word
   city = city.replace(/\b\w/g, (c) => c.toUpperCase());
   
   return city;
@@ -32,7 +27,9 @@ export function cityKey(city) {
   return normalizeCity(city).toLowerCase();
 }
 
-// Fuzzy city name matching for common variations
+// Fuzzy city name matching for common variations.
+// Aliases are matched exactly — no substring matching, which previously
+// caused false positives like "asg" -> "Singapore" (contains "sg").
 const CITY_ALIASES = {
   "bangkok": "Bangkok",
   "bkk": "Bangkok",
@@ -56,20 +53,10 @@ const CITY_ALIASES = {
 export function resolveCity(input) {
   const normalized = normalizeCity(input);
   if (!normalized) return null;
-  
+
   const key = normalized.toLowerCase();
-  
-  // Check aliases first
-  if (CITY_ALIASES[key]) {
-    return CITY_ALIASES[key];
-  }
-  
-  // Check if any alias is contained in the input
-  for (const [alias, city] of Object.entries(CITY_ALIASES)) {
-    if (key.includes(alias) || alias.includes(key)) {
-      return city;
-    }
-  }
-  
+
+  if (CITY_ALIASES[key]) return CITY_ALIASES[key];
+
   return normalized;
 }

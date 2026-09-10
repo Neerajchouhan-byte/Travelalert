@@ -38,6 +38,15 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
   const safetyLevel =
     safetyNum >= 8.5 ? "HIGH" : safetyNum >= 6.5 ? "MODERATE" : "ELEVATED";
 
+  const safetySubtitle =
+    safetyNum >= 8.5
+      ? "High safety • Safe for solo travelers"
+      : safetyNum >= 6.5
+        ? "Moderate safety • Use normal precautions"
+        : "Elevated risk • Stay aware of your surroundings";
+
+  const costLabel = d.cost || "Medium";
+
   const timeFormatted = localTime
     ? localTime.toLocaleTimeString([], {
         hour: "2-digit",
@@ -52,7 +61,6 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
 
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#e5283b] via-[#dc2235] to-[#c7182a] p-6 text-white shadow-lg sm:p-7 dark:border dark:border-red-900/40 dark:from-[#4a1824] dark:via-[#3b121c] dark:to-[#280b13]">
-      {/* Top row */}
       <div className="flex items-center justify-between">
         <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-white/80 dark:text-rose-200/80">
           SAFETY OVERVIEW
@@ -66,9 +74,7 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
         </button>
       </div>
 
-      {/* Center content */}
       <div className="mt-5 flex items-center justify-between gap-4">
-        {/* Destination & Solo safety */}
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <MapPin className="size-5 shrink-0 text-white" />
@@ -79,11 +85,10 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
             </h2>
           </div>
           <p className="text-xs font-medium text-white/90 sm:text-sm dark:text-rose-100/90">
-            Moderate Safety • Safe for solo travelers
+            {safetySubtitle}
           </p>
         </div>
 
-        {/* Circular Gauge */}
         <div className="flex flex-col items-center">
           <div className="relative flex size-20 items-center justify-center rounded-full border-4 border-white/30 dark:border-white/20 sm:size-24">
             <span className="font-mono text-3xl font-black tracking-tight sm:text-4xl">
@@ -96,7 +101,6 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
         </div>
       </div>
 
-      {/* Bottom info pills */}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-xs dark:bg-white/10">
           <Check className="size-3.5" />
@@ -104,7 +108,7 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
         </div>
         <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-xs dark:bg-white/10">
           <DollarSign className="size-3.5" />
-          <span>Cost: Low ($)</span>
+          <span>Cost: {costLabel}</span>
         </div>
         <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-xs dark:bg-white/10">
           <Clock className="size-3.5" />

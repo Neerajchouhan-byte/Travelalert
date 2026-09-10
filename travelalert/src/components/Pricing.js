@@ -8,8 +8,23 @@ import { supabase } from "@/lib/supabase";
 
 const plans = [
   {
+    key: "free",
+    name: "Explorer",
+    price: "Free",
+    period: "",
+    description: "Preview essential tourist traps before you land.",
+    features: [
+      "3 destination searches total",
+      "Preview top 2 high-risk alerts",
+      "Preview top 3 insider tips",
+      "Standard community consensus",
+      "No credit card required",
+    ],
+    action: "Start free",
+  },
+  {
     key: "trip_pass",
-    name: "Per-trip Pass",
+    name: "Trip Pass",
     price: "$7",
     period: "/ 30 days",
     description:
@@ -34,20 +49,6 @@ const plans = [
     ],
     action: "Choose Annual",
     featured: true,
-  },
-  {
-    key: "destination_pack",
-    name: "Destination Pack",
-    price: "$19",
-    period: "/ destination",
-    description:
-      "Permanent access to the full briefing for one destination you choose.",
-    features: [
-      "Lifetime access to one destination",
-      "Start from a destination dashboard",
-      "No subscription or renewal",
-    ],
-    action: "Choose a destination",
   },
 ];
 
@@ -78,17 +79,19 @@ export default function Pricing() {
     };
   }, []);
 
+  const currentPlan = subscription?.plan || "free";
+
+  async function handleFreeClick() {
+    const headers = await authHeaders();
+    if (headers) {
+      router.push("/dashboard");
+    } else {
+      router.push("/signup");
+    }
+  }
+
   async function checkout(plan) {
     setError("");
-        if (plan === "destination_pack") {
-      const headers = await authHeaders();
-      if (!headers) {
-        router.push("/login?redirect=/dashboard?upgrade=true");
-        return;
-      }
-      router.push("/dashboard?upgrade=true");
-      return;
-    }
     const headers = await authHeaders();
     if (!headers) return router.push("/login");
     setBusyPlan(plan);
@@ -116,7 +119,7 @@ export default function Pricing() {
   return (
     <section id="pricing" className="py-20 sm:py-28 border-b border-zinc-200/80 dark:border-white/5">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
-        
+
         <div className="reveal">
           <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#e5283b]">
             FLEXIBLE ACCESS
@@ -125,8 +128,8 @@ export default function Pricing() {
             Choose coverage that fits your journey.
           </h2>
           <p className="mt-2 max-w-xl mx-auto text-xs text-zinc-500 sm:text-sm dark:text-zinc-400">
-            One-off options never expire. Annual access is billed once per year —
-            there is no monthly plan.
+            Start free. Upgrade when you need the full intelligence file. Annual
+            access is billed once per year — there is no monthly plan.
           </p>
         </div>
 
@@ -134,73 +137,115 @@ export default function Pricing() {
           <p className="mt-4 text-xs font-semibold text-red-500">{error}</p>
         )}
 
-        {/* Pricing Cards with restored whileHover and reveal animations */}
         <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3 text-left">
-          {plans.map((plan, index) => (
-            <motion.div
-              key={plan.key}
-              whileHover={{ y: -6 }}
-              transition={{ duration: 0.2 }}
-              style={{ "--i": index }}
-              className={`reveal rounded-[28px] p-6 flex flex-col justify-between shadow-xs transition-shadow ${
-                plan.featured
-                  ? "border-2 border-[#e5283b] bg-white shadow-xl dark:bg-gradient-to-b dark:from-[#241215] dark:to-[#141418]"
-                  : "border border-zinc-200/90 bg-white dark:border-white/10 dark:bg-[#141418]"
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-zinc-900 dark:text-white">
-                    {plan.name}
-                  </span>
-                  {plan.featured && (
-                    <span className="rounded-full bg-[#e5283b] px-2.5 py-0.5 font-mono text-[9px] font-extrabold uppercase text-white">
-                      Best value
-                    </span>
-                  )}
-                </div>
+          {plans.map((plan, index) => {
+            const isCurrent = plan.key === currentPlan;
+            const isFree = plan.key === "free";
+            const busy = busyPlan === plan.key;
 
-                <div className="mt-4 flex items-baseline gap-1">
-                  <span className="font-mono text-3xl font-black text-zinc-900 dark:text-white">
-                    {plan.price}
-                  </span>
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{plan.period}</span>
-                </div>
-
-                <p className="mt-2 text-xs text-zinc-500 leading-relaxed min-h-[36px] dark:text-zinc-400">
-                  {plan.description}
-                </p>
-
-                <ul className="mt-6 space-y-2 border-t border-zinc-100 pt-4 dark:border-white/5">
-                  {plan.features.map((feature) => (
-                    <li
-                      key={feature}
-                      className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300"
-                    >
-                      <Check className="size-3.5 text-[#e5283b] shrink-0" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => checkout(plan.key)}
-                disabled={Boolean(busyPlan)}
-                className={`mt-8 flex h-11 w-full items-center justify-center rounded-full text-xs font-bold transition active:scale-[0.98] ${
+            return (
+              <motion.div
+                key={plan.key}
+                whileHover={{ y: -6 }}
+                transition={{ duration: 0.2 }}
+                style={{ "--i": index }}
+                className={`reveal rounded-[28px] p-6 flex flex-col justify-between shadow-xs transition-shadow ${
                   plan.featured
-                    ? "bg-[#e5283b] text-white hover:bg-[#d32032]"
-                    : "border border-zinc-200 bg-zinc-100 text-zinc-800 hover:bg-zinc-200/70 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                    ? "border-2 border-[#e5283b] bg-white shadow-xl dark:bg-gradient-to-b dark:from-[#241215] dark:to-[#141418]"
+                    : "border border-zinc-200/90 bg-white dark:border-white/10 dark:bg-[#141418]"
                 }`}
               >
-                {busyPlan === plan.key && (
-                  <LoaderCircle className="mr-2 size-3.5 animate-spin" />
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-zinc-900 dark:text-white">
+                      {plan.name}
+                    </span>
+                    {plan.featured && !isCurrent && (
+                      <span className="rounded-full bg-[#e5283b] px-2.5 py-0.5 font-mono text-[9px] font-extrabold uppercase text-white">
+                        Best value
+                      </span>
+                    )}
+                    {isCurrent && (
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-mono text-[9px] font-extrabold uppercase text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
+                        Current
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="font-mono text-3xl font-black text-zinc-900 dark:text-white">
+                      {plan.price}
+                    </span>
+                    {plan.period && (
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {plan.period}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="mt-2 text-xs text-zinc-500 leading-relaxed min-h-[36px] dark:text-zinc-400">
+                    {plan.description}
+                  </p>
+
+                  <ul className="mt-6 space-y-2 border-t border-zinc-100 pt-4 dark:border-white/5">
+                    {plan.features.map((feature) => (
+                      <li
+                        key={feature}
+                        className="flex items-start gap-2 text-xs text-zinc-700 dark:text-zinc-300"
+                      >
+                        <Check className="size-3.5 text-[#e5283b] shrink-0 mt-0.5" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {isFree ? (
+                  isCurrent ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="mt-8 flex h-11 w-full items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-xs font-bold text-zinc-500 dark:border-white/10 dark:bg-white/5 dark:text-zinc-500"
+                    >
+                      You&apos;re on Explorer
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleFreeClick}
+                      className="mt-8 flex h-11 w-full items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-xs font-bold text-zinc-800 transition hover:bg-zinc-200/70 active:scale-[0.98] dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                    >
+                      {plan.action}
+                    </button>
+                  )
+                ) : isCurrent ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="mt-8 flex h-11 w-full items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-xs font-bold text-zinc-500 dark:border-white/10 dark:bg-white/5 dark:text-zinc-500"
+                  >
+                    Your current plan
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => checkout(plan.key)}
+                    disabled={Boolean(busyPlan)}
+                    className={`mt-8 flex h-11 w-full items-center justify-center rounded-full text-xs font-bold transition active:scale-[0.98] ${
+                      plan.featured
+                        ? "bg-[#e5283b] text-white hover:bg-[#d32032]"
+                        : "border border-zinc-200 bg-zinc-100 text-zinc-800 hover:bg-zinc-200/70 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                    }`}
+                  >
+                    {busy && (
+                      <LoaderCircle className="mr-2 size-3.5 animate-spin" />
+                    )}
+                    {plan.action}
+                  </button>
                 )}
-                {plan.action}
-              </button>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
 
         <p className="mt-8 flex items-center justify-center gap-2 text-xs text-zinc-500">

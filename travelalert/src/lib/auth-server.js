@@ -1,9 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { adminDb } from "./supabase-admin";
-import { isSubscriptionActive } from "./billing";
+import { getBillingState, publicSubscription } from "./billing";
 
 export function isPaid(plan) {
-  return ["annual", "trip_pass", "destination_pack"].includes(plan);
+  return ["annual", "trip_pass"].includes(plan);
 }
 
 export async function getRequestUser(request) {
@@ -29,26 +29,22 @@ export async function getRequestProfile(request) {
   if (!user) return { user: null, plan: "free" };
 
   const admin = adminDb();
-  const [{ data: profile }, { data: subscription, error: subscriptionError }] =
-    await Promise.all([
-      admin
-        .from("profiles")
-        .select("plan, search_count, search_month, searched_cities")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      admin
-        .from("billing_subscriptions")
-        .select("plan_key, status, current_period_end")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-    ]);
+  const [profileResult, billing] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("plan, search_count, search_month, searched_cities")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    getBillingState(user.id),
+  ]);
 
-  // The normalized Dodo state is authoritative once the billing migration is live.
-  let plan = "free";
-  if (!subscriptionError && subscription) {
-    plan = isSubscriptionActive(subscription) ? "annual" : "free";
-  } else if (subscriptionError && profile?.plan === "annual") {
-    // legacy column ONLY if billing tables cannot be read
+  const profile = profileResult?.data || null;
+  const published = publicSubscription(billing);
+
+  // Billing is authoritative. Fall back to the legacy profile column only if
+  // the billing tables were unreachable AND the profile says annual.
+  let plan = published.plan;
+  if (plan === "free" && profile?.plan === "annual" && !billing.subscription) {
     plan = "annual";
   }
 
@@ -72,7 +68,7 @@ export function sliceForPlan(plan, alerts = [], tips = []) {
       lockedTips: 0,
     };
   }
-  // Free users: show at least 2 alerts and 3 tips, lock the rest
+  // Explorer (free): preview top 2 alerts and top 3 tips, lock the rest
   const visibleAlerts = Math.min(2, alerts.length);
   const visibleTips = Math.min(3, tips.length);
   return {

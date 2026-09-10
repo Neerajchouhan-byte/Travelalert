@@ -15,19 +15,17 @@ export async function POST(request) {
   }
 
   const plan = String(body?.plan || "").trim();
-  const destination = String(body?.destination || "").trim();
 
-  if (!["trip_pass", "annual", "destination_pack"].includes(plan)) {
+  if (!["trip_pass", "annual"].includes(plan)) {
     return Response.json({ error: "Unknown plan" }, { status: 400 });
   }
 
   try {
-    // Derive origin from the request — never trust a client-provided host.
     const origin =
       process.env.NEXT_PUBLIC_SITE_URL ||
       new URL(request.url).origin;
 
-    const checkoutUrl = await createCheckout(user, plan, origin, destination);
+    const checkoutUrl = await createCheckout(user, plan, origin);
     return Response.json({ checkoutUrl });
   } catch (error) {
     console.error("[BillingCheckout]", error);

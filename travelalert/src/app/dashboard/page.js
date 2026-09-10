@@ -39,9 +39,7 @@ function getCachedData(key) {
     return cached.data;
   }
   return null;
-  
 }
-
 
 function setCachedData(key, data) {
   dashboardCache.set(key, { data, timestamp: Date.now() });
@@ -126,27 +124,28 @@ function DashboardContent() {
     setRefreshing(true);
 
     try {
-      const MAX_ATTEMPTS = 3;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        const res = await syncOnce();
-        if (res.ok) {
-          const body = await res.json().catch(() => ({}));
-          if (body.plan) {
-            setPlan(body.plan);
-            setLockedAlerts(0);
-            setLockedTips(0);
-          }
-          break;
-        }
-        if (attempt < MAX_ATTEMPTS) {
-          // 402 = webhook has not landed yet. Retry with backoff.
-          await new Promise((r) => setTimeout(r, 1500 * attempt));
-        }
+      const headers = await getAuthHeaders();
+      const res = await fetch(
+        `/api/briefing?city=${encodeURIComponent(city)}&refresh=1`,
+        { headers, cache: "no-store" },
+      );
+
+      if (res.ok) {
+        const bData = await res.json();
+        setAlerts(bData.alerts || []);
+        setTips(bData.tips || []);
+        setLockedAlerts(bData.lockedAlerts || 0);
+        setLockedTips(bData.lockedTips || 0);
+        setPlan(bData.plan || "free");
+        setSource("live");
+        if (bData.safety) setSafety(String(bData.safety));
+
+        setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
       }
     } catch (err) {
-      console.error("[Dashboard] Activation error:", err);
+      console.error("Refresh failed:", err);
     } finally {
-      router.replace(`/dashboard?city=${encodeURIComponent(city)}&refresh=1`);
+      setRefreshing(false);
     }
   }
 
@@ -286,12 +285,9 @@ function DashboardContent() {
   return (
     <RequireAuth>
       <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
-        {/* Topbar */}
         <Topbar key={city} city={city} brief={activeBrief} />
 
-        {/* Content container */}
         <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
-          {/* DESTINATIONS switcher */}
           <DestinationChips active={city} />
 
           {error && (
@@ -300,9 +296,8 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 2) */}
+          {/* 1. DESKTOP 3-COLUMN LAYOUT */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
-            {/* Left Column: Safety Overview & Intel */}
             <div className="space-y-5">
               <DestinationHeader
                 city={city}
@@ -322,22 +317,19 @@ function DashboardContent() {
               />
             </div>
 
-            {/* Middle Column: Weather */}
             <div className="space-y-5">
               <Weather7DayCard brief={activeBrief} />
               <WeatherNowCard brief={activeBrief} />
             </div>
 
-            {/* Right Column: Currency & Rates */}
             <div className="space-y-5">
               <UsdConversionCard brief={activeBrief} />
               <ExchangeRateCard brief={activeBrief} />
             </div>
           </div>
 
-          {/* 2. TABLET 2-COLUMN LAYOUT (Image 3) */}
+          {/* 2. TABLET 2-COLUMN LAYOUT */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
-            {/* Left Column */}
             <div className="space-y-5">
               <DestinationHeader
                 city={city}
@@ -357,7 +349,6 @@ function DashboardContent() {
               />
             </div>
 
-            {/* Right Column */}
             <div className="space-y-5">
               <Weather7DayCard brief={activeBrief} />
               <WeatherNowCard brief={activeBrief} />
@@ -366,9 +357,8 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 3. MOBILE STACKED LAYOUT (Image 1) */}
+          {/* 3. MOBILE STACKED LAYOUT */}
           <div className="mt-5 space-y-5 md:hidden">
-            {/* Safety Overview */}
             <DestinationHeader
               city={city}
               brief={activeBrief}
@@ -376,19 +366,15 @@ function DashboardContent() {
               safety={safety}
             />
 
-            {/* 7-Day Weather Carousel */}
             <Weather7DayCard brief={activeBrief} />
 
-            {/* 2-col row: Now & USD → IDR */}
             <div className="grid grid-cols-2 gap-3">
               <WeatherNowCard brief={activeBrief} />
               <UsdConversionCard brief={activeBrief} />
             </div>
 
-            {/* Live Exchange Rate */}
             <ExchangeRateCard brief={activeBrief} />
 
-            {/* Scam & Insider Intel */}
             <IntelTabs
               city={city}
               alerts={alerts}
@@ -402,7 +388,6 @@ function DashboardContent() {
           </div>
         </div>
 
-        {/* Upgrade Modal */}
         <UpgradeModal
           isOpen={showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}

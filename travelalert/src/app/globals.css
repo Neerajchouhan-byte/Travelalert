@@ -17,6 +17,17 @@
   --accent: #e5283b;
   --accent-soft: rgba(229, 40, 59, 0.12);
   --accent-line: rgba(229, 40, 59, 0.4);
+  --safe: #10b981;
+  --safe-soft: rgba(16, 185, 129, 0.11);
+  --safe-line: rgba(16, 185, 129, 0.35);
+  --warning: #f0a63d;
+  --warning-soft: rgba(240, 166, 61, 0.11);
+  --warning-line: rgba(240, 166, 61, 0.35);
+  --info: #5b9dee;
+  --info-soft: rgba(91, 157, 238, 0.11);
+  --info-line: rgba(91, 157, 238, 0.35);
+  --r-out: 1.1rem;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
 }
@@ -36,6 +47,15 @@
     --accent: #e5283b;
     --accent-soft: rgba(229, 72, 74, 0.18);
     --accent-line: rgba(229, 72, 74, 0.45);
+    --safe: #3ecf8e;
+    --safe-soft: rgba(62, 207, 142, 0.14);
+    --safe-line: rgba(62, 207, 142, 0.35);
+    --warning: #f0a63d;
+    --warning-soft: rgba(240, 166, 61, 0.14);
+    --warning-line: rgba(240, 166, 61, 0.35);
+    --info: #5b9dee;
+    --info-soft: rgba(91, 157, 238, 0.14);
+    --info-line: rgba(91, 157, 238, 0.35);
   }
 }
 
@@ -384,93 +404,6 @@ a {
  * surfaces quieter: whitespace does the grouping, borders stay hairline, and
  * elevation is reserved for interaction rather than every card.
  */
-.app-theme {
-  --app-hairline: rgba(255, 255, 255, 0.12);
-  --app-hairline-strong: rgba(255, 255, 255, 0.18);
-}
-
-.app-theme [class*="border-white/5"],
-.app-theme [class*="border-white/10"],
-.app-theme [class*="border-white/12"],
-.app-theme [class*="border-white/15"],
-.app-theme [class*="border-white/20"] {
-  border-width: 1px;
-  border-color: var(--app-hairline);
-}
-
-.app-theme [class*="shadow-xl"],
-.app-theme [class*="shadow-2xl"],
-.app-theme [class*="shadow-lg"],
-.app-theme [class*="shadow-sm"],
-.app-theme [class*="shadow-black"],
-.app-theme [class*="shadow-inner"],
-.app-theme [class*="drop-shadow"] {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
-  filter: none;
-}
-
-.app-theme [class*="bg-gradient"] {
-  background-image: none !important;
-}
-
-.app-theme [class*="font-bold"] {
-  font-weight: 600;
-}
-
-.app-theme [class*="font-semibold"] {
-  font-weight: 500;
-}
-
-.app-theme [class*="p-[0.3rem]"] {
-  padding: 0.45rem;
-}
-
-.app-theme [class*="p-3.5"] {
-  padding: 1rem;
-}
-
-.app-theme [class*="p-4"] {
-  padding: 1.125rem;
-}
-
-.app-theme [class*="sm:p-5"] {
-  padding: 1.375rem;
-}
-
-.app-theme [class*="sm:p-6"] {
-  padding: 1.625rem;
-}
-
-.app-theme [class*="rounded-3xl"] {
-  border-radius: 1.25rem;
-}
-
-.app-theme [class*="rounded-2xl"] {
-  border-radius: 1rem;
-}
-
-.app-theme [class*="rounded-xl"] {
-  border-radius: 0.75rem;
-}
-
-.app-theme [class*="rounded-full"] {
-  /* Preserve controls and status shapes, but remove visual heaviness. */
-  box-shadow: none !important;
-}
-
-@media (prefers-color-scheme: light) {
-  .app-theme {
-    --app-hairline: rgba(28, 28, 32, 0.14);
-    --app-hairline-strong: rgba(28, 28, 32, 0.2);
-  }
-
-  .app-theme [class*="bg-white/[0.03]"],
-  .app-theme [class*="bg-white/[0.04]"],
-  .app-theme [class*="bg-white/[0.045]"],
-  .app-theme [class*="bg-white/[0.05]"] {
-    background-color: rgba(28, 28, 32, 0.035) !important;
-  }
-}
 
 .briefing-lab {
   padding: 0.8rem;
@@ -2709,68 +2642,3 @@ footer {
  * Tailwind color literals. Keep those existing component classes intact, but
  * remap their common surfaces and text colors when the OS prefers light mode.
  */
-@media (prefers-color-scheme: light) {
-  .app-theme {
-    background: var(--bg) !important;
-    color: var(--text) !important;
-  }
-
-  .app-theme [class*="bg-[#0a0a0c]"],
-  .app-theme [class*="bg-[#07070a]"],
-  .app-theme [class*="bg-[#101013]"],
-  .app-theme [class*="bg-[#121316]"],
-  .app-theme [class*="bg-[#141418]"] {
-    background-color: var(--surface-inner) !important;
-  }
-
-  .app-theme [class*="bg-white/[0.02]"],
-  .app-theme [class*="bg-white/[0.03]"],
-  .app-theme [class*="bg-white/[0.04]"],
-  .app-theme [class*="bg-white/[0.05]"],
-  .app-theme [class*="bg-white/[0.08]"] {
-    background-color: var(--surface) !important;
-  }
-
-  .app-theme [class*="text-[#f3f3f2]"],
-  .app-theme [class*="text-white"] {
-    color: var(--text) !important;
-  }
-
-  .app-theme [class*="text-[#a6a6ad]"] {
-    color: var(--text-dim) !important;
-  }
-
-  .app-theme [class*="text-[#68686f]"],
-  .app-theme [class*="text-[#6f6f78]"] {
-    color: var(--text-faint) !important;
-  }
-
-  .app-theme [class*="border-white/5"],
-  .app-theme [class*="border-white/10"],
-  .app-theme [class*="border-white/12"],
-  .app-theme [class*="border-white/15"],
-  .app-theme [class*="border-white/20"] {
-    border-color: var(--border) !important;
-  }
-
-  .app-theme [class*="bg-white/5"] {
-    background-color: var(--surface) !important;
-  }
-
-  .app-theme [class*="hover:bg-white"]:hover {
-    background-color: var(--surface) !important;
-  }
-
-  .app-theme input,
-  .app-theme textarea,
-  .app-theme select {
-    color: var(--text);
-    background-color: var(--surface-inner);
-    border-color: var(--border-strong);
-  }
-
-  .app-theme input::placeholder,
-  .app-theme textarea::placeholder {
-    color: var(--text-faint);
-  }
-}

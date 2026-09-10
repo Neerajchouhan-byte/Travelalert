@@ -1,11 +1,10 @@
 import DodoPayments from "dodopayments";
 import { adminDb } from "@/lib/supabase-admin";
-import { cityKey, normalizeCity } from "@/lib/city";
 
 export const BILLING_PLANS = {
   trip_pass: {
     key: "trip_pass",
-    label: "Per-trip Pass",
+    label: "Trip Pass",
     productId: () => process.env.DODO_TRIP_PASS_PRODUCT_ID,
     price: "$7",
     interval: "30 days",
@@ -18,14 +17,6 @@ export const BILLING_PLANS = {
     price: "$29",
     interval: "year",
     kind: "subscription",
-  },
-  destination_pack: {
-    key: "destination_pack",
-    label: "Destination Pack",
-    productId: () => process.env.DODO_DESTINATION_PACK_PRODUCT_ID,
-    price: "$19",
-    interval: "one time per destination",
-    kind: "one_time",
   },
 };
 
@@ -112,21 +103,18 @@ export async function getBillingState(userId) {
   const tripPass = entitlements.find(
     (item) => item.entitlement_type === "trip_pass" && isEntitlementActive(item),
   );
-  const packs = entitlements
-    .filter((item) => item.entitlement_type === "destination_pack" && isEntitlementActive(item))
-    .map((item) => item.destination_key)
-    .filter(Boolean);
 
-  return { subscription, tripPass, destinationPacks: packs };
+  return { subscription, tripPass };
 }
 
-export function hasBillingAccess(billingState, destination) {
-  if (isSubscriptionActive(billingState.subscription) || billingState.tripPass) return true;
-  const key = cityKey(destination);
-  return Boolean(key && billingState.destinationPacks.includes(key));
+export function hasBillingAccess(billingState) {
+  return (
+    isSubscriptionActive(billingState.subscription) ||
+    Boolean(billingState.tripPass)
+  );
 }
 
-export function publicSubscription({ subscription, tripPass, destinationPacks }) {
+export function publicSubscription({ subscription, tripPass }) {
   const annualActive = isSubscriptionActive(subscription);
   return {
     plan: annualActive ? "annual" : tripPass ? "trip_pass" : "free",
@@ -137,25 +125,16 @@ export function publicSubscription({ subscription, tripPass, destinationPacks })
     currentPeriodEnd: annualActive ? subscription.current_period_end : tripPass?.expires_at || null,
     cancelAtPeriodEnd: annualActive && Boolean(subscription?.cancel_at_period_end),
     canManage: Boolean(subscription?.dodo_customer_id),
-    destinationPacks,
   };
 }
 
-export async function createCheckout(user, planKey, origin, destination) {
+export async function createCheckout(user, planKey, origin) {
   const plan = getPlan(planKey);
-  const normalizedDestination = plan.key === "destination_pack" ? normalizeCity(destination) : "";
-  if (plan.key === "destination_pack" && !normalizedDestination) {
-    throw new Error("Choose a valid destination for this pack.");
-  }
 
-  // 1. Send user directly back to their dashboard with city preserved
-  const returnPath = destination 
-    ? `/dashboard?city=${encodeURIComponent(destination)}&billing=success`
-    : `/dashboard?billing=success`;
-
+  // Send the user back to their dashboard after a successful checkout.
+  const returnPath = `/dashboard?billing=success`;
   const returnUrl = new URL(returnPath, origin).toString();
 
-  // 2. Call Dodo checkout
   const session = await getDodoClient().checkoutSessions.create({
     product_cart: [{ product_id: plan.productId(), quantity: 1 }],
     customer: { email: user.email },
@@ -163,8 +142,6 @@ export async function createCheckout(user, planKey, origin, destination) {
     metadata: {
       travelradar_user_id: user.id,
       offering_key: plan.key,
-      destination_key: normalizedDestination ? cityKey(normalizedDestination) : undefined,
-      destination_name: normalizedDestination || undefined,
     },
   });
 

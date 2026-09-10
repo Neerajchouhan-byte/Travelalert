@@ -7,17 +7,6 @@ import { cities } from "@/lib/dashboard-data";
 export function DestinationChips({ active }) {
   const router = useRouter();
 
-  const defaultCities = [
-    { flag: "🇮🇩", name: "Bali", score: "7.1", arrow: "up" },
-    { flag: "🇸🇬", name: "Singapore", score: "9.4", arrow: "right" },
-    { flag: "🇯🇵", name: "Tokyo", score: "9.1", arrow: "down" },
-    { flag: "🇹🇭", name: "Bangkok", score: "6.8", arrow: "up" },
-    { flag: "🇻🇳", name: "Hanoi", score: "6.2", arrow: "right" },
-    { flag: "🇵🇭", name: "Manila", score: "5.9", arrow: "down" },
-  ];
-
-  const cityList = cities.length > 0 ? cities : defaultCities;
-
   const renderArrow = (direction) => {
     if (direction === "up") return <ArrowUpRight className="size-3.5" />;
     if (direction === "down") return <ArrowDownRight className="size-3.5" />;
@@ -35,7 +24,7 @@ export function DestinationChips({ active }) {
         aria-label="Switch destination"
         className="no-scrollbar flex items-center gap-2.5 overflow-x-auto pb-1"
       >
-        {cityList.map((c) => {
+        {cities.map((c) => {
           const isActive =
             c.name.toLowerCase() === String(active || "").toLowerCase();
           const arrowDir =

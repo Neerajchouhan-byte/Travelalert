@@ -57,18 +57,10 @@ export function IntelTabs({
   const tipList = tips.length > 0 ? tips : defaultTips;
 
   const activeItems = tab === "alerts" ? alertList : tipList;
-  const lockedCount =
-    tab === "alerts"
-      ? hasAccess
-        ? 0
-        : lockedAlerts || 10
-      : hasAccess
-        ? 0
-        : lockedTips || 10;
+  const lockedCount = tab === "alerts" ? lockedAlerts : lockedTips;
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-6 shadow-sm sm:p-7 dark:border-white/10 dark:bg-[#16161b]">
-      {/* Header */}
       <div>
         <div className="flex items-center gap-2">
           <h3 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white">
@@ -82,11 +74,10 @@ export function IntelTabs({
           </div>
         </div>
         <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-          AI-organized Reddit intelligence
+          AI-organized traveler report intelligence
         </p>
       </div>
 
-      {/* Filter pills */}
       <div className="mt-5 flex items-center gap-2.5">
         <button
           type="button"
@@ -119,7 +110,6 @@ export function IntelTabs({
         </button>
       </div>
 
-      {/* Items List */}
       <div className="mt-5 divide-y divide-zinc-100 dark:divide-white/5">
         {activeItems.map((item, idx) => {
           const isExpanded = expandedIndex === idx;
@@ -180,7 +170,6 @@ export function IntelTabs({
           );
         })}
 
-        {/* Blurred teaser locked rows for free tier */}
         {!hasAccess && (
           <>
             <div className="flex items-center justify-between py-3.5">
@@ -202,8 +191,7 @@ export function IntelTabs({
         )}
       </div>
 
-      {/* Pro unlock button */}
-      {!hasAccess && (
+      {!hasAccess && lockedCount > 0 && (
         <button
           type="button"
           onClick={onUpgrade}
