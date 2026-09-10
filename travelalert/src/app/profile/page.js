@@ -158,7 +158,7 @@ function ProfileContent() {
   return (
     <main className="min-h-screen bg-[#f7f6f2] px-4 py-6 text-zinc-900 transition-colors duration-200 sm:py-10 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
       <div className="mx-auto w-full max-w-[580px] space-y-4 sm:space-y-5">
-        
+
         {/* Header with Circular Back Button */}
         <div className="flex items-center gap-3">
           <Link
@@ -217,6 +217,15 @@ function ProfileContent() {
                   <Sparkles className="size-3.5 text-emerald-400" />
                 )}
                 <span>Manage Subscription</span>
+                {subscription?.plan === "annual" && !subscription?.cancelAtPeriodEnd && (
+                  <button
+                    type="button"
+                    onClick={() => callBilling("/api/billing/cancel", "cancel")}
+                    disabled={Boolean(billingBusy)}
+                  >
+                    {billingBusy === "cancel" ? "Cancelling…" : "Cancel renewal"}
+                  </button>
+                )}
               </button>
             )}
           </div>

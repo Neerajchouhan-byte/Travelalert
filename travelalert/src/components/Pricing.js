@@ -80,7 +80,12 @@ export default function Pricing() {
 
   async function checkout(plan) {
     setError("");
-    if (plan === "destination_pack") {
+        if (plan === "destination_pack") {
+      const headers = await authHeaders();
+      if (!headers) {
+        router.push("/login?redirect=/dashboard?upgrade=true");
+        return;
+      }
       router.push("/dashboard?upgrade=true");
       return;
     }

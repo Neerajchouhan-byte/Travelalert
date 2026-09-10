@@ -13,15 +13,16 @@ function cleanList(arr, n) {
         : "medium",
       description: String(x.description || x.desc || "").slice(0, 600),
       avoid: String(x.avoid || x.saving || "").slice(0, 300),
-      upvotes: Number(x.upvotes) || Math.floor(Math.random() * 50) + 25,
+      upvotes: Number(x.upvotes) || 0 ,
       source_url: String(x.source_url || x.url || ""),
     }));
 }
 
 const MODELS = [
-  "gemini-3.6-flash",
-  "gemini-3.8-flash",
-  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
   "gemini-flash-lite-latest",
 ];
 
@@ -137,7 +138,7 @@ FORMAT REQUIREMENTS:
 2. "severity": "high" or "medium" (for alerts).
 3. "description": 1 concise sentence explaining what happened to the traveler.
 4. "avoid": Practical advice on what the traveler should do.
-5. "upvotes": The integer upvotes from that Reddit report.
+5. "upvotes": The integer upvotes from that Reddit report. If unknown, use 0.
 6. "source_url": The exact Reddit URL from that report.
 
 Return ONLY valid JSON matching this schema:

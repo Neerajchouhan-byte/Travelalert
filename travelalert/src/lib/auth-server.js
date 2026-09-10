@@ -44,14 +44,13 @@ export async function getRequestProfile(request) {
     ]);
 
   // The normalized Dodo state is authoritative once the billing migration is live.
-  const plan =
-    !subscriptionError && subscription
-      ? isSubscriptionActive(subscription)
-        ? "annual"
-        : "free"
-      : profile?.plan === "annual"
-        ? "annual"
-        : "free";
+  let plan = "free";
+  if (!subscriptionError && subscription) {
+    plan = isSubscriptionActive(subscription) ? "annual" : "free";
+  } else if (subscriptionError && profile?.plan === "annual") {
+    // legacy column ONLY if billing tables cannot be read
+    plan = "annual";
+  }
 
   return {
     user,

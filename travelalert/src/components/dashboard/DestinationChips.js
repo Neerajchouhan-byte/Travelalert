@@ -26,8 +26,8 @@ export function DestinationChips({ active }) {
 
   return (
     <div className="w-full">
-      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-        Destinations
+      <p className="mb-2.5 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+        DESTINATIONS
       </p>
 
       <div
@@ -57,7 +57,7 @@ export function DestinationChips({ active }) {
               }
               className={`inline-flex h-9 shrink-0 select-none items-center gap-2 whitespace-nowrap rounded-full px-4 text-xs font-bold transition-all duration-150 ${
                 isActive
-                  ? "bg-[#e5283b] text-white shadow-sm dark:bg-[#c0262d]"
+                  ? "bg-[#e5283b] text-white shadow-sm"
                   : "border border-zinc-200/90 bg-white text-zinc-800 shadow-2xs hover:bg-zinc-50 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-300 dark:hover:bg-white/5"
               }`}
             >

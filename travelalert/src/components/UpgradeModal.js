@@ -5,24 +5,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, LoaderCircle, ShieldCheck, Sparkles, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
-const PLANS = [
-  {
-    key: "trip_pass",
-    name: "Trip Pass",
-    price: "$7",
-    period: "/ 30 days",
-    note: "Pay once · 30 days access",
-    badge: null,
-  },
-  {
-    key: "annual",
-    name: "Vacation",
-    price: "$29",
-    period: "/ year",
-    note: "Billed once a year · Unlimited",
-    badge: "BEST VALUE",
-  },
-];
 
 const BENEFITS = [
   "Every alert in the destination file",
@@ -36,6 +18,16 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
   const [busyPlan, setBusyPlan] = useState("");
   const [error, setError] = useState("");
   const [subscription, setSubscription] = useState(null);
+  const PLANS = [
+    { key: "trip_pass", name: "Trip Pass", price: "$7", period: "/ 30 days",
+      note: "Pay once · 30 days access", badge: null },
+    { key: "annual", name: "Vacation", price: "$29", period: "/ year",
+      note: "Billed once a year · Unlimited", badge: "BEST VALUE" },
+    { key: "destination_pack", name: "This City Only", price: "$19", period: "/ forever",
+      note: city ? `Lifetime access to ${city}` : "Lifetime access to one city",
+      badge: null },
+  ];
+  // ...rest unchanged
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -81,6 +73,12 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
       setError("Please sign in to upgrade.");
       return;
     }
+     setError("");
+  if (plan === "destination_pack" && !city) {
+    onClose();
+    window.location.assign("/dashboard?upgrade=true");
+    return;
+  }
 
     setBusyPlan(plan);
     try {
@@ -182,7 +180,7 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
 
             {/* Plan selection cards (2-column side by side) */}
             <div
-              className="mt-6 grid grid-cols-2 gap-3"
+              className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3"
               role="group"
               aria-label="Choose a plan"
             >

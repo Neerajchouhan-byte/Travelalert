@@ -6,11 +6,11 @@ import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import Marquee from "@/components/Marquee";
 import Features from "@/components/Features";
-import Cta from "@/components/Cta";
 import Howitwork from "@/components/Howitwork";
-import Pricing from "@/components/Pricing";
 import SignalOverview from "@/components/SignalOverview";
 import Scamcards from "@/components/Scamcards";
+import Pricing from "@/components/Pricing";
+import Cta from "@/components/Cta";
 
 export default function Home() {
   useEffect(() => {
@@ -38,7 +38,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-white">
+    <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
       <Navbar />
       <Hero />
       <Marquee />

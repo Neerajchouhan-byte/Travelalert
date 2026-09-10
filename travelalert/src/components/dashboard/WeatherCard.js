@@ -6,9 +6,9 @@ export function Weather7DayCard({ brief }) {
   const forecast = brief?.forecast || [
     { day: "MON", temp: 29, low: 24, type: "rain" },
     { day: "TUE", temp: 29, low: 24, type: "rain", active: true, rain: "88% rain" },
-    { day: "WED", temp: 29, low: 24, type: "rain" },
+    { day: "WED", temp: 30, low: 24, type: "rain" },
     { day: "THU", temp: 30, low: 24, type: "rain" },
-    { day: "FRI", temp: 30, low: 24, type: "rain" },
+    { day: "FRI", temp: 29, low: 24, type: "rain" },
     { day: "SAT", temp: 31, low: 24, type: "sun" },
     { day: "SUN", temp: 31, low: 24, type: "sun" },
   ];
@@ -49,7 +49,7 @@ export function Weather7DayCard({ brief }) {
             return (
               <div
                 key={f.day + i}
-                className="flex items-center justify-between rounded-xl bg-[#e5283b] px-3.5 py-2.5 font-bold text-white shadow-xs dark:bg-[#e5484a]"
+                className="flex items-center justify-between rounded-xl bg-[#e5283b] px-3.5 py-2.5 font-bold text-white shadow-xs"
               >
                 <span className="font-mono text-xs uppercase">{f.day}</span>
                 {renderIcon(f.type, true)}
@@ -68,7 +68,7 @@ export function Weather7DayCard({ brief }) {
               key={f.day + i}
               className="flex items-center justify-between px-3.5 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300"
             >
-              <span className="font-mono text-zinc-400 uppercase dark:text-zinc-500">
+              <span className="font-mono uppercase text-zinc-400 dark:text-zinc-500">
                 {f.day}
               </span>
               {renderIcon(f.type)}
@@ -88,7 +88,7 @@ export function Weather7DayCard({ brief }) {
           return (
             <div
               key={f.day + i}
-              className={`flex h-32 w-20 shrink-0 flex-col items-center justify-between rounded-2xl p-3 text-center transition-all ${
+              className={`flex h-36 w-24 shrink-0 flex-col items-center justify-between rounded-2xl p-3 text-center transition-all ${
                 isActive
                   ? "border-2 border-red-300 bg-red-50/90 dark:border-red-600/50 dark:bg-red-950/40"
                   : "border border-zinc-200/90 bg-white dark:border-white/10 dark:bg-[#16161b]"
@@ -104,14 +104,16 @@ export function Weather7DayCard({ brief }) {
                 {f.day}
               </span>
 
-              {renderIcon(f.type, false)}
+              <div className="my-auto">
+                {renderIcon(f.type, false)}
+              </div>
 
               <div>
                 <p className="font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200">
                   {f.temp}° / {f.low || f.temp - 5}°
                 </p>
                 {isActive && (
-                  <p className="text-[10px] font-bold text-[#e5283b] dark:text-[#f87171]">
+                  <p className="mt-0.5 text-[10px] font-bold text-[#e5283b] dark:text-[#f87171]">
                     {f.rain || "88% rain"}
                   </p>
                 )}
@@ -141,7 +143,7 @@ export function WeatherNowCard({ brief }) {
         <span className="font-mono text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl dark:text-white">
           {temp}°C
         </span>
-        <CloudRain className="size-9 text-[#e5283b] dark:text-[#f87171]" />
+        <CloudRain className="size-10 text-[#e5283b] dark:text-[#f87171]" />
       </div>
 
       <p className="mt-3 text-xs font-bold text-[#e5283b] dark:text-[#f87171]">

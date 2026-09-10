@@ -6,11 +6,8 @@
 // Helper to extract upvote counts often found in Google's Reddit snippets (e.g. "140 votes", "85 upvotes")
 function extractUpvotes(text) {
   const match = String(text || "").match(/(\d+[\d,]*)\s*(?:votes|upvotes|points)/i);
-  if (match) {
-    return parseInt(match[1].replace(/,/g, ""), 10);
-  }
-  // Default believable baseline for community-indexed posts if not explicit in snippet
-  return Math.floor(Math.random() * 60) + 25;
+  if (match) return parseInt(match[1].replace(/,/g, ""), 10);
+  return null; 
 }
 
 export async function fetchLivePosts(city) {

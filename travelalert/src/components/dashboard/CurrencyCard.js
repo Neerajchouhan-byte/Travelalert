@@ -18,15 +18,17 @@ export function UsdConversionCard({ brief }) {
         1 USD = {usd} {code}
       </p>
 
-      {/* Vertical bar sparkline indicator */}
-      <div className="mt-3 flex items-end gap-1.5 h-8">
-        {[20, 35, 28, 50, 42, 65, 58].map((h, i) => (
-          <div
-            key={i}
-            style={{ height: `${h}%` }}
-            className="w-2 rounded-full bg-[#f87171] dark:bg-[#ef4444]"
+      {/* Red wavy sparkline line matching mockup */}
+      <div className="mt-3 h-8 w-full">
+        <svg viewBox="0 0 200 40" className="h-full w-full overflow-visible" preserveAspectRatio="none">
+          <path
+            d="M0,32 Q25,28 50,29 T100,22 T150,18 T200,10"
+            fill="none"
+            stroke="#e5283b"
+            strokeWidth="2.5"
+            strokeLinecap="round"
           />
-        ))}
+        </svg>
       </div>
 
       {/* DCC warning pill */}
@@ -59,10 +61,10 @@ export function ExchangeRateCard({ brief }) {
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-black tracking-tight text-zinc-900 sm:text-base dark:text-white">
+        <h4 className="text-base font-black tracking-tight text-zinc-900 dark:text-white">
           Live Exchange Rate
         </h4>
-        <span className="flex items-center gap-1 font-mono text-[11px] font-bold text-[#10b981]">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/70 px-2.5 py-0.5 font-mono text-[11px] font-extrabold text-[#059669] dark:bg-emerald-950/60 dark:text-[#34d399]">
           <span className="size-1.5 rounded-full bg-[#10b981]" />
           LIVE
         </span>
@@ -72,14 +74,14 @@ export function ExchangeRateCard({ brief }) {
         24H · USD/{code}
       </p>
 
-      {/* Chart */}
-      <div className="mt-3 h-20 w-full">
+      {/* Area Chart */}
+      <div className="mt-3 h-24 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#e5283b" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="#e5283b" stopOpacity={0.02} />
+                <stop offset="100%" stopColor="#e5283b" stopOpacity={0.01} />
               </linearGradient>
             </defs>
             <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
@@ -87,7 +89,7 @@ export function ExchangeRateCard({ brief }) {
               type="monotone"
               dataKey="v"
               stroke="#e5283b"
-              strokeWidth={2}
+              strokeWidth={2.5}
               fill="url(#rateGradient)"
               isAnimationActive
             />

@@ -90,7 +90,7 @@ button {
 }
 
 /* ==========================================================================
-   ORIGINAL RESTORED ANIMATIONS & MICRO-INTERACTIONS
+   RESTORED ANIMATIONS & MICRO-INTERACTIONS
    ========================================================================== */
 
 /* 1. Scroll-triggered reveal animations */
@@ -138,7 +138,7 @@ button {
   }
 }
 
-/* 3. Hero Radar rotating sweep & blips */
+/* 3. Hero Radar rotating sweep & pulsing blips */
 .radar-sweep {
   position: absolute;
   inset: 0;
@@ -146,7 +146,7 @@ button {
   background: conic-gradient(
     from 0deg,
     transparent 0deg,
-    rgba(229, 40, 59, 0.2) 26deg,
+    rgba(229, 40, 59, 0.22) 26deg,
     transparent 70deg
   );
   animation: sweep 5s linear infinite;
@@ -163,7 +163,7 @@ button {
   height: 8px;
   border-radius: 50%;
   background: #e5283b;
-  box-shadow: 0 0 0 4px rgba(229, 40, 59, 0.3);
+  box-shadow: 0 0 0 4px rgba(229, 40, 59, 0.35);
   animation: blipPulse 2.6s cubic-bezier(0.23, 1, 0.32, 1) infinite;
 }
 @keyframes blipPulse {

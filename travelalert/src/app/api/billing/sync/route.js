@@ -37,8 +37,28 @@ export async function POST(request) {
     }
 
     // Check customer's active subscriptions in Dodo
-    const subs = await dodo.subscriptions.list({ customer_id: customer.customer_id });
-    const activeSub = subs?.items?.find(s => ["active", "pending"].includes(s.status));
+    // NEW — try our own subscription record first
+const { data: existingRow } = await admin
+  .from("billing_subscriptions")
+  .select("dodo_customer_id")
+  .eq("user_id", user.id)
+  .maybeSingle();
+
+let customerId = existingRow?.dodo_customer_id;
+
+if (!customerId) {
+  const customers = await dodo.customers.list({ email: user.email });
+  customerId = customers?.items?.[0]?.customer_id;
+}
+
+if (!customerId) {
+  return Response.json(
+    { ok: false, message: "No payment record found with payment processor." },
+    { status: 402 },
+  );
+}
+
+const subs = await dodo.subscriptions.list({ customer_id: customerId });
 
     if (!activeSub) {
       return Response.json({ 

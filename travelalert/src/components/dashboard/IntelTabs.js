@@ -17,11 +17,11 @@ export function IntelTabs({
   const [tab, setTab] = useState("alerts");
   const [expandedIndex, setExpandedIndex] = useState(null);
 
-  const hasAccess = plan !== "free";
-  const alertList =
-    alerts.length > 0
-      ? alerts
-      : [
+    const hasAccess = plan !== "free";
+  const alertList = alerts;
+  const tipList = tips;
+  const activeItems = tab === "alerts" ? alertList : tipList;
+  const lockedCount = tab === "alerts" ? lockedAlerts || 0 : lockedTips || 0; [
           {
             name: "ATM Skimming Notice · Canggu",
             severity: "high",
@@ -64,25 +64,23 @@ export function IntelTabs({
         : Math.max(10, lockedTips || 10);
 
   return (
-    <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 lg:p-7 dark:border-white/10 dark:bg-[#16161b]">
+    <div className="rounded-[28px] border border-zinc-200/90 bg-white p-6 shadow-sm sm:p-7 dark:border-white/10 dark:bg-[#16161b]">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white">
-              Scam &amp; Insider Intel
-            </h3>
-            <div className="flex items-center gap-1">
-              <span className="live-dot" />
-              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                Live scan
-              </span>
-            </div>
+      <div>
+        <div className="flex items-center gap-2">
+          <h3 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white">
+            Scam &amp; Insider Intel
+          </h3>
+          <div className="flex items-center gap-1.5">
+            <span className="live-dot" />
+            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+              Live scan
+            </span>
           </div>
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            AI-organized Reddit intelligence
-          </p>
         </div>
+        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+          AI-organized Reddit intelligence
+        </p>
       </div>
 
       {/* Filter pills */}
@@ -90,7 +88,7 @@ export function IntelTabs({
         <button
           type="button"
           onClick={() => setTab("alerts")}
-          className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
+          className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
             tab === "alerts"
               ? "bg-[#fee2e2] text-[#dc2626] dark:bg-[#3a1417] dark:text-[#f87171]"
               : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:bg-white/5 dark:text-zinc-400"
@@ -102,7 +100,7 @@ export function IntelTabs({
         <button
           type="button"
           onClick={() => setTab("tips")}
-          className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
+          className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
             tab === "tips"
               ? "bg-[#fef3c7] text-[#d97706] dark:bg-[#332210] dark:text-[#fbbf24]"
               : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:bg-white/5 dark:text-zinc-400"
@@ -177,7 +175,7 @@ export function IntelTabs({
         {!hasAccess && (
           <>
             <div className="flex items-center justify-between py-3.5">
-              <div className="blur-[4px] select-none text-zinc-400 dark:text-zinc-600">
+              <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
                 <p className="text-sm font-bold">Tour Guide Deposit Scam</p>
                 <p className="text-xs">4h ago</p>
               </div>
@@ -185,7 +183,7 @@ export function IntelTabs({
             </div>
 
             <div className="flex items-center justify-between py-3.5">
-              <div className="blur-[4px] select-none text-zinc-400 dark:text-zinc-600">
+              <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
                 <p className="text-sm font-bold">Counterfeit Ferry Tickets</p>
                 <p className="text-xs">5h ago</p>
               </div>
@@ -200,7 +198,7 @@ export function IntelTabs({
         <button
           type="button"
           onClick={onUpgrade}
-          className="mt-4 flex w-full items-center justify-between rounded-full bg-[#fef3c7] px-6 py-3.5 text-xs font-bold text-amber-950 transition-colors hover:bg-[#fde68a] dark:bg-[#fbbf24] dark:text-black dark:hover:bg-[#f59e0b]"
+          className="mt-5 flex w-full items-center justify-between rounded-full bg-[#fef08a] px-6 py-3.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-[#fde047] dark:bg-[#fde047] dark:text-zinc-950 dark:hover:bg-[#facc15]"
         >
           <span>Unlock {lockedCount} more scam patterns with Pro</span>
           <ChevronRight className="size-4" />

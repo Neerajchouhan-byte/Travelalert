@@ -48,34 +48,8 @@ export async function GET(request) {
   }
 
   // 2. DEFENSIVE RATE LIMIT: Prevent API abuse
-  if (forceRefresh) {
-    const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
-    const lastRefresh = refreshCooldowns.get(rateKey) || 0;
-    const now = Date.now();
-
-    if (now - lastRefresh < COOLDOWN_MS) {
-      console.warn(
-        `[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`,
-      );
-      forceRefresh = false;
-    } else {
-      refreshCooldowns.set(rateKey, now);
-      if (refreshCooldowns.size > 2000) refreshCooldowns.clear();
-    }
-  }
-
-  if (!city) {
-    return Response.json(
-      {
-        error: `Could not recognize "${rawCity}" as a valid city name`,
-        alerts: [],
-        tips: [],
-        invalidCity: true,
-      },
-      { status: 400 },
-    );
-  }
-
+  // 2. Billing state — needed for both the Pro refresh gate AND the plan slice.
+  //    Compute this BEFORE the rate-limit block so we can gate force-refresh.
   let billingState = {
     subscription: null,
     tripPass: null,
@@ -96,15 +70,55 @@ export async function GET(request) {
         : "destination_pack"
     : "free";
 
+  // 3. Pro gate: force-refresh is a paid capability.
+  //    Free users always get the cache, regardless of what they request.
+  if (forceRefresh && !hasAccess) {
+    console.info(
+      `[Briefing] Free user force-refresh blocked (user=${profile.user.id}, city=${city}). Serving cache.`,
+    );
+    forceRefresh = false;
+  }
+
+  // 4. DEFENSIVE RATE LIMIT: Prevent API abuse.
+  //    Only paid users reach here because force-refresh was gated above.
+  if (forceRefresh) {
+    const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
+    const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+    const now = Date.now();
+
+    if (now - lastRefresh < COOLDOWN_MS) {
+      console.warn(
+        `[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`,
+      );
+      forceRefresh = false;
+    } else {
+      refreshCooldowns.set(rateKey, now);
+      if (refreshCooldowns.size > 2000) {
+        // Bounded eviction (FIX 9) — never wipe the whole map on overflow.
+        const toRemove = Math.floor(refreshCooldowns.size * 0.2);
+        const iter = refreshCooldowns.keys();
+        for (let i = 0; i < toRemove; i++) {
+          const k = iter.next().value;
+          if (k === undefined) break;
+          refreshCooldowns.delete(k);
+        }
+      }
+    }
+  }
+
   const month = monthKey();
-  let count = profile.search_count || 0;
-  if (profile.search_month !== month) count = 0;
-  // STRICT ENFORCEMENT: Block free Explorer users once they reach 3 searches
-  if (!hasAccess && count >= 3) {
+  const searched =
+    profile.search_month === month ? profile.searched_cities || [] : [];
+  const cityId = city.toLowerCase();
+  const alreadyCounted = searched.includes(cityId);
+  const nextSearched = alreadyCounted ? searched : [...searched, cityId];
+  const distinctCount = nextSearched.length;
+
+  if (!hasAccess && !alreadyCounted && distinctCount > 3) {
     return Response.json(
       {
         error:
-          "You have used all 3 free Explorer searches. Upgrade to Trip Pass or Vacation for unlimited access.",
+          "You have used all 3 free Explorer cities this month. Upgrade to Trip Pass or Annual.",
         limitReached: true,
         searchesLeft: 0,
         plan: "free",
@@ -178,15 +192,17 @@ export async function GET(request) {
       };
     }
   }
-
-  await adminDb()
-    .from("profiles")
-    .update({
-      search_count: count + 1,
-      search_month: month,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("user_id", profile.user.id);
+  if (!hasAccess) {
+    await adminDb()
+      .from("profiles")
+      .update({
+        search_count: distinctCount,
+        search_month: month,
+        searched_cities: nextSearched,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", profile.user.id);
+  }
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
 
@@ -208,6 +224,6 @@ export async function GET(request) {
     error: payload.error,
     plan: effectivePlan,
     safety,
-    searchesLeft: hasAccess ? null : Math.max(0, 3 - (count + 1)),
+    searchesLeft: hasAccess ? null : Math.max(0, 3 - distinctCount),
   });
 }

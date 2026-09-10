@@ -66,32 +66,46 @@ function DashboardContent() {
   );
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    if (searchParams.get("billing") === "success") {
-      async function activatePro() {
-        const { data } = await supabase?.auth.getSession();
-        const token = data?.session?.access_token;
-        if (!token) return;
+useEffect(() => {
+  if (searchParams.get("billing") !== "success") return;
 
-        try {
-          const res = await fetch("/api/billing/sync", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          });
+  async function activatePro() {
+    const { data } = await supabase?.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return;
 
-          if (res.ok) {
-            setPlan("annual");
-            setLockedAlerts(0);
-            setLockedTips(0);
-            router.replace(`/dashboard?city=${encodeURIComponent(city)}`);
-          }
-        } catch (err) {
-          console.error("[Dashboard] Activation error:", err);
+    async function syncOnce() {
+      return fetch("/api/billing/sync", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+
+    try {
+      let res = await syncOnce();
+      if (res.status === 202) {
+        await new Promise((r) => setTimeout(r, 2000));
+        res = await syncOnce();
+      }
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body.plan) {
+          setPlan(body.plan);
+          setLockedAlerts(0);
+          setLockedTips(0);
         }
       }
-      activatePro();
+    } catch (err) {
+      console.error("[Dashboard] Activation error:", err);
+    } finally {
+      router.replace(
+        `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
+      );
     }
-  }, [searchParams, city, router]);
+  }
+
+  activatePro();
+}, [searchParams, city, router]);
 
   async function handleRefresh() {
     if (refreshing || loading) return;
@@ -175,9 +189,12 @@ function DashboardContent() {
         setLockedTips(data.lockedTips || 0);
         setSafety(data.safety || null);
 
-        if (data.error && !(data.alerts || []).length) {
-          setError(data.error);
-        }
+        if (data.limitReached) {
+  setShowUpgradeModal(true);
+  setError("");
+} else if (data.error && !(data.alerts || []).length) {
+  setError(data.error);
+}
 
         setCachedData(cacheKey, data);
       } catch (err) {
@@ -262,7 +279,7 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 2) */}
+          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 3) */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-12">
             {/* Left Column: Safety Overview & Intel (6 cols) */}
             <div className="space-y-5 xl:col-span-6">
@@ -297,7 +314,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 2. TABLET 2-COLUMN LAYOUT (Image 1) */}
+          {/* 2. TABLET 2-COLUMN LAYOUT (Image 2) */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
             {/* Left Column */}
             <div className="space-y-5">
@@ -328,7 +345,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 3. MOBILE STACKED LAYOUT (Images 3 & 4) */}
+          {/* 3. MOBILE STACKED LAYOUT (Image 1) */}
           <div className="mt-5 space-y-5 md:hidden">
             {/* Safety Overview */}
             <DestinationHeader
@@ -338,7 +355,7 @@ function DashboardContent() {
               safety={safety}
             />
 
-            {/* 7-Day Weather carousel */}
+            {/* 7-Day Weather Carousel */}
             <Weather7DayCard brief={activeBrief} />
 
             {/* 2-col row: Now & USD → IDR */}

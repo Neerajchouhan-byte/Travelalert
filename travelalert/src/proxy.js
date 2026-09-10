@@ -36,10 +36,6 @@ export default async function proxy(request) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Refresh session to extend expiry - this keeps users logged in
-  if (user) {
-    await supabase.auth.refreshSession();
-  }
 
   const path = request.nextUrl.pathname;
 
