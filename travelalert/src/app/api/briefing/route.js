@@ -9,29 +9,16 @@ import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
 export const maxDuration = 180;
 
+const FREE_SEARCH_LIMIT = 3;
+
 function monthKey() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function dayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-// ---- Rate limits ----
-
-// Per-user + city cooldown between forced live scrapes.
 const refreshCooldowns = new Map();
 const COOLDOWN_MS = 3 * 60 * 1000;
 
-// Per-user daily cap on fresh live scrapes.
-const dailyFreshCounts = new Map();
-const DAILY_FRESH_LIMIT_FREE = 1;
-const DAILY_FRESH_LIMIT_PAID = 20;
-
-// ---- In-flight pipeline dedupe ----
-// Prevents concurrent requests for the same city from both running the
-// expensive Serper + Gemini pipeline. The second request awaits the first.
 const inFlightPipelines = new Map();
 
 function evictOldest(map, count) {
@@ -41,20 +28,6 @@ function evictOldest(map, count) {
     if (k === undefined) break;
     map.delete(k);
   }
-}
-
-function checkFreshQuota(userId, hasAccess) {
-  const key = `${userId}_${dayKey()}`;
-  const limit = hasAccess ? DAILY_FRESH_LIMIT_PAID : DAILY_FRESH_LIMIT_FREE;
-  const current = dailyFreshCounts.get(key) || 0;
-  if (current >= limit) return { ok: false, remaining: 0, limit };
-  if (dailyFreshCounts.size > 5000) evictOldest(dailyFreshCounts, 1000);
-  return { ok: true, remaining: limit - current - 1, limit };
-}
-
-function recordFreshUse(userId) {
-  const key = `${userId}_${dayKey()}`;
-  dailyFreshCounts.set(key, (dailyFreshCounts.get(key) || 0) + 1);
 }
 
 async function runPipelineOnce(city) {
@@ -72,7 +45,7 @@ async function runPipelineOnce(city) {
   return promise;
 }
 
-function buildCachedPayload(city, cached, extras = {}) {
+function cachePayload(city, cached) {
   return {
     city,
     alerts: cached.alerts,
@@ -80,11 +53,10 @@ function buildCachedPayload(city, cached, extras = {}) {
     source: "cache",
     fetchedAt: cached.fetchedAt || null,
     error: null,
-    ...extras,
   };
 }
 
-function buildSeedPayload(city, extras = {}) {
+function seedPayload(city, extras = {}) {
   const filled = fillIntel(city, [], []);
   return {
     city,
@@ -97,6 +69,18 @@ function buildSeedPayload(city, extras = {}) {
   };
 }
 
+function emptyPayload(city) {
+  return {
+    city,
+    alerts: [],
+    tips: [],
+    source: "empty",
+    fetchedAt: null,
+    error: null,
+    noData: true,
+  };
+}
+
 export async function GET(request) {
   const profile = await getRequestProfile(request);
   if (!profile.user) {
@@ -105,7 +89,10 @@ export async function GET(request) {
 
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
-  const forceRefresh = url.searchParams.get("refresh") === "1";
+  const isRefresh = url.searchParams.get("refresh") === "1";
+  // cached_only=1 → never run the pipeline. Chips use this flag to browse
+  // any destination without consuming quota or hitting the live API.
+  const cachedOnly = url.searchParams.get("cached_only") === "1";
 
   let city = resolveCity(rawCity);
   if (!city) city = normalizeCity(rawCity);
@@ -121,7 +108,6 @@ export async function GET(request) {
     );
   }
 
-  // ---- Billing state ----
   let billingState = { subscription: null, tripPass: null };
   try {
     billingState = await getBillingState(profile.user.id);
@@ -137,112 +123,154 @@ export async function GET(request) {
         : "free"
     : "free";
 
-  // ---- Free-tier monthly city limit ----
   const month = monthKey();
-  const searched =
-    profile.search_month === month ? profile.searched_cities || [] : [];
+  const monthMatches = profile.search_month === month;
+  let usedSearches = monthMatches ? Number(profile.search_count) || 0 : 0;
+  let visitedCities = monthMatches ? profile.searched_cities || [] : [];
   const cityId = city.toLowerCase();
-  const alreadyCounted = searched.includes(cityId);
-  const nextSearched = alreadyCounted ? searched : [...searched, cityId];
-  const distinctCount = nextSearched.length;
+  const alreadyVisited = visitedCities.includes(cityId);
 
-  if (!hasAccess && !alreadyCounted && distinctCount > 3) {
-    return Response.json(
-      {
-        error:
-          "You have used all 3 free Explorer cities this month. Upgrade to Trip Pass or Annual.",
-        limitReached: true,
-        searchesLeft: 0,
-        plan: "free",
-        alerts: [],
-        tips: [],
-        lockedAlerts: 12,
-        lockedTips: 10,
-      },
-      { status: 403 },
-    );
-  }
-
-  // ---- Cache lookup (always first) ----
   const cached = await getFreshCache(city);
-  console.info("briefing.request", {
-    city,
-    forceRefresh,
-    cache: cached ? "hit" : "miss",
-  });
-
   const cacheUsable =
     cached &&
     (cached.alerts || []).length >= 4 &&
     (cached.tips || []).length >= 3;
 
-  let payload;
-  let freshLimitInfo = null;
+  console.info("briefing.request", {
+    city,
+    isRefresh,
+    cachedOnly,
+    hasAccess,
+    usedSearches,
+    alreadyVisited,
+    cache: cacheUsable ? "hit" : "miss",
+  });
 
-  if (cacheUsable && !forceRefresh) {
-    // Cache hit — serve immediately, no pipeline.
-    console.info("briefing.source", { city, source: "cache" });
-    payload = buildCachedPayload(city, cached);
-  } else if (!forceRefresh) {
-    // Cold miss, no explicit refresh — seed only, no live scrape.
-    console.info("briefing.source", { city, source: "seed-cold" });
-    payload = buildSeedPayload(city);
-  } else {
-    // Explicit refresh — check daily quota, then cooldown, then run.
-    const quota = checkFreshQuota(profile.user.id, hasAccess);
-    if (!quota.ok) {
-      console.info(
-        `[Briefing] Fresh quota exhausted for ${profile.user.id} (limit ${quota.limit})`,
-      );
-      const reason = hasAccess
-        ? `Daily fresh-search limit reached (${quota.limit}/day). Serving cached data.`
-        : "Fresh searches are a paid feature. Upgrade to Trip Pass or Annual to refresh.";
-      payload = cacheUsable
-        ? buildCachedPayload(city, cached, {
-            refreshBlocked: true,
-            refreshBlockedReason: reason,
-          })
-        : buildSeedPayload(city, {
-            refreshBlocked: true,
-            refreshBlockedReason: reason,
-          });
-      freshLimitInfo = { remaining: 0, limit: quota.limit };
+  let payload;
+  let blockReason = null;
+  let quotaConsumed = false;
+
+  if (cachedOnly) {
+    // Pure browse — never runs the pipeline, never touches the quota, never
+    // returns 403. Cache-or-empty ONLY. Seed templates are intentionally NOT
+    // served here: a chip click must never show fabricated content for a city
+    // the user hasn't actually searched.
+    if (cacheUsable) {
+      console.info("briefing.source", { city, source: "cache-chip" });
+      payload = cachePayload(city, cached);
     } else {
-      const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
+      console.info("briefing.source", { city, source: "empty-chip" });
+      payload = emptyPayload(city);
+    }
+  } else if (cacheUsable && !isRefresh) {
+    console.info("briefing.source", { city, source: "cache" });
+    payload = cachePayload(city, cached);
+  } else if (!hasAccess && usedSearches >= FREE_SEARCH_LIMIT) {
+    // Free user at limit, no cached_only → this is either a refresh or a
+    // genuinely new search. Both are blocked.
+    if (isRefresh) {
+      console.info("briefing.source", {
+        city,
+        source: cacheUsable ? "cache-refresh-blocked" : "seed-refresh-blocked",
+      });
+      payload = cacheUsable
+        ? cachePayload(city, cached)
+        : seedPayload(city);
+      blockReason =
+        "You've used all 3 free searches. Upgrade to Trip Pass or Annual for unlimited refreshes.";
+    } else if (alreadyVisited) {
+      console.info("briefing.source", { city, source: "seed-revisit" });
+      payload = seedPayload(city);
+    } else {
+      console.info("briefing.limit_reached", { city, usedSearches });
+      return Response.json(
+        {
+          error:
+            "You've used all 3 free searches this month. Upgrade to Trip Pass or Annual for unlimited access.",
+          limitReached: true,
+          searchesLeft: 0,
+          plan: "free",
+          alerts: [],
+          tips: [],
+          lockedAlerts: 12,
+          lockedTips: 10,
+          visitedCities,
+        },
+        { status: 403 },
+      );
+    }
+  } else if (!hasAccess && !cacheUsable && !isRefresh) {
+    // Free user, cold-load of a new city → this IS the "search" action.
+    const rateKey = `${profile.user.id}_${cityId}`;
+    const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+    const now = Date.now();
+    if (now - lastRefresh < COOLDOWN_MS && !alreadyVisited) {
+      payload = seedPayload(city);
+    } else {
+      refreshCooldowns.set(rateKey, now);
+      if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
+
+      let org;
+      try {
+        org = await runPipelineOnce(city);
+      } catch (err) {
+        console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+        org = { alerts: [], tips: [], source: "seed", error: err.message };
+      }
+
+      if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+        payload = {
+          city,
+          alerts: org.alerts,
+          tips: org.tips,
+          source: org.source || "live",
+          fetchedAt: new Date().toISOString(),
+          error: org.error,
+        };
+        if (payload.source !== "seed") {
+          await saveCache(city, payload);
+        }
+      } else {
+        const filled = fillIntel(city, org.alerts || [], org.tips || []);
+        payload = {
+          city,
+          alerts: filled.alerts,
+          tips: filled.tips,
+          source: "seed",
+          fetchedAt: new Date().toISOString(),
+          error: org.error || null,
+        };
+      }
+
+      usedSearches += 1;
+      quotaConsumed = true;
+      if (!alreadyVisited) visitedCities = [...visitedCities, cityId];
+    }
+  } else {
+    // Refresh path.
+    if (!hasAccess) {
+      const rateKey = `${profile.user.id}_${cityId}`;
       const lastRefresh = refreshCooldowns.get(rateKey) || 0;
       const now = Date.now();
-
       if (now - lastRefresh < COOLDOWN_MS) {
         console.warn(
           `[AntiSpam] Cooldown active for ${profile.user.id} on ${city}.`,
         );
-        const reason =
-          "Just refreshed. Please wait a few minutes before refreshing again.";
         payload = cacheUsable
-          ? buildCachedPayload(city, cached, {
-              refreshBlocked: true,
-              refreshBlockedReason: reason,
-            })
-          : buildSeedPayload(city, {
-              refreshBlocked: true,
-              refreshBlockedReason: reason,
-            });
+          ? cachePayload(city, cached)
+          : seedPayload(city);
+        blockReason =
+          "Just refreshed. Please wait a few minutes before refreshing again.";
       } else {
         refreshCooldowns.set(rateKey, now);
         if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
-        recordFreshUse(profile.user.id);
 
         let org;
         try {
           org = await runPipelineOnce(city);
         } catch (err) {
           console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-          org = {
-            alerts: [],
-            tips: [],
-            source: "seed",
-            error: err.message,
-          };
+          org = { alerts: [], tips: [], source: "seed", error: err.message };
         }
 
         if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
@@ -268,19 +296,68 @@ export async function GET(request) {
             error: org.error || null,
           };
         }
-        freshLimitInfo = { remaining: quota.remaining, limit: quota.limit };
+
+        usedSearches += 1;
+        quotaConsumed = true;
+        if (!alreadyVisited) visitedCities = [...visitedCities, cityId];
+      }
+    } else {
+      // Paid user refresh → cooldown only, no counter.
+      const rateKey = `${profile.user.id}_${cityId}`;
+      const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+      const now = Date.now();
+      if (now - lastRefresh < COOLDOWN_MS) {
+        payload = cacheUsable
+          ? cachePayload(city, cached)
+          : seedPayload(city);
+        blockReason =
+          "Just refreshed. Please wait a few minutes before refreshing again.";
+      } else {
+        refreshCooldowns.set(rateKey, now);
+        if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
+
+        let org;
+        try {
+          org = await runPipelineOnce(city);
+        } catch (err) {
+          console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+          org = { alerts: [], tips: [], source: "seed", error: err.message };
+        }
+
+        if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+          payload = {
+            city,
+            alerts: org.alerts,
+            tips: org.tips,
+            source: org.source || "live",
+            fetchedAt: new Date().toISOString(),
+            error: org.error,
+          };
+          if (payload.source !== "seed") {
+            await saveCache(city, payload);
+          }
+        } else {
+          const filled = fillIntel(city, org.alerts || [], org.tips || []);
+          payload = {
+            city,
+            alerts: filled.alerts,
+            tips: filled.tips,
+            source: "seed",
+            fetchedAt: new Date().toISOString(),
+            error: org.error || null,
+          };
+        }
       }
     }
   }
 
-  // ---- Free-tier counter write ----
-  if (!hasAccess) {
+  if (!hasAccess && quotaConsumed) {
     const { error: profileUpdateError } = await adminDb()
       .from("profiles")
       .update({
-        search_count: distinctCount,
+        search_count: usedSearches,
         search_month: month,
-        searched_cities: nextSearched,
+        searched_cities: visitedCities,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", profile.user.id);
@@ -311,10 +388,13 @@ export async function GET(request) {
     error: payload.error,
     plan: effectivePlan,
     safety,
-    searchesLeft: hasAccess ? null : Math.max(0, 3 - distinctCount),
-    refreshBlocked: payload.refreshBlocked || false,
-    refreshBlockedReason: payload.refreshBlockedReason || null,
-    freshRemaining: freshLimitInfo ? freshLimitInfo.remaining : null,
-    freshLimit: freshLimitInfo ? freshLimitInfo.limit : null,
+    searchesLeft: hasAccess
+      ? null
+      : Math.max(0, FREE_SEARCH_LIMIT - usedSearches),
+    searchLimit: hasAccess ? null : FREE_SEARCH_LIMIT,
+    refreshBlocked: Boolean(blockReason),
+    refreshBlockedReason: blockReason,
+    visitedCities: hasAccess ? null : visitedCities,
+    noData: Boolean(payload.noData),
   });
 }

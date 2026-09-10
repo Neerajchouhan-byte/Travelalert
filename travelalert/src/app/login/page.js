@@ -118,7 +118,7 @@ function LoginContent() {
       if (city) callback.searchParams.set("city", city);
 
       const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "twitter",
+        provider: "x",
         options: {
           redirectTo: callback.toString(),
           // X's OAuth 2.0 requires these scopes to fetch the user's email and

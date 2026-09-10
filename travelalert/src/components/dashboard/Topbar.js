@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Radar } from "lucide-react";
+import { Search, Radar, Lock } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -23,7 +23,7 @@ function flagToCode(flag) {
   return "";
 }
 
-export function Topbar({ city, brief }) {
+export function Topbar({ city, brief, searchLocked = false }) {
   const router = useRouter();
   const [searchCity, setSearchCity] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -51,6 +51,14 @@ export function Topbar({ city, brief }) {
   }, []);
 
   useEffect(() => {
+    if (searchLocked) {
+      const reset = setTimeout(() => {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }, 0);
+      return () => clearTimeout(reset);
+    }
+
     const trimmed = searchCity.trim();
     if (trimmed.length < 2) {
       const reset = setTimeout(() => {
@@ -77,23 +85,25 @@ export function Topbar({ city, brief }) {
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [searchCity]);
+  }, [searchCity, searchLocked]);
 
   function handleSearch(e) {
     e?.preventDefault();
+    if (searchLocked) return;
     const trimmed = searchCity.trim();
     if (!trimmed) return;
     setShowSuggestions(false);
     setMobileSearchOpen(false);
-    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}&refresh=1`);
+    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
   }
 
   function handleCitySelect(cityItem) {
+    if (searchLocked) return;
     setShowSuggestions(false);
     setSearchCity("");
     setMobileSearchOpen(false);
     router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}&refresh=1`
+      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}`
     );
   }
 
@@ -127,6 +137,10 @@ export function Topbar({ city, brief }) {
     ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
     : meta?.name || city;
 
+  const searchPlaceholder = searchLocked
+    ? "Free searches used — upgrade for more"
+    : "Search destinations...";
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
@@ -152,11 +166,20 @@ export function Topbar({ city, brief }) {
             <ThemeToggle />
             <button
               type="button"
-              onClick={() => setMobileSearchOpen((v) => !v)}
+              onClick={() => !searchLocked && setMobileSearchOpen((v) => !v)}
+              disabled={searchLocked}
               aria-label="Search destination"
-              className="flex size-8 items-center justify-center text-zinc-700 transition-colors hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
+              className={`flex size-8 items-center justify-center transition-colors ${
+                searchLocked
+                  ? "cursor-not-allowed text-zinc-300 dark:text-zinc-600"
+                  : "text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
+              }`}
             >
-              <Search className="size-4.5" />
+              {searchLocked ? (
+                <Lock className="size-4.5" />
+              ) : (
+                <Search className="size-4.5" />
+              )}
             </button>
             <button
               type="button"
@@ -174,7 +197,7 @@ export function Topbar({ city, brief }) {
           </div>
         </div>
 
-                       {mobileSearchOpen && (
+        {mobileSearchOpen && !searchLocked && (
           <div className="relative mt-2.5 md:hidden">
             <form onSubmit={handleSearch}>
               <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
@@ -184,7 +207,7 @@ export function Topbar({ city, brief }) {
                   autoFocus
                   value={searchCity}
                   onChange={(e) => setSearchCity(e.target.value)}
-                  placeholder="Search destinations..."
+                  placeholder={searchPlaceholder}
                   className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
                 />
                 {loading && (
@@ -254,24 +277,45 @@ export function Topbar({ city, brief }) {
           <div className="relative w-full max-w-md">
             <form
               onSubmit={handleSearch}
-              className="flex items-center gap-2.5 rounded-full border border-zinc-200/90 bg-white px-4 py-2 shadow-2xs transition-colors hover:border-zinc-300 dark:border-white/10 dark:bg-[#16161b]"
+              className={`flex items-center gap-2.5 rounded-full border px-4 py-2 shadow-2xs transition-colors ${
+                searchLocked
+                  ? "cursor-not-allowed border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5"
+                  : "border-zinc-200/90 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-[#16161b]"
+              }`}
             >
-              <Search className="size-4 text-zinc-400 dark:text-zinc-500" />
+              {searchLocked ? (
+                <Lock className="size-4 text-zinc-400 dark:text-zinc-500" />
+              ) : (
+                <Search className="size-4 text-zinc-400 dark:text-zinc-500" />
+              )}
               <input
                 type="text"
+                disabled={searchLocked}
                 value={searchCity}
                 onChange={(e) => setSearchCity(e.target.value)}
-                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                placeholder="Search destinations..."
-                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+                onFocus={() =>
+                  !searchLocked &&
+                  suggestions.length > 0 &&
+                  setShowSuggestions(true)
+                }
+                onBlur={() =>
+                  setTimeout(() => setShowSuggestions(false), 200)
+                }
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 disabled:cursor-not-allowed dark:text-white"
               />
-              {loading && (
+              {loading && !searchLocked && (
                 <div className="size-3.5 animate-spin rounded-full border border-red-500 border-t-transparent" />
               )}
             </form>
 
-            {showSuggestions && suggestions.length > 0 && (
+            {searchLocked && (
+              <p className="mt-1 text-center font-mono text-[10px] uppercase tracking-widest text-[#e5283b] dark:text-[#f87171]">
+                3 free searches used
+              </p>
+            )}
+
+            {!searchLocked && showSuggestions && suggestions.length > 0 && (
               <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#16161b]">
                 {suggestions.map((item, idx) => (
                   <button

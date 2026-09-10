@@ -42,7 +42,9 @@ export function DestinationChips({ active }) {
               role="tab"
               aria-selected={isActive}
               onClick={() =>
-                router.push(`/dashboard?city=${encodeURIComponent(c.name)}`)
+                router.push(
+                  `/dashboard?city=${encodeURIComponent(c.name)}&cached_only=1`
+                )
               }
               className={`inline-flex h-9 shrink-0 select-none items-center gap-2 whitespace-nowrap rounded-full px-4 text-xs font-bold transition-all duration-150 ${
                 isActive

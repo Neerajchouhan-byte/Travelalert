@@ -1,6 +1,6 @@
-import { fetchLivePosts } from "./live-posts";
-import { seedIntel } from "./seed-intel";
-import { normalizeCity } from "./city";
+import { fetchLivePosts } from "./live-posts.js";
+import { seedIntel } from "./seed-intel.js";
+import { normalizeCity } from "./city.js";
 
 function cleanList(arr, n) {
   return (arr || [])

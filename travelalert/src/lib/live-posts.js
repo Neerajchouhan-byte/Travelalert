@@ -19,7 +19,8 @@ export async function fetchLivePosts(city) {
   }
 
   // Exact targeted Google query for Reddit traveler discussions
-  const query = `site:reddit.com/r/travel OR site:reddit.com/r/solotravel "${city}" (scam OR "tourist trap" OR pickpocket OR overcharged OR taxi)`;
+  const citySubreddit = getSubredditForCity(city); // e.g. "Thailand", "london", "IndiaTravel"
+const query = `site:reddit.com/r/travel OR site:reddit.com/r/solotravel OR site:reddit.com/r/backpacking OR site:reddit.com/r/shoestring OR site:reddit.com/r/scams OR site:reddit.com/r/${citySubreddit} "${city}" (scam OR "tourist trap" OR pickpocket OR overcharged OR taxi OR "ripped off" OR "fake" OR "avoid" OR warning)`;
 
   console.info(`[LiveReddit] Querying real Reddit threads for ${city}...`);
   const t0 = Date.now();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { TriangleAlert } from "lucide-react";
 
@@ -53,6 +53,23 @@ export function UsdConversionCard({ brief }) {
 export function ExchangeRateCard({ brief }) {
   const code = brief?.code || "IDR";
 
+  // The Recharts chart lives inside a parent that is `display: none` on
+  // tablet sizes (`md:hidden xl:block`). ResponsiveContainer measures its
+  // parent's bounding box — when the parent is hidden it measures 0×0 and
+  // logs a warning. Only mount the chart when the parent is actually
+  // visible: below md, or at xl and up. Tablet keeps the static-bars
+  // variant which doesn't need measurement.
+  const [showChart, setShowChart] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 767px), (min-width: 1280px)");
+    const update = () => setShowChart(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const series = useMemo(() => {
     return [
       { t: "12AM", v: 15380 },
@@ -82,25 +99,27 @@ export function ExchangeRateCard({ brief }) {
       </p>
 
       <div className="mt-3 h-24 w-full md:hidden xl:block">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#e5283b" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="#e5283b" stopOpacity={0.01} />
-              </linearGradient>
-            </defs>
-            <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
-            <Area
-              type="monotone"
-              dataKey="v"
-              stroke="#e5283b"
-              strokeWidth={2.5}
-              fill="url(#rateGradient)"
-              isAnimationActive
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {showChart && (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#e5283b" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#e5283b" stopOpacity={0.01} />
+                </linearGradient>
+              </defs>
+              <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
+              <Area
+                type="monotone"
+                dataKey="v"
+                stroke="#e5283b"
+                strokeWidth={2.5}
+                fill="url(#rateGradient)"
+                isAnimationActive
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="mt-3 hidden h-24 w-full items-end justify-between px-2 md:flex xl:hidden">

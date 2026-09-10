@@ -18,27 +18,21 @@ import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const dashboardCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000;
-
-if (supabase) {
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === "SIGNED_OUT") {
-      dashboardCache.clear();
-    }
-  });
-}
-
-function getCachedData(key) {
-  const cached = dashboardCache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
+// Client-side defensive cap. The server also applies the same slice via
+// sliceForPlan, but a stale response or a plan-drift edge case must never
+// leak full data to a free user.
+function capForPlan(plan, alerts = [], tips = []) {
+  if (plan !== "free") {
+    return { alerts, tips, lockedAlerts: 0, lockedTips: 0 };
   }
-  return null;
-}
-
-function setCachedData(key, data) {
-  dashboardCache.set(key, { data, timestamp: Date.now() });
+  const visibleAlerts = Math.min(2, alerts.length);
+  const visibleTips = Math.min(3, tips.length);
+  return {
+    alerts: alerts.slice(0, Math.max(2, visibleAlerts)),
+    tips: tips.slice(0, Math.max(3, visibleTips)),
+    lockedAlerts: Math.max(0, alerts.length - Math.max(2, visibleAlerts)),
+    lockedTips: Math.max(0, tips.length - Math.max(3, visibleTips)),
+  };
 }
 
 async function getAuthHeaders() {
@@ -55,6 +49,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "Bali";
   const refresh = searchParams.get("refresh") === "1";
+  const cachedOnly = searchParams.get("cached_only") === "1";
   const router = useRouter();
 
   const [alerts, setAlerts] = useState([]);
@@ -74,6 +69,9 @@ function DashboardContent() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
+  const [searchesLeft, setSearchesLeft] = useState(null);
+  const [searchLimit, setSearchLimit] = useState(null);
+  const [noData, setNoData] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("billing") !== "success") return;
@@ -128,27 +126,52 @@ function DashboardContent() {
         { headers, cache: "no-store" },
       );
 
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        if (data.limitReached) {
+          setShowUpgradeModal(true);
+          setSearchesLeft(0);
+        }
+        return;
+      }
+
       if (res.ok) {
         const bData = await res.json();
-        setAlerts(bData.alerts || []);
-        setTips(bData.tips || []);
-        setLockedAlerts(bData.lockedAlerts || 0);
-        setLockedTips(bData.lockedTips || 0);
-        setPlan(bData.plan || "free");
+        const effectivePlan = bData.plan || "free";
+        const capped = capForPlan(
+          effectivePlan,
+          bData.alerts || [],
+          bData.tips || [],
+        );
+
+        setAlerts(capped.alerts);
+        setTips(capped.tips);
+        setLockedAlerts(
+          bData.lockedAlerts != null ? bData.lockedAlerts : capped.lockedAlerts,
+        );
+        setLockedTips(
+          bData.lockedTips != null ? bData.lockedTips : capped.lockedTips,
+        );
+        setPlan(effectivePlan);
         setSource(bData.source || "live");
+        setNoData(Boolean(bData.noData));
         if (bData.safety) setSafety(String(bData.safety));
+        if (bData.searchesLeft !== undefined) setSearchesLeft(bData.searchesLeft);
+        if (bData.searchLimit !== undefined) setSearchLimit(bData.searchLimit);
 
         if (bData.refreshBlocked) {
           setRefreshNotice(bData.refreshBlockedReason || "Refresh blocked.");
-        } else if (bData.freshRemaining != null) {
+        } else if (bData.searchesLeft != null && bData.searchesLeft > 0) {
           setRefreshNotice(
-            `Live refresh complete · ${bData.freshRemaining} fresh ${
-              bData.freshRemaining === 1 ? "search" : "searches"
-            } remaining today`,
+            `${bData.searchesLeft} of ${bData.searchLimit} free ${
+              bData.searchesLeft === 1 ? "search" : "searches"
+            } remaining this month`,
+          );
+        } else if (bData.searchesLeft === 0) {
+          setRefreshNotice(
+            "That was your last free search this month. Upgrade for unlimited access.",
           );
         }
-
-        setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
       }
     } catch (err) {
       console.error("Refresh failed:", err);
@@ -160,42 +183,32 @@ function DashboardContent() {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const requestedCity = city.trim().toLowerCase();
 
     async function loadBriefing() {
-      const cacheKey = `briefing:${requestedCity}`;
-      const cached = getCachedData(cacheKey);
-      if (cached && !refresh) {
-        if (cancelled) return;
-        setAlerts(cached.alerts || []);
-        setTips(cached.tips || []);
-        setSource(cached.source || "");
-        setPlan(cached.plan || "free");
-        setLockedAlerts(cached.lockedAlerts || 0);
-        setLockedTips(cached.lockedTips || 0);
-        setSafety(cached.safety || null);
-        if (cached.refreshBlocked) {
-          setRefreshNotice(cached.refreshBlockedReason || "");
-        }
-        return;
-      }
-
+      // Reset ALL per-city state up front. Without this, the previous city's
+      // data remains visible while the new request is in flight — and forever
+      // if the new request fails, is aborted, or times out.
       setLoading(true);
       setError("");
+      setRefreshNotice("");
       setAlerts([]);
       setTips([]);
-      setSource("");
       setSafety(null);
-      setRefreshNotice("");
+      setSource("");
+      setNoData(false);
 
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(
-          "/api/briefing?city=" +
-            encodeURIComponent(city) +
-            (refresh ? "&refresh=1" : ""),
-          { cache: "no-store", headers, signal: controller.signal },
-        );
+        const params = new URLSearchParams();
+        params.set("city", city);
+        if (refresh) params.set("refresh", "1");
+        if (cachedOnly) params.set("cached_only", "1");
+
+        const res = await fetch("/api/briefing?" + params.toString(), {
+          cache: "no-store",
+          headers,
+          signal: controller.signal,
+        });
 
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
@@ -205,13 +218,34 @@ function DashboardContent() {
         const data = await res.json();
         if (cancelled) return;
 
-        setAlerts(data.alerts || []);
-        setTips(data.tips || []);
+        if (res.status === 403 && data.limitReached) {
+          setSearchesLeft(0);
+          setShowUpgradeModal(true);
+          setError("");
+          return;
+        }
+
+        const effectivePlan = data.plan || "free";
+        const capped = capForPlan(
+          effectivePlan,
+          data.alerts || [],
+          data.tips || [],
+        );
+
+        setAlerts(capped.alerts);
+        setTips(capped.tips);
+        setLockedAlerts(
+          data.lockedAlerts != null ? data.lockedAlerts : capped.lockedAlerts,
+        );
+        setLockedTips(
+          data.lockedTips != null ? data.lockedTips : capped.lockedTips,
+        );
         setSource(data.source || "");
-        setPlan(data.plan || "free");
-        setLockedAlerts(data.lockedAlerts || 0);
-        setLockedTips(data.lockedTips || 0);
+        setPlan(effectivePlan);
         setSafety(data.safety || null);
+        setNoData(Boolean(data.noData));
+        if (data.searchesLeft !== undefined) setSearchesLeft(data.searchesLeft);
+        if (data.searchLimit !== undefined) setSearchLimit(data.searchLimit);
 
         if (data.limitReached) {
           setShowUpgradeModal(true);
@@ -222,17 +256,10 @@ function DashboardContent() {
 
         if (data.refreshBlocked) {
           setRefreshNotice(data.refreshBlockedReason || "");
-        } else if (refresh && data.freshRemaining != null) {
-          setRefreshNotice(
-            `Live refresh complete · ${data.freshRemaining} fresh ${
-              data.freshRemaining === 1 ? "search" : "searches"
-            } remaining today`,
-          );
         }
-
-        setCachedData(cacheKey, data);
       } catch (err) {
         if (!cancelled && err?.name !== "AbortError") {
+          console.error("Briefing load failed:", err);
           setError("Could not load this destination");
         }
       } finally {
@@ -251,24 +278,19 @@ function DashboardContent() {
       cancelled = true;
       controller.abort();
     };
-  }, [city, refresh, router, searchParams]);
+  }, [city, refresh, cachedOnly, router, searchParams]);
 
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const requestedCity = city.trim().toLowerCase();
 
     async function loadCityBrief() {
-      const cacheKey = `citybrief:${requestedCity}`;
-      const cached = getCachedData(cacheKey);
-      if (cached) {
-        if (cancelled) return;
-        setBrief(cached);
-        setBriefCity(city);
-        return;
-      }
-
+      // Reset the previous brief up front so the header never displays the
+      // previous city's weather/locale while the new request is loading.
+      setBrief(null);
+      setBriefCity("");
       setBriefLoading(true);
+
       try {
         const headers = await getAuthHeaders();
         const briefRes = await fetch(
@@ -281,7 +303,6 @@ function DashboardContent() {
           if (!cancelled) {
             setBrief(briefData);
             setBriefCity(city);
-            setCachedData(cacheKey, briefData);
           }
         }
       } catch (err) {
@@ -301,11 +322,19 @@ function DashboardContent() {
   }, [city]);
 
   const activeBrief = briefCity === city ? brief : null;
+  const searchLocked =
+    plan === "free" && searchesLeft !== null && searchesLeft <= 0;
+  const refreshLocked = searchLocked;
 
   return (
     <RequireAuth>
       <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
-        <Topbar key={city} city={city} brief={activeBrief} />
+        <Topbar
+          key={city}
+          city={city}
+          brief={activeBrief}
+          searchLocked={searchLocked}
+        />
 
         <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
           <DestinationChips active={city} />
@@ -314,9 +343,11 @@ function DashboardContent() {
             <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
               {source === "cache"
                 ? "Cached briefing"
-                : source === "seed"
-                  ? "Pre-loaded preview · Click Refresh for live reports"
-                  : "Live intelligence"}
+                : source === "empty"
+                  ? "No intel yet for this destination"
+                  : source === "seed"
+                    ? "Pre-loaded preview"
+                    : "Live intelligence"}
             </p>
           )}
 
@@ -340,10 +371,9 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={alerts}
                 safety={safety}
-                onRefresh={handleRefresh}
-                refreshing={refreshing}
               />
               <IntelTabs
+                key={city}
                 city={city}
                 alerts={alerts}
                 tips={tips}
@@ -351,7 +381,11 @@ function DashboardContent() {
                 plan={plan}
                 lockedAlerts={lockedAlerts}
                 lockedTips={lockedTips}
+                noData={noData}
                 onUpgrade={() => setShowUpgradeModal(true)}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                refreshLocked={refreshLocked}
               />
             </div>
 
@@ -374,10 +408,9 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={alerts}
                 safety={safety}
-                onRefresh={handleRefresh}
-                refreshing={refreshing}
               />
               <IntelTabs
+                key={city}
                 city={city}
                 alerts={alerts}
                 tips={tips}
@@ -385,7 +418,11 @@ function DashboardContent() {
                 plan={plan}
                 lockedAlerts={lockedAlerts}
                 lockedTips={lockedTips}
+                noData={noData}
                 onUpgrade={() => setShowUpgradeModal(true)}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                refreshLocked={refreshLocked}
               />
             </div>
 
@@ -404,8 +441,6 @@ function DashboardContent() {
               brief={activeBrief}
               alerts={alerts}
               safety={safety}
-              onRefresh={handleRefresh}
-              refreshing={refreshing}
             />
 
             <Weather7DayCard brief={activeBrief} />
@@ -418,6 +453,7 @@ function DashboardContent() {
             <ExchangeRateCard brief={activeBrief} />
 
             <IntelTabs
+              key={city}
               city={city}
               alerts={alerts}
               tips={tips}
@@ -425,7 +461,11 @@ function DashboardContent() {
               plan={plan}
               lockedAlerts={lockedAlerts}
               lockedTips={lockedTips}
+              noData={noData}
               onUpgrade={() => setShowUpgradeModal(true)}
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
+              refreshLocked={refreshLocked}
             />
           </div>
         </div>

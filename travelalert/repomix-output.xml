@@ -935,7 +935,6 @@ export async function GET(request) {
     const state = await getBillingState(user.id);
     return Response.json({
       subscription: publicSubscription(state),
-      destinationPacks: state.destinationPacks,
     });
   } catch (error) {
     console.error("[BillingSubscription]", error);
@@ -1206,8 +1205,8 @@ async function handlePayment(eventType, data, occurredAt, admin) {
     entitlementType = "trip_pass";
     expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   } else {
-    // Unknown product (maybe an old event, or a Destination Pack that is no
-    // longer sold) — log and move on.
+    // Unknown product (maybe an old event, or a product we no longer sell) —
+    // log and move on.
     console.info("[Webhook] payment for unrecognized product, ignoring");
     return;
   }
@@ -1218,7 +1217,6 @@ async function handlePayment(eventType, data, occurredAt, admin) {
   const row = {
     user_id: userId,
     entitlement_type: entitlementType,
-    destination_key: null,
     dodo_payment_id: paymentId,
     dodo_customer_id: pickCustomerId(data),
     product_id: productId,
@@ -1247,17 +1245,67 @@ import { adminDb } from "@/lib/supabase-admin";
 import { fillIntel } from "@/lib/seed-intel";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
-// Apify's synchronous actor can take around 80 seconds on a cold start.
 export const maxDuration = 180;
+
+const FREE_SEARCH_LIMIT = 3;
 
 function monthKey() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-// Rate limiting map: tracks [userId_city] -> lastRefreshTimestamp
 const refreshCooldowns = new Map();
-const COOLDOWN_MS = 3 * 60 * 1000; // 3-minute cooldown between forced live scrapes
+const COOLDOWN_MS = 3 * 60 * 1000;
+
+const inFlightPipelines = new Map();
+
+function evictOldest(map, count) {
+  const iter = map.keys();
+  for (let i = 0; i < count; i++) {
+    const k = iter.next().value;
+    if (k === undefined) break;
+    map.delete(k);
+  }
+}
+
+async function runPipelineOnce(city) {
+  const key = city.toLowerCase();
+  const existing = inFlightPipelines.get(key);
+  if (existing) {
+    console.info(`[Briefing] Joining in-flight pipeline for ${city}`);
+    return existing;
+  }
+  console.info(`[Briefing] Starting pipeline for ${city}`);
+  const promise = organizeCity(city).finally(() => {
+    inFlightPipelines.delete(key);
+  });
+  inFlightPipelines.set(key, promise);
+  return promise;
+}
+
+function cachePayload(city, cached) {
+  return {
+    city,
+    alerts: cached.alerts,
+    tips: cached.tips,
+    source: "cache",
+    fetchedAt: cached.fetchedAt || null,
+    error: null,
+  };
+}
+
+function seedPayload(city, extras = {}) {
+  const filled = fillIntel(city, [], []);
+  return {
+    city,
+    alerts: filled.alerts,
+    tips: filled.tips,
+    source: "seed",
+    fetchedAt: null,
+    error: null,
+    ...extras,
+  };
+}
 
 export async function GET(request) {
   const profile = await getRequestProfile(request);
@@ -1267,14 +1315,13 @@ export async function GET(request) {
 
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
-  let forceRefresh = url.searchParams.get("refresh") === "1";
+  const isRefresh = url.searchParams.get("refresh") === "1";
+  // cached_only=1 → never run the pipeline. Chips use this flag to browse
+  // any destination without consuming quota or hitting the live API.
+  const cachedOnly = url.searchParams.get("cached_only") === "1";
 
-  // 1. Resolve and normalize city name FIRST
   let city = resolveCity(rawCity);
-  if (!city) {
-    city = normalizeCity(rawCity);
-  }
-
+  if (!city) city = normalizeCity(rawCity);
   if (!city) {
     return Response.json(
       {
@@ -1287,159 +1334,254 @@ export async function GET(request) {
     );
   }
 
-  // 2. Billing state — needed for both the Pro refresh gate AND the plan slice.
-  //    Compute this BEFORE the rate-limit block so we can gate force-refresh.
-  let billingState = {
-    subscription: null,
-    tripPass: null,
-    destinationPacks: [],
-  };
+  let billingState = { subscription: null, tripPass: null };
   try {
     billingState = await getBillingState(profile.user.id);
   } catch (err) {
-    // Billing must never take the dashboard down — fall back to free plan.
     console.error("billing state failed:", err?.message || err);
   }
-  const hasAccess = hasBillingAccess(billingState, city);
+  const hasAccess = hasBillingAccess(billingState);
   const effectivePlan = hasAccess
     ? billingState.subscription?.plan_key === "annual"
       ? "annual"
       : billingState.tripPass
         ? "trip_pass"
-        : "destination_pack"
+        : "free"
     : "free";
 
-  // 3. Pro gate: force-refresh is a paid capability.
-  //    Free users always get the cache, regardless of what they request.
-  if (forceRefresh && !hasAccess) {
-    console.info(
-      `[Briefing] Free user force-refresh blocked (user=${profile.user.id}, city=${city}). Serving cache.`,
-    );
-    forceRefresh = false;
-  }
+  const month = monthKey();
+  const monthMatches = profile.search_month === month;
+  let usedSearches = monthMatches ? Number(profile.search_count) || 0 : 0;
+  let visitedCities = monthMatches ? profile.searched_cities || [] : [];
+  const cityId = city.toLowerCase();
+  const alreadyVisited = visitedCities.includes(cityId);
 
-  // 4. DEFENSIVE RATE LIMIT: Prevent API abuse.
-  //    Only paid users reach here because force-refresh was gated above.
-  if (forceRefresh) {
-    const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
+  const cached = await getFreshCache(city);
+  const cacheUsable =
+    cached &&
+    (cached.alerts || []).length >= 4 &&
+    (cached.tips || []).length >= 3;
+
+  console.info("briefing.request", {
+    city,
+    isRefresh,
+    cachedOnly,
+    hasAccess,
+    usedSearches,
+    alreadyVisited,
+    cache: cacheUsable ? "hit" : "miss",
+  });
+
+  let payload;
+  let blockReason = null;
+  let quotaConsumed = false;
+
+  if (cachedOnly) {
+    // Pure browse — never runs the pipeline, never touches the quota,
+    // never returns 403. Serves cache if available, seed otherwise.
+    console.info("briefing.source", {
+      city,
+      source: cacheUsable ? "cache-chip" : "seed-chip",
+    });
+    payload = cacheUsable
+      ? cachePayload(city, cached)
+      : seedPayload(city);
+  } else if (cacheUsable && !isRefresh) {
+    console.info("briefing.source", { city, source: "cache" });
+    payload = cachePayload(city, cached);
+  } else if (!hasAccess && usedSearches >= FREE_SEARCH_LIMIT) {
+    // Free user at limit, no cached_only → this is either a refresh or a
+    // genuinely new search. Both are blocked.
+    if (isRefresh) {
+      console.info("briefing.source", {
+        city,
+        source: cacheUsable ? "cache-refresh-blocked" : "seed-refresh-blocked",
+      });
+      payload = cacheUsable
+        ? cachePayload(city, cached)
+        : seedPayload(city);
+      blockReason =
+        "You've used all 3 free searches. Upgrade to Trip Pass or Annual for unlimited refreshes.";
+    } else if (alreadyVisited) {
+      console.info("briefing.source", { city, source: "seed-revisit" });
+      payload = seedPayload(city);
+    } else {
+      console.info("briefing.limit_reached", { city, usedSearches });
+      return Response.json(
+        {
+          error:
+            "You've used all 3 free searches this month. Upgrade to Trip Pass or Annual for unlimited access.",
+          limitReached: true,
+          searchesLeft: 0,
+          plan: "free",
+          alerts: [],
+          tips: [],
+          lockedAlerts: 12,
+          lockedTips: 10,
+          visitedCities,
+        },
+        { status: 403 },
+      );
+    }
+  } else if (!hasAccess && !cacheUsable && !isRefresh) {
+    // Free user, cold-load of a new city → this IS the "search" action.
+    const rateKey = `${profile.user.id}_${cityId}`;
     const lastRefresh = refreshCooldowns.get(rateKey) || 0;
     const now = Date.now();
-
-    if (now - lastRefresh < COOLDOWN_MS) {
-      console.warn(
-        `[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`,
-      );
-      forceRefresh = false;
+    if (now - lastRefresh < COOLDOWN_MS && !alreadyVisited) {
+      payload = seedPayload(city);
     } else {
       refreshCooldowns.set(rateKey, now);
-      if (refreshCooldowns.size > 2000) {
-        // Bounded eviction (FIX 9) — never wipe the whole map on overflow.
-        const toRemove = Math.floor(refreshCooldowns.size * 0.2);
-        const iter = refreshCooldowns.keys();
-        for (let i = 0; i < toRemove; i++) {
-          const k = iter.next().value;
-          if (k === undefined) break;
-          refreshCooldowns.delete(k);
+      if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
+
+      let org;
+      try {
+        org = await runPipelineOnce(city);
+      } catch (err) {
+        console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+        org = { alerts: [], tips: [], source: "seed", error: err.message };
+      }
+
+      if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+        payload = {
+          city,
+          alerts: org.alerts,
+          tips: org.tips,
+          source: org.source || "live",
+          fetchedAt: new Date().toISOString(),
+          error: org.error,
+        };
+        if (payload.source !== "seed") {
+          await saveCache(city, payload);
+        }
+      } else {
+        const filled = fillIntel(city, org.alerts || [], org.tips || []);
+        payload = {
+          city,
+          alerts: filled.alerts,
+          tips: filled.tips,
+          source: "seed",
+          fetchedAt: new Date().toISOString(),
+          error: org.error || null,
+        };
+      }
+
+      usedSearches += 1;
+      quotaConsumed = true;
+      if (!alreadyVisited) visitedCities = [...visitedCities, cityId];
+    }
+  } else {
+    // Refresh path.
+    if (!hasAccess) {
+      const rateKey = `${profile.user.id}_${cityId}`;
+      const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+      const now = Date.now();
+      if (now - lastRefresh < COOLDOWN_MS) {
+        console.warn(
+          `[AntiSpam] Cooldown active for ${profile.user.id} on ${city}.`,
+        );
+        payload = cacheUsable
+          ? cachePayload(city, cached)
+          : seedPayload(city);
+        blockReason =
+          "Just refreshed. Please wait a few minutes before refreshing again.";
+      } else {
+        refreshCooldowns.set(rateKey, now);
+        if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
+
+        let org;
+        try {
+          org = await runPipelineOnce(city);
+        } catch (err) {
+          console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+          org = { alerts: [], tips: [], source: "seed", error: err.message };
+        }
+
+        if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+          payload = {
+            city,
+            alerts: org.alerts,
+            tips: org.tips,
+            source: org.source || "live",
+            fetchedAt: new Date().toISOString(),
+            error: org.error,
+          };
+          if (payload.source !== "seed") {
+            await saveCache(city, payload);
+          }
+        } else {
+          const filled = fillIntel(city, org.alerts || [], org.tips || []);
+          payload = {
+            city,
+            alerts: filled.alerts,
+            tips: filled.tips,
+            source: "seed",
+            fetchedAt: new Date().toISOString(),
+            error: org.error || null,
+          };
+        }
+
+        usedSearches += 1;
+        quotaConsumed = true;
+        if (!alreadyVisited) visitedCities = [...visitedCities, cityId];
+      }
+    } else {
+      // Paid user refresh → cooldown only, no counter.
+      const rateKey = `${profile.user.id}_${cityId}`;
+      const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+      const now = Date.now();
+      if (now - lastRefresh < COOLDOWN_MS) {
+        payload = cacheUsable
+          ? cachePayload(city, cached)
+          : seedPayload(city);
+        blockReason =
+          "Just refreshed. Please wait a few minutes before refreshing again.";
+      } else {
+        refreshCooldowns.set(rateKey, now);
+        if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
+
+        let org;
+        try {
+          org = await runPipelineOnce(city);
+        } catch (err) {
+          console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+          org = { alerts: [], tips: [], source: "seed", error: err.message };
+        }
+
+        if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+          payload = {
+            city,
+            alerts: org.alerts,
+            tips: org.tips,
+            source: org.source || "live",
+            fetchedAt: new Date().toISOString(),
+            error: org.error,
+          };
+          if (payload.source !== "seed") {
+            await saveCache(city, payload);
+          }
+        } else {
+          const filled = fillIntel(city, org.alerts || [], org.tips || []);
+          payload = {
+            city,
+            alerts: filled.alerts,
+            tips: filled.tips,
+            source: "seed",
+            fetchedAt: new Date().toISOString(),
+            error: org.error || null,
+          };
         }
       }
     }
   }
 
-  // 5. Free-tier monthly limit: 3 distinct cities per calendar month.
-  const month = monthKey();
-  const searched =
-    profile.search_month === month ? profile.searched_cities || [] : [];
-  const cityId = city.toLowerCase();
-  const alreadyCounted = searched.includes(cityId);
-  const nextSearched = alreadyCounted ? searched : [...searched, cityId];
-  const distinctCount = nextSearched.length;
-
-  if (!hasAccess && !alreadyCounted && distinctCount > 3) {
-    return Response.json(
-      {
-        error:
-          "You have used all 3 free Explorer cities this month. Upgrade to Trip Pass or Annual.",
-        limitReached: true,
-        searchesLeft: 0,
-        plan: "free",
-        alerts: [],
-        tips: [],
-        lockedAlerts: 12,
-        lockedTips: 10,
-      },
-      { status: 403 },
-    );
-  }
-
-  let payload;
-  const cached = forceRefresh ? null : await getFreshCache(city);
-  console.info("briefing.request", {
-    city,
-    forceRefresh,
-    cache: cached ? "hit" : "miss",
-  });
-
-  // Try cache first if it has enough data
-  if (
-    cached &&
-    (cached.alerts || []).length >= 4 &&
-    (cached.tips || []).length >= 3
-  ) {
-    console.info("briefing.source", { city, source: "cache" });
-    payload = {
-      city,
-      alerts: cached.alerts,
-      tips: cached.tips,
-      source: "cache",
-      fetchedAt: cached.fetchedAt || null,
-    };
-  } else {
-    console.info("briefing.source", { city, source: "organize-live-pipeline" });
-    // Try to get live data from organizeCity (uses AI + Reddit)
-    const org = await organizeCity(city);
-
-    // If organizeCity returned enough data, use it
-    if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
-      payload = {
-        city,
-        alerts: org.alerts,
-        tips: org.tips,
-        source: org.source || "live",
-        fetchedAt: new Date().toISOString(),
-        error: org.error,
-      };
-      // Cache only real briefings — generic seed fallbacks must not stick in
-      // the 24h cache, or every search for that city would serve the same
-      // placeholder content even after live data becomes available.
-      // Cache any real live intelligence so next time it loads in 30ms
-      if (
-        payload.source !== "seed" &&
-        (payload.alerts?.length > 0 || payload.tips?.length > 0)
-      ) {
-        await saveCache(city, payload);
-      }
-    } else {
-      // Use city-specific seed data as fallback - fillIntel ensures we always
-      // have enough destination-specific alerts and tips.
-      const filled = fillIntel(city, org.alerts || [], org.tips || []);
-      payload = {
-        city,
-        alerts: filled.alerts,
-        tips: filled.tips,
-        source: "seed",
-        fetchedAt: new Date().toISOString(),
-        error: org.error || null,
-      };
-    }
-  }
-
-  if (!hasAccess) {
+  if (!hasAccess && quotaConsumed) {
     const { error: profileUpdateError } = await adminDb()
       .from("profiles")
       .update({
-        search_count: distinctCount,
+        search_count: usedSearches,
         search_month: month,
-        searched_cities: nextSearched,
+        searched_cities: visitedCities,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", profile.user.id);
@@ -1454,8 +1596,6 @@ export async function GET(request) {
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
 
-  // Destination-specific safety score: curated when available, otherwise
-  // estimated from the full high/medium signal mix in the payload.
   const curated = findKnownCity(payload.city) || findKnownCity(city);
   const safety = curated
     ? curated.safety
@@ -1472,7 +1612,13 @@ export async function GET(request) {
     error: payload.error,
     plan: effectivePlan,
     safety,
-    searchesLeft: hasAccess ? null : Math.max(0, 3 - distinctCount),
+    searchesLeft: hasAccess
+      ? null
+      : Math.max(0, FREE_SEARCH_LIMIT - usedSearches),
+    searchLimit: hasAccess ? null : FREE_SEARCH_LIMIT,
+    refreshBlocked: Boolean(blockReason),
+    refreshBlockedReason: blockReason,
+    visitedCities: hasAccess ? null : visitedCities,
   });
 }
 </file>
@@ -1953,10 +2099,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 const dashboardCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
-// Prevent cross-user cache leakage: drop every cached briefing when the
-// signed-in user changes (sign-out). The next sign-in on this browser then
-// starts with an empty cache and cannot read the previous user's plan,
-// locked-alert counts, or alerts.
 if (supabase) {
   supabase.auth.onAuthStateChange((event) => {
     if (event === "SIGNED_OUT") {
@@ -1991,6 +2133,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "Bali";
   const refresh = searchParams.get("refresh") === "1";
+  const cachedOnly = searchParams.get("cached_only") === "1";
   const router = useRouter();
 
   const [alerts, setAlerts] = useState([]);
@@ -2009,6 +2152,9 @@ function DashboardContent() {
     () => searchParams.get("upgrade") === "true",
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState("");
+  const [searchesLeft, setSearchesLeft] = useState(null);
+  const [searchLimit, setSearchLimit] = useState(null);
 
   useEffect(() => {
     if (searchParams.get("billing") !== "success") return;
@@ -2054,6 +2200,7 @@ function DashboardContent() {
   async function handleRefresh() {
     if (refreshing || loading) return;
     setRefreshing(true);
+    setRefreshNotice("");
 
     try {
       const headers = await getAuthHeaders();
@@ -2062,6 +2209,15 @@ function DashboardContent() {
         { headers, cache: "no-store" },
       );
 
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        if (data.limitReached) {
+          setShowUpgradeModal(true);
+          setSearchesLeft(0);
+        }
+        return;
+      }
+
       if (res.ok) {
         const bData = await res.json();
         setAlerts(bData.alerts || []);
@@ -2069,8 +2225,24 @@ function DashboardContent() {
         setLockedAlerts(bData.lockedAlerts || 0);
         setLockedTips(bData.lockedTips || 0);
         setPlan(bData.plan || "free");
-        setSource("live");
+        setSource(bData.source || "live");
         if (bData.safety) setSafety(String(bData.safety));
+        if (bData.searchesLeft !== undefined) setSearchesLeft(bData.searchesLeft);
+        if (bData.searchLimit !== undefined) setSearchLimit(bData.searchLimit);
+
+        if (bData.refreshBlocked) {
+          setRefreshNotice(bData.refreshBlockedReason || "Refresh blocked.");
+        } else if (bData.searchesLeft != null && bData.searchesLeft > 0) {
+          setRefreshNotice(
+            `${bData.searchesLeft} of ${bData.searchLimit} free ${
+              bData.searchesLeft === 1 ? "search" : "searches"
+            } remaining this month`,
+          );
+        } else if (bData.searchesLeft === 0) {
+          setRefreshNotice(
+            "That was your last free search this month. Upgrade for unlimited access.",
+          );
+        }
 
         setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
       }
@@ -2089,7 +2261,7 @@ function DashboardContent() {
     async function loadBriefing() {
       const cacheKey = `briefing:${requestedCity}`;
       const cached = getCachedData(cacheKey);
-      if (cached && !refresh) {
+      if (cached && !refresh && !cachedOnly) {
         if (cancelled) return;
         setAlerts(cached.alerts || []);
         setTips(cached.tips || []);
@@ -2098,24 +2270,30 @@ function DashboardContent() {
         setLockedAlerts(cached.lockedAlerts || 0);
         setLockedTips(cached.lockedTips || 0);
         setSafety(cached.safety || null);
+        if (cached.searchesLeft !== undefined) setSearchesLeft(cached.searchesLeft);
+        if (cached.searchLimit !== undefined) setSearchLimit(cached.searchLimit);
+        if (cached.refreshBlocked) {
+          setRefreshNotice(cached.refreshBlockedReason || "");
+        }
         return;
       }
 
       setLoading(true);
       setError("");
-      setAlerts([]);
-      setTips([]);
-      setSource("");
-      setSafety(null);
+      setRefreshNotice("");
 
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(
-          "/api/briefing?city=" +
-            encodeURIComponent(city) +
-            (refresh ? "&refresh=1" : ""),
-          { cache: "no-store", headers, signal: controller.signal },
-        );
+        const params = new URLSearchParams();
+        params.set("city", city);
+        if (refresh) params.set("refresh", "1");
+        if (cachedOnly) params.set("cached_only", "1");
+
+        const res = await fetch("/api/briefing?" + params.toString(), {
+          cache: "no-store",
+          headers,
+          signal: controller.signal,
+        });
 
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
@@ -2125,6 +2303,13 @@ function DashboardContent() {
         const data = await res.json();
         if (cancelled) return;
 
+        if (res.status === 403 && data.limitReached) {
+          setSearchesLeft(0);
+          setShowUpgradeModal(true);
+          setError("");
+          return;
+        }
+
         setAlerts(data.alerts || []);
         setTips(data.tips || []);
         setSource(data.source || "");
@@ -2132,12 +2317,18 @@ function DashboardContent() {
         setLockedAlerts(data.lockedAlerts || 0);
         setLockedTips(data.lockedTips || 0);
         setSafety(data.safety || null);
+        if (data.searchesLeft !== undefined) setSearchesLeft(data.searchesLeft);
+        if (data.searchLimit !== undefined) setSearchLimit(data.searchLimit);
 
         if (data.limitReached) {
           setShowUpgradeModal(true);
           setError("");
         } else if (data.error && !(data.alerts || []).length) {
           setError(data.error);
+        }
+
+        if (data.refreshBlocked) {
+          setRefreshNotice(data.refreshBlockedReason || "");
         }
 
         setCachedData(cacheKey, data);
@@ -2148,8 +2339,6 @@ function DashboardContent() {
       } finally {
         if (!cancelled) setLoading(false);
         if (!cancelled && refresh) {
-          // Strip ?refresh=1 so a reload, bookmark, or shared link does not
-          // keep forcing a fresh scrape. Preserve every other query param.
           const params = new URLSearchParams(searchParams.toString());
           params.delete("refresh");
           const qs = params.toString();
@@ -2163,7 +2352,7 @@ function DashboardContent() {
       cancelled = true;
       controller.abort();
     };
-  }, [city, refresh, router, searchParams]);
+  }, [city, refresh, cachedOnly, router, searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2213,14 +2402,32 @@ function DashboardContent() {
   }, [city]);
 
   const activeBrief = briefCity === city ? brief : null;
+  const searchLocked =
+    plan === "free" && searchesLeft !== null && searchesLeft <= 0;
+  const refreshLocked = searchLocked;
 
   return (
     <RequireAuth>
       <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
-        <Topbar key={city} city={city} brief={activeBrief} />
+        <Topbar
+          key={city}
+          city={city}
+          brief={activeBrief}
+          searchLocked={searchLocked}
+        />
 
         <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
           <DestinationChips active={city} />
+
+          {source && (
+            <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+              {source === "cache"
+                ? "Cached briefing"
+                : source === "seed"
+                  ? "Pre-loaded preview"
+                  : "Live intelligence"}
+            </p>
+          )}
 
           {error && (
             <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
@@ -2228,7 +2435,13 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* 1. DESKTOP 3-COLUMN LAYOUT */}
+          {refreshNotice && (
+            <p className="mt-3 rounded-xl border border-amber-300/50 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300">
+              {refreshNotice}
+            </p>
+          )}
+
+          {/* DESKTOP 3-COLUMN */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
             <div className="space-y-5">
               <DestinationHeader
@@ -2246,6 +2459,9 @@ function DashboardContent() {
                 lockedAlerts={lockedAlerts}
                 lockedTips={lockedTips}
                 onUpgrade={() => setShowUpgradeModal(true)}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                refreshLocked={refreshLocked}
               />
             </div>
 
@@ -2260,7 +2476,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 2. TABLET 2-COLUMN LAYOUT */}
+          {/* TABLET 2-COLUMN */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
             <div className="space-y-5">
               <DestinationHeader
@@ -2278,6 +2494,9 @@ function DashboardContent() {
                 lockedAlerts={lockedAlerts}
                 lockedTips={lockedTips}
                 onUpgrade={() => setShowUpgradeModal(true)}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                refreshLocked={refreshLocked}
               />
             </div>
 
@@ -2289,7 +2508,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 3. MOBILE STACKED LAYOUT */}
+          {/* MOBILE STACKED */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
@@ -2316,6 +2535,9 @@ function DashboardContent() {
               lockedAlerts={lockedAlerts}
               lockedTips={lockedTips}
               onUpgrade={() => setShowUpgradeModal(true)}
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
+              refreshLocked={refreshLocked}
             />
           </div>
         </div>
@@ -2350,16 +2572,18 @@ import Link from "next/link";
 
 export default function DisclaimerPage() {
   return (
-    <main className="container" style={{ maxWidth: 720, padding: "96px 20px 64px" }}>
-      <Link href="/" style={{ color: "#a6a6ad", fontSize: 14 }}>
+    <main className="mx-auto max-w-3xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8">
+      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
         ← Home
       </Link>
-      <h1>Disclaimer</h1>
-      <p>
+      <h1 className="mt-4 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
+        Disclaimer
+      </h1>
+      <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         TravelRadar summaries come from public traveler posts and an AI model.
         They are not a guarantee you will avoid crime, scams, or loss.
       </p>
-      <p>
+      <p className="mt-4 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         Always use official transport apps, bank ATMs, and your own judgment.
         We are not liable for money lost, missed trips, or injury.
       </p>
@@ -2458,15 +2682,18 @@ function LoginContent() {
     setMessage("");
     if (!supabase) return setError("Authentication is not configured.");
     setBusy(true);
-    const origin = window.location.origin;
-    const callback = new URL("/auth/callback", origin);
-    if (city) callback.searchParams.set("city", city);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: callback.toString() },
-    });
-    if (error) {
-      setError(error.message);
+    try {
+      const origin = window.location.origin;
+      const callback = new URL("/auth/callback", origin);
+      if (city) callback.searchParams.set("city", city);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: callback.toString() },
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error("[Auth] Google sign-in failed:", err);
+      setError(err?.message || "Google sign-in could not be started.");
       setBusy(false);
     }
   }
@@ -2474,17 +2701,54 @@ function LoginContent() {
   async function handleTwitterAuth() {
     setError("");
     setMessage("");
-    if (!supabase) return setError("Authentication is not configured.");
+    if (!supabase) {
+      setError("Authentication is not configured.");
+      return;
+    }
+
     setBusy(true);
-    const origin = window.location.origin;
-    const callback = new URL("/auth/callback", origin);
-    if (city) callback.searchParams.set("city", city);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "twitter",
-      options: { redirectTo: callback.toString() },
-    });
-    if (error) {
-      setError(error.message);
+    try {
+      const origin = window.location.origin;
+      const callback = new URL("/auth/callback", origin);
+      if (city) callback.searchParams.set("city", city);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "twitter",
+        options: {
+          redirectTo: callback.toString(),
+          // X's OAuth 2.0 requires these scopes to fetch the user's email and
+          // profile. Supabase requests them by default, but listing them here
+          // makes the intent explicit and matches X's developer portal config.
+          scopes: "users.read tweet.read",
+        },
+      });
+
+      if (error) {
+        // Most common errors from Supabase for this provider:
+        //   - "Unsupported provider: provider is not enabled"
+        //     → Twitter provider isn't turned on in Supabase Auth settings.
+        //   - "Invalid redirect URL" / "Redirect URL not allowed"
+        //     → the app's /auth/callback URL isn't in Supabase's Redirect URLs list.
+        console.error("[Auth] X sign-in failed:", error);
+        throw error;
+      }
+
+      // The browser client auto-redirects on success, so this only fires if
+      // Supabase returned a URL without redirecting (e.g., a fetch/SSR client
+      // was used by mistake). Falling back to manual navigation keeps the flow
+      // working instead of leaving the button stuck on "Working...".
+      if (data?.url && typeof window !== "undefined") {
+        window.location.assign(data.url);
+        return;
+      }
+
+      // If neither the SDK redirect nor a manual fallback happened, reset and
+      // surface a clear message so the user is not stuck on a disabled button.
+      setBusy(false);
+      setError("X sign-in could not be started. Please try again.");
+    } catch (err) {
+      console.error("[Auth] X sign-in threw:", err);
+      setError(err?.message || "X sign-in could not be started.");
       setBusy(false);
     }
   }
@@ -2555,7 +2819,7 @@ function LoginContent() {
   return (
     <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col lg:grid lg:grid-cols-12">
-        
+
         {/* Left Hero Column (Desktop/Tablet) */}
         <div className="hidden flex-col justify-between p-8 sm:p-12 lg:col-span-6 lg:flex lg:p-16">
           {/* Logo */}
@@ -2585,7 +2849,7 @@ function LoginContent() {
         {/* Right Auth Column (Desktop & Mobile) */}
         <div className="flex flex-1 items-center justify-center p-6 sm:p-10 lg:col-span-6 lg:p-16">
           <div className="w-full max-w-[420px]">
-            
+
             {/* Header copy */}
             <div>
               <span className="font-mono text-xs font-bold uppercase tracking-widest text-[#e5283b] dark:text-[#f87171]">
@@ -2774,36 +3038,44 @@ import Link from "next/link";
 
 export default function PrivacyPage() {
   return (
-    <main className="container" style={{ maxWidth: 720, padding: "96px 20px 64px" }}>
-      <Link href="/" style={{ color: "#a6a6ad", fontSize: 14 }}>
+    <main className="mx-auto max-w-3xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8">
+      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
         ← Home
       </Link>
-      <h1 style={{ marginTop: 16, letterSpacing: "-0.03em" }}>Privacy Policy</h1>
-      <p>Last updated: September 5, 2026</p>
-      <p>
-        TravelRadar (“we”) provides destination safety briefings. This page
+      <h1 className="mt-4 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
+        Privacy Policy
+      </h1>
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Last updated: September 5, 2026</p>
+      <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        TravelRadar ("we") provides destination safety briefings. This page
         explains what we collect and why.
       </p>
-      <h2>What we collect</h2>
-      <ul>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">What we collect</h2>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         <li>Email and password when you create an account (handled by Supabase Auth).</li>
         <li>The city you search, so we can show the right briefing.</li>
-        <li>Access status for a Per-trip Pass, Annual plan, or Destination Pack after you pay.</li>
+        <li>Access status for a Trip Pass or Annual plan after you pay.</li>
         <li>Payment details are collected by Dodo Payments, not stored on our servers.</li>
       </ul>
-      <h2>How we use it</h2>
-      <ul>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">How we use it</h2>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         <li>To log you in and remember your plan.</li>
         <li>To generate and cache city briefings.</li>
         <li>To process upgrades.</li>
       </ul>
-      <h2>What we do not do</h2>
-      <ul>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">What we do not do</h2>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         <li>We do not sell your email list.</li>
         <li>We do not store card numbers.</li>
       </ul>
-      <h2>Contact</h2>
-      <p>Questions: use the email on your TravelRadar account.</p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Contact</h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Questions: use the email on your TravelRadar account.
+      </p>
     </main>
   );
 }
@@ -3261,7 +3533,7 @@ export default async function CityScamPage({ params }) {
         </nav>
       </div>
 
-      <header className="border-b border-zinc-200 bg-white"><div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-20 lg:px-8"><div className="max-w-4xl"><div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold tracking-[0.14em] text-emerald-700"><span className="size-1.5 rounded-full bg-emerald-500" />LIVE ADVISORY • VERIFIED FOR 2026</div><h1 className="mt-6 max-w-4xl text-4xl font-black tracking-[-0.04em] text-zinc-950 sm:text-6xl lg:text-7xl">{city.name} Tourist Scams <span className="text-zinc-400">&amp; Transit Traps</span></h1><p className="mt-6 max-w-2xl text-base leading-8 text-zinc-600 sm:text-lg">Active street-level scams, unmetered taxi routes, and temple touts verified by recent travelers. Stay informed before landing.</p><div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 border-t border-zinc-200 pt-5 text-xs font-semibold text-zinc-500 sm:text-sm"><span className="inline-flex items-center gap-2"><MapPin className="size-4 text-zinc-400" />{city.name}, {city.country}</span><span className="inline-flex items-center gap-2"><Clock3 className="size-4 text-zinc-400" />Updated: March 2026</span><span className="inline-flex items-center gap-2"><ShieldCheck className="size-4 text-emerald-600" />Risk Level: Moderate (Transit/Touts)</span></div></div></div></header>
+      <header className="border-b border-zinc-200 bg-white"><div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-20 lg:px-8"><div className="max-w-4xl"><div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold tracking-[0.14em] text-emerald-700"><span className="size-1.5 rounded-full bg-emerald-500" />LIVE ADVISORY • VERIFIED FOR 2026</div><h1 className="mt-6 max-w-4xl text-4xl font-black tracking-[-0.04em] text-zinc-950 sm:text-6xl lg:text-7xl">{city.name} Tourist Scams <span className="text-zinc-400">&amp; Transit Traps</span></h1><p className="mt-6 max-w-2xl text-base leading-8 text-zinc-600 sm:text-lg">Active street-level scams, unmetered taxi routes, and temple touts verified by recent travelers. Stay informed before landing.</p><div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 border-t border-zinc-200 pt-5 text-xs font-semibold text-zinc-500 sm:text-sm"><span className="inline-flex items-center gap-2"><MapPin className="size-4 text-zinc-400" />{city.name}, {city.country}</span><span className="inline-flex items-center gap-2"><Clock3 className="size-4 text-zinc-400" />Updated: {new Date().getFullYear()}</span><span className="inline-flex items-center gap-2"><ShieldCheck className="size-4 text-emerald-600" />Risk Level: Moderate (Transit/Touts)</span></div></div></div></header>
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-16 lg:px-8">
         <section aria-labelledby="free-alerts-heading"><div className="flex items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Field notes / open access</p><h2 id="free-alerts-heading" className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">The five alerts to know first</h2></div><span className="hidden text-sm font-semibold text-zinc-400 sm:block">01—05 / 12</span></div><div className="mt-7 grid gap-5 lg:grid-cols-2">{visibleAlerts.map((alert, index) => <article key={alert.title} className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_35px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(24,24,27,0.08)] sm:p-8"><div className="flex flex-wrap items-center justify-between gap-3"><span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[10px] font-bold tracking-[0.14em] text-zinc-500">{alert.category}</span><div className="flex items-center gap-2"><span className="text-xs font-bold text-zinc-400">0{index + 1}</span><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${severityClass(alert.severity)}`}>{alert.severity}</span></div></div><h3 className="mt-6 text-xl font-extrabold leading-tight tracking-tight text-zinc-950 sm:text-2xl">{alert.title}</h3><div className="mt-6"><p className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-400">The Trap</p><p className="mt-2 text-sm leading-7 text-zinc-600">{alert.description}</p></div><div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4"><p className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700"><span className="grid size-5 place-items-center rounded-full bg-emerald-600 text-white"><Check className="size-3" strokeWidth={3} /></span>How to Avoid</p><p className="mt-2 text-sm leading-7 text-emerald-950/75">{alert.prevention}</p></div></article>)}</div></section>
@@ -3279,28 +3551,6 @@ export default async function CityScamPage({ params }) {
 </file>
 
 <file path="src/app/scams/page.js">
-import Link from "next/link";
-
-export const metadata = {
-  title: "Tourist Scam Guides by City | TravelRadar",
-  description: "Verified tourist scam alerts and transit traps for popular destinations.",
-};
-
-export default function ScamsIndexPage() {
-  return (
-    <main className="min-h-svh bg-[#07070a] px-5 py-16 text-[#f3f3f2] sm:px-8">
-      <div className="mx-auto max-w-4xl">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#e5484a]">TravelRadar / Scam intelligence</p>
-        <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-6xl">Tourist scam guides by city.</h1>
-        <p className="mt-5 max-w-2xl text-lg text-[#a6a6ad]">Verified warnings and practical prevention advice before you land.</p>
-        <Link className="mt-10 inline-flex rounded-full bg-[#f3f3f2] px-6 py-3 font-semibold text-[#111]" href="/scams/bangkok">Read the Bangkok guide</Link>
-      </div>
-    </main>
-  );
-}
-</file>
-
-<file path="src/app/signup/page.js">
 import Link from "next/link";
 
 export const metadata = {
@@ -3333,47 +3583,76 @@ export default function ScamsIndexPage() {
 }
 </file>
 
+<file path="src/app/signup/page.js">
+import { redirect } from "next/navigation";
+
+export const metadata = {
+  title: "Create your account | TravelRadar",
+  description: "Sign up for TravelRadar and open your first destination briefing.",
+};
+
+export default async function SignupPage({ searchParams }) {
+  const resolved = (await searchParams) || {};
+  const city = resolved.city || "";
+  const destination = resolved.redirect || "/dashboard";
+
+  const params = new URLSearchParams({ mode: "signup" });
+  if (city) params.set("city", city);
+  if (destination.startsWith("/") && !destination.startsWith("//")) {
+    params.set("redirect", destination);
+  }
+
+  redirect(`/login?${params.toString()}`);
+}
+</file>
+
 <file path="src/app/terms/page.js">
 import Link from "next/link";
 
 export default function TermsPage() {
   return (
-    <main className="container" style={{ maxWidth: 720, padding: "96px 20px 64px" }}>
-      <Link href="/" style={{ color: "#a6a6ad", fontSize: 14 }}>
+    <main className="mx-auto max-w-3xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8">
+      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
         ← Home
       </Link>
-      <h1>Terms of Use</h1>
-      <p>Last updated: September 5, 2026</p>
-      <p>
+      <h1 className="mt-4 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
+        Terms of Use
+      </h1>
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Last updated: September 5, 2026</p>
+      <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         By using TravelRadar you agree to these terms. If you do not agree,
         do not use the product.
       </p>
-      <h2>What this product is</h2>
-      <p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">What this product is</h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         TravelRadar organizes traveler reports and model-generated briefings
         about common tourist risks. It is a research aid, not legal, safety,
         or insurance advice.
       </p>
-      <h2>Accounts</h2>
-      <p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Accounts</h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         You must provide a real email. Free accounts see a limited briefing.
-        Per-trip Passes provide full access for 30 days, Annual plans provide full
-        access while active, and Destination Packs provide permanent access only
-        to the destination purchased.
+        Trip Passes provide full access for 30 days, and Annual plans provide
+        full access while active.
       </p>
-      <h2>Payments</h2>
-      <p>
-        Dodo Payments processes checkout. The Annual plan is billed once each year
-        and can be cancelled before its next renewal. Per-trip Passes and
-        Destination Packs are one-time purchases and do not renew.
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Payments</h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Dodo Payments processes checkout. The Annual plan is billed once each
+        year and can be cancelled before its next renewal. Trip Passes are
+        one-time purchases and do not renew.
       </p>
-      <h2>Accuracy</h2>
-      <p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Accuracy</h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         Alerts can be incomplete, outdated, or wrong. You are responsible for
         your own decisions while traveling.
       </p>
-      <h2>Acceptable use</h2>
-      <p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Acceptable use</h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         Do not scrape, resell, or abuse the API. We may suspend accounts that
         do.
       </p>
@@ -3417,31 +3696,29 @@ export default function TermsPage() {
   --mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c0c0e;
-    --bg-soft: #141418;
-    --surface: #16161b;
-    --surface-inner: #16161b;
-    --surface-inner-2: #1c1c22;
-    --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.15);
-    --text: #f4f4f5;
-    --text-dim: #9ca3af;
-    --text-faint: #6b7280;
-    --accent: #e5283b;
-    --accent-soft: rgba(229, 72, 74, 0.18);
-    --accent-line: rgba(229, 72, 74, 0.45);
-    --safe: #3ecf8e;
-    --safe-soft: rgba(62, 207, 142, 0.14);
-    --safe-line: rgba(62, 207, 142, 0.35);
-    --warning: #f0a63d;
-    --warning-soft: rgba(240, 166, 61, 0.14);
-    --warning-line: rgba(240, 166, 61, 0.35);
-    --info: #5b9dee;
-    --info-soft: rgba(91, 157, 238, 0.14);
-    --info-line: rgba(91, 157, 238, 0.35);
-  }
+html.dark {
+  --bg: #0c0c0e;
+  --bg-soft: #141418;
+  --surface: #16161b;
+  --surface-inner: #16161b;
+  --surface-inner-2: #1c1c22;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --text: #f4f4f5;
+  --text-dim: #9ca3af;
+  --text-faint: #6b7280;
+  --accent: #e5283b;
+  --accent-soft: rgba(229, 72, 74, 0.18);
+  --accent-line: rgba(229, 72, 74, 0.45);
+  --safe: #3ecf8e;
+  --safe-soft: rgba(62, 207, 142, 0.14);
+  --safe-line: rgba(62, 207, 142, 0.35);
+  --warning: #f0a63d;
+  --warning-soft: rgba(240, 166, 61, 0.14);
+  --warning-line: rgba(240, 166, 61, 0.35);
+  --info: #5b9dee;
+  --info-soft: rgba(91, 157, 238, 0.14);
+  --info-line: rgba(91, 157, 238, 0.35);
 }
 
 html {
@@ -3659,34 +3936,130 @@ a {
   }
 }
 
-html:not(.dark) {
-  --bg: #f5f3ef;
-  --bg-soft: #ebe8e2;
-  --surface: rgba(28, 28, 32, 0.055);
-  --surface-inner: #ffffff;
-  --surface-inner-2: #f0ede7;
-  --border: rgba(28, 28, 32, 0.13);
-  --border-strong: rgba(28, 28, 32, 0.23);
-  --text: #17171b;
-  --text-dim: #5f6067;
-  --text-faint: #85858b;
-  --accent-soft: rgba(196, 48, 51, 0.12);
-  --accent-line: rgba(196, 48, 51, 0.45);
-  --accent-med: rgba(196, 48, 51, 0.7);
-  --warning-soft: rgba(180, 111, 20, 0.11);
-  --warning-line: rgba(180, 111, 20, 0.35);
-  --safe-soft: rgba(20, 131, 83, 0.11);
-  --safe-line: rgba(20, 131, 83, 0.35);
-  --info-soft: rgba(41, 105, 181, 0.11);
-  --info-line: rgba(41, 105, 181, 0.35);
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f3ef;
+    --bg-soft: #ebe8e2;
+    --surface: rgba(28, 28, 32, 0.055);
+    --surface-inner: #ffffff;
+    --surface-inner-2: #f0ede7;
+    --border: rgba(28, 28, 32, 0.13);
+    --border-strong: rgba(28, 28, 32, 0.23);
+    --text: #17171b;
+    --text-dim: #5f6067;
+    --text-faint: #85858b;
+    --accent-soft: rgba(196, 48, 51, 0.12);
+    --accent-line: rgba(196, 48, 51, 0.45);
+    --accent-med: rgba(196, 48, 51, 0.7);
+    --warning-soft: rgba(180, 111, 20, 0.11);
+    --warning-line: rgba(180, 111, 20, 0.35);
+    --safe-soft: rgba(20, 131, 83, 0.11);
+    --safe-line: rgba(20, 131, 83, 0.35);
+    --info-soft: rgba(41, 105, 181, 0.11);
+    --info-line: rgba(41, 105, 181, 0.35);
+  }
 
-  & body {
+  body {
     background-image:
       linear-gradient(rgba(28, 28, 32, 0.045) 1px, transparent 1px),
       linear-gradient(90deg, rgba(28, 28, 32, 0.045) 1px, transparent 1px),
       radial-gradient(circle at 50% -12%, rgba(229, 72, 74, 0.12), transparent 34rem),
       linear-gradient(180deg, #fbfaf8 0%, var(--bg) 42rem);
   }
+
+    & .grad {
+    background: linear-gradient(90deg, #17171b, #696a70);
+  }
+ & .btn-primary {
+    color: #fff;
+    background: #17171b;
+  }
+  & .btn-primary .icw {
+    background: rgba(255, 255, 255, 0.16);
+  }
+  & .nav-island {
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 12px 35px rgba(25, 25, 30, 0.1);
+  }
+  & .nav-links {
+    color: var(--text-dim);
+  }
+&  .nav-links.open {
+    background: rgba(255, 255, 255, 0.96);
+  }
+ &  .radar-core,
+  .blip .lbl,
+  .signal-chart-panel,
+  .command-dialog,
+  .coverage-pane,
+  .signal-feature {
+    background-color: rgba(255, 255, 255, 0.88);
+  }
+  & .radar-sweep {
+    opacity: 0.7;
+  }
+ &  .p-card.pop {
+    background:
+      linear-gradient(160deg, rgba(229, 72, 74, 0.13), transparent 62%),
+      #fff5f2;
+  }
+  .b-card,
+  .s-card,
+  .t-card,
+  .signal-rail,
+  .coverage-workspace,
+  .coverage-index,
+  .signal-board {
+    background-color: rgba(255, 255, 255, 0.62);
+  }
+  .signal-feature {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(229, 72, 74, 0.13), transparent 44%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.5) 48%),
+      #fff;
+  }
+  .coverage-pane {
+    background: #fff;
+  }
+  .coverage-index-item:hover,
+  .coverage-index-item.is-active,
+  .signal-rail-item:hover,
+  .signal-rail-item.is-active {
+    background: rgba(229, 72, 74, 0.08);
+  }
+  .command-overlay {
+    background: rgba(40, 38, 35, 0.3);
+  }
+  .command-item-hint,
+  .command-footer,
+  [cmdk-group-heading] {
+    color: var(--text-faint);
+  }
+  .search-bar {
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 12px 30px rgba(25, 25, 30, 0.08);
+  }
+  .s-avoid,
+  .signal-avoid {
+    background: rgba(20, 131, 83, 0.07);
+  }
+  .coverage-core {
+    background: radial-gradient(circle at 50% 35%, rgba(229, 72, 74, 0.16), transparent 62%), #fff;
+  }
+  .coverage-node {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 10px 22px rgba(25, 25, 30, 0.1);
+  }
+  .price-anchor {
+    background: rgba(255, 255, 255, 0.42);
+  }
+  .cta-panel {
+    background:
+      radial-gradient(circle at 50% 0%, rgba(229, 72, 74, 0.13), transparent 60%),
+      #fff;
+  }
+}
+
 /* ---------- Minimal application UI refinement ---------- */
 /*
  * Keep the existing application structure and palette, while making its
@@ -6273,7 +6646,9 @@ export function DestinationChips({ active }) {
               role="tab"
               aria-selected={isActive}
               onClick={() =>
-                router.push(`/dashboard?city=${encodeURIComponent(c.name)}`)
+                router.push(
+                  `/dashboard?city=${encodeURIComponent(c.name)}&cached_only=1`
+                )
               }
               className={`inline-flex h-9 shrink-0 select-none items-center gap-2 whitespace-nowrap rounded-full px-4 text-xs font-bold transition-all duration-150 ${
                 isActive
@@ -6300,7 +6675,7 @@ export function DestinationChips({ active }) {
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Clock, DollarSign, MapPin, Maximize2 } from "lucide-react";
+import { Check, Clock, DollarSign, MapPin } from "lucide-react";
 import { buildDestinationMeta } from "@/lib/dashboard-data";
 
 function tzMinutes(tz) {
@@ -6360,18 +6735,9 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
 
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#e5283b] via-[#dc2235] to-[#c7182a] p-6 text-white shadow-lg sm:p-7 dark:border dark:border-red-900/40 dark:from-[#4a1824] dark:via-[#3b121c] dark:to-[#280b13]">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-white/80 dark:text-rose-200/80">
-          SAFETY OVERVIEW
-        </span>
-        <button
-          type="button"
-          aria-label="Expand overview"
-          className="text-white/70 transition-colors hover:text-white"
-        >
-          <Maximize2 className="size-4" />
-        </button>
-      </div>
+      <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-white/80 dark:text-rose-200/80">
+        SAFETY OVERVIEW
+      </span>
 
       <div className="mt-5 flex items-center justify-between gap-4">
         <div className="space-y-1">
@@ -6423,7 +6789,7 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
+import { ChevronDown, ChevronRight, LockKeyhole, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 export function IntelTabs({
@@ -6435,6 +6801,9 @@ export function IntelTabs({
   lockedAlerts = 0,
   lockedTips = 0,
   onUpgrade,
+  onRefresh,
+  refreshing = false,
+  refreshLocked = false,
 }) {
   const [tab, setTab] = useState("alerts");
   const [expandedIndex, setExpandedIndex] = useState(null);
@@ -6481,23 +6850,48 @@ export function IntelTabs({
   const activeItems = tab === "alerts" ? alertList : tipList;
   const lockedCount = tab === "alerts" ? lockedAlerts : lockedTips;
 
+  function handleRefreshClick() {
+    if (refreshLocked) {
+      onUpgrade?.();
+      return;
+    }
+    onRefresh?.();
+  }
+
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-6 shadow-sm sm:p-7 dark:border-white/10 dark:bg-[#16161b]">
-      <div>
-        <div className="flex items-center gap-2">
-          <h3 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white">
-            Scam &amp; Insider Intel
-          </h3>
-          <div className="flex items-center gap-1.5">
-            <span className="live-dot" />
-            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-              Live scan
-            </span>
+      {/* Header with Refresh button — the button lives here so its scope is
+          visually obvious: it refreshes this card's intel only. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white">
+              Scam &amp; Insider Intel
+            </h3>
+            <div className="flex items-center gap-1.5">
+              <span className="live-dot" />
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                Live scan
+              </span>
+            </div>
           </div>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            AI-organized traveler report intelligence
+          </p>
         </div>
-        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-          AI-organized traveler report intelligence
-        </p>
+
+        <button
+          type="button"
+          onClick={handleRefreshClick}
+          disabled={refreshing}
+          aria-label={refreshLocked ? "Upgrade to refresh intel" : "Refresh intel"}
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-200/90 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-300 dark:hover:bg-white/5"
+        >
+          <RefreshCw
+            className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+          <span>{refreshing ? "Refreshing" : "Refresh"}</span>
+        </button>
       </div>
 
       <div className="mt-5 flex items-center gap-2.5">
@@ -6532,85 +6926,94 @@ export function IntelTabs({
         </button>
       </div>
 
-      <div className="mt-5 divide-y divide-zinc-100 dark:divide-white/5">
-        {activeItems.map((item, idx) => {
-          const isExpanded = expandedIndex === idx;
-          const isHigh =
-            (item.severity || "").toLowerCase() === "high" || idx === 0;
+      {/* Scrollable list. For Pro's larger datasets, content stays contained
+          and scrolls internally; Explorer's short list never scrolls. The
+          unlock CTA below stays pinned. */}
+      <div className="mt-5 max-h-[520px] overflow-y-auto pr-1">
+        <div className="divide-y divide-zinc-100 dark:divide-white/5">
+          {activeItems.map((item, idx) => {
+            const isExpanded = expandedIndex === idx;
+            const isHigh =
+              (item.severity || "").toLowerCase() === "high" || idx === 0;
 
-          return (
-            <div key={item.name + idx} className="py-3.5 first:pt-0">
-              <button
-                type="button"
-                onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                className="flex w-full items-start justify-between text-left"
-              >
-                <div className="min-w-0 flex-1 pr-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-zinc-900 dark:text-white">
-                      {item.name}
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
-                        isHigh
-                          ? "bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-400"
-                          : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-400"
-                      }`}
-                    >
-                      {isHigh ? "High" : "Medium"}
-                    </span>
+            return (
+              <div key={item.name + idx} className="py-3.5 first:pt-0">
+                <button
+                  type="button"
+                  onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                  className="flex w-full items-start justify-between text-left"
+                >
+                  <div className="min-w-0 flex-1 pr-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-bold text-zinc-900 dark:text-white">
+                        {item.name}
+                      </span>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                          isHigh
+                            ? "bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-400"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-400"
+                        }`}
+                      >
+                        {isHigh ? "High" : "Medium"}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                      {item.time || `${idx + 1}h ago`}
+                    </p>
                   </div>
-                  <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-                    {item.time || `${idx + 1}h ago`}
+                  {isExpanded ? (
+                    <ChevronDown className="size-4 shrink-0 text-zinc-400" />
+                  ) : (
+                    <ChevronRight className="size-4 shrink-0 text-zinc-400" />
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden pt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300"
+                    >
+                      <p>{item.description || item.desc}</p>
+                      {item.avoid && (
+                        <p className="mt-1.5 font-semibold text-[#10b981]">
+                          ✓ {item.avoid}
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+
+          {!hasAccess && (
+            <>
+              <div className="flex items-center justify-between py-3.5">
+                <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
+                  <p className="text-sm font-bold">
+                    Tour Guide Deposit Scam · Seminyak
                   </p>
+                  <p className="text-xs">4h ago</p>
                 </div>
-                {isExpanded ? (
-                  <ChevronDown className="size-4 shrink-0 text-zinc-400" />
-                ) : (
-                  <ChevronRight className="size-4 shrink-0 text-zinc-400" />
-                )}
-              </button>
-
-              <AnimatePresence>
-                {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden pt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300"
-                  >
-                    <p>{item.description || item.desc}</p>
-                    {item.avoid && (
-                      <p className="mt-1.5 font-semibold text-[#10b981]">
-                        ✓ {item.avoid}
-                      </p>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-
-        {!hasAccess && (
-          <>
-            <div className="flex items-center justify-between py-3.5">
-              <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
-                <p className="text-sm font-bold">Tour Guide Deposit Scam · Seminyak</p>
-                <p className="text-xs">4h ago</p>
+                <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
               </div>
-              <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
-            </div>
 
-            <div className="flex items-center justify-between py-3.5">
-              <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
-                <p className="text-sm font-bold">Counterfeit Fast Boat Tickets · Sanur</p>
-                <p className="text-xs">5h ago</p>
+              <div className="flex items-center justify-between py-3.5">
+                <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
+                  <p className="text-sm font-bold">
+                    Counterfeit Fast Boat Tickets · Sanur
+                  </p>
+                  <p className="text-xs">5h ago</p>
+                </div>
+                <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
               </div>
-              <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {!hasAccess && lockedCount > 0 && (
@@ -6689,7 +7092,7 @@ export function RequireAuth({ children }) {
 <file path="src/components/dashboard/Topbar.js">
 "use client";
 
-import { Search, Radar } from "lucide-react";
+import { Search, Radar, Lock } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -6712,7 +7115,7 @@ function flagToCode(flag) {
   return "";
 }
 
-export function Topbar({ city, brief }) {
+export function Topbar({ city, brief, searchLocked = false }) {
   const router = useRouter();
   const [searchCity, setSearchCity] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -6740,6 +7143,14 @@ export function Topbar({ city, brief }) {
   }, []);
 
   useEffect(() => {
+    if (searchLocked) {
+      const reset = setTimeout(() => {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }, 0);
+      return () => clearTimeout(reset);
+    }
+
     const trimmed = searchCity.trim();
     if (trimmed.length < 2) {
       const reset = setTimeout(() => {
@@ -6766,23 +7177,25 @@ export function Topbar({ city, brief }) {
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [searchCity]);
+  }, [searchCity, searchLocked]);
 
   function handleSearch(e) {
     e?.preventDefault();
+    if (searchLocked) return;
     const trimmed = searchCity.trim();
     if (!trimmed) return;
     setShowSuggestions(false);
     setMobileSearchOpen(false);
-    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}&refresh=1`);
+    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
   }
 
   function handleCitySelect(cityItem) {
+    if (searchLocked) return;
     setShowSuggestions(false);
     setSearchCity("");
     setMobileSearchOpen(false);
     router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}&refresh=1`
+      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}`
     );
   }
 
@@ -6816,6 +7229,10 @@ export function Topbar({ city, brief }) {
     ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
     : meta?.name || city;
 
+  const searchPlaceholder = searchLocked
+    ? "Free searches used — upgrade for more"
+    : "Search destinations...";
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
@@ -6841,11 +7258,20 @@ export function Topbar({ city, brief }) {
             <ThemeToggle />
             <button
               type="button"
-              onClick={() => setMobileSearchOpen((v) => !v)}
+              onClick={() => !searchLocked && setMobileSearchOpen((v) => !v)}
+              disabled={searchLocked}
               aria-label="Search destination"
-              className="flex size-8 items-center justify-center text-zinc-700 transition-colors hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
+              className={`flex size-8 items-center justify-center transition-colors ${
+                searchLocked
+                  ? "cursor-not-allowed text-zinc-300 dark:text-zinc-600"
+                  : "text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
+              }`}
             >
-              <Search className="size-4.5" />
+              {searchLocked ? (
+                <Lock className="size-4.5" />
+              ) : (
+                <Search className="size-4.5" />
+              )}
             </button>
             <button
               type="button"
@@ -6863,20 +7289,42 @@ export function Topbar({ city, brief }) {
           </div>
         </div>
 
-        {mobileSearchOpen && (
-          <form onSubmit={handleSearch} className="mt-2.5 md:hidden">
-            <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
-              <Search className="size-4 text-zinc-400" />
-              <input
-                type="text"
-                autoFocus
-                value={searchCity}
-                onChange={(e) => setSearchCity(e.target.value)}
-                placeholder="Search destinations..."
-                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
-              />
-            </div>
-          </form>
+        {mobileSearchOpen && !searchLocked && (
+          <div className="relative mt-2.5 md:hidden">
+            <form onSubmit={handleSearch}>
+              <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
+                <Search className="size-4 text-zinc-400" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={searchCity}
+                  onChange={(e) => setSearchCity(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+                />
+                {loading && (
+                  <div className="size-3.5 animate-spin rounded-full border border-red-500 border-t-transparent" />
+                )}
+              </div>
+            </form>
+
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#16161b]">
+                {suggestions.map((item, idx) => (
+                  <button
+                    key={`m-${item.name}-${idx}`}
+                    type="button"
+                    onMouseDown={() => handleCitySelect(item)}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-zinc-800 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-white/5"
+                  >
+                    <span>{item.flag || "🌍"}</span>
+                    <span className="font-semibold">{item.name}</span>
+                    <span className="text-zinc-400">· {item.country}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Sub-row for mobile-only: destination heading */}
@@ -6921,24 +7369,45 @@ export function Topbar({ city, brief }) {
           <div className="relative w-full max-w-md">
             <form
               onSubmit={handleSearch}
-              className="flex items-center gap-2.5 rounded-full border border-zinc-200/90 bg-white px-4 py-2 shadow-2xs transition-colors hover:border-zinc-300 dark:border-white/10 dark:bg-[#16161b]"
+              className={`flex items-center gap-2.5 rounded-full border px-4 py-2 shadow-2xs transition-colors ${
+                searchLocked
+                  ? "cursor-not-allowed border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5"
+                  : "border-zinc-200/90 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-[#16161b]"
+              }`}
             >
-              <Search className="size-4 text-zinc-400 dark:text-zinc-500" />
+              {searchLocked ? (
+                <Lock className="size-4 text-zinc-400 dark:text-zinc-500" />
+              ) : (
+                <Search className="size-4 text-zinc-400 dark:text-zinc-500" />
+              )}
               <input
                 type="text"
+                disabled={searchLocked}
                 value={searchCity}
                 onChange={(e) => setSearchCity(e.target.value)}
-                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                placeholder="Search destinations..."
-                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+                onFocus={() =>
+                  !searchLocked &&
+                  suggestions.length > 0 &&
+                  setShowSuggestions(true)
+                }
+                onBlur={() =>
+                  setTimeout(() => setShowSuggestions(false), 200)
+                }
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 disabled:cursor-not-allowed dark:text-white"
               />
-              {loading && (
+              {loading && !searchLocked && (
                 <div className="size-3.5 animate-spin rounded-full border border-red-500 border-t-transparent" />
               )}
             </form>
 
-            {showSuggestions && suggestions.length > 0 && (
+            {searchLocked && (
+              <p className="mt-1 text-center font-mono text-[10px] uppercase tracking-widest text-[#e5283b] dark:text-[#f87171]">
+                3 free searches used
+              </p>
+            )}
+
+            {!searchLocked && showSuggestions && suggestions.length > 0 && (
               <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#16161b]">
                 {suggestions.map((item, idx) => (
                   <button
@@ -11296,9 +11765,15 @@ const nextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-          { 
-            key: "Content-Security-Policy", 
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.apify.com;" 
+          {
+            key: "Content-Security-Policy",
+            value:
+              "default-src 'self'; " +
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'; " +
+              "style-src 'self' 'unsafe-inline'; " +
+              "img-src 'self' data: https:; " +
+              "font-src 'self' data:; " +
+              "connect-src 'self' https://*.supabase.co https://*.supabase.in;",
           },
         ],
       },
@@ -11334,7 +11809,6 @@ export default nextConfig;
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.10.1",
-    "shadcn": "^4.12.0",
     "standardwebhooks": "^1.1.1",
     "tailwind-merge": "^3.6.0",
     "tw-animate-css": "^1.4.0"

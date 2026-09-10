@@ -1,72 +1,132 @@
-const bangkokAlerts = [
-  {
-    title: 'The "Grand Palace is Closed" Gem Shop Loop',
-    category: "TEMPLE / SIGHTSEEING",
-    severity: "Common",
-    description:
-      "A friendly stranger near the Grand Palace may tell you the temple is closed and offer a cheap tuk-tuk tour instead. The driver takes you to commission-paying gem and souvenir shops, where high-pressure sales tactics and inflated prices do the real work.",
-    prevention:
-      "Ignore unsolicited closure claims, check the official entrance yourself, and use a metered taxi or a ride-hailing app. Do not enter a shop because a driver says it is government-approved or a once-a-year sale.",
-  },
-  {
-    title: "Suvarnabhumi & Don Mueang Airport Unmetered Taxi Trap",
-    category: "TRANSIT",
-    severity: "High Financial Risk",
-    description:
-      "Drivers waiting away from the official airport taxi queue may offer a fixed fare that sounds convenient, then add tolls, luggage charges, or an airport surcharge. Some refuse the meter altogether once you are on the road.",
-    prevention:
-      "Use the official airport taxi counter, insist on the meter before leaving, and keep small baht notes for tolls. Photograph the taxi number and use the airport rail link or a reputable ride-hailing pickup when practical.",
-  },
-  {
-    title: "The 20-Baht Tuk-Tuk Shopping Detour",
-    category: "TRANSIT",
-    severity: "Common",
-    description:
-      "An unusually cheap tuk-tuk ride is often subsidized by shops that pay the driver for each tourist visit. A short trip can turn into multiple tailor, gem, or souvenir stops, with pressure to buy before the driver takes you to your actual destination.",
-    prevention:
-      "Agree on the exact destination and price before boarding, decline all shopping stops, and treat a 20-baht all-day tour as a warning sign. For direct travel, compare the fare with BTS, MRT, or a metered taxi.",
-  },
-  {
-    title: "Chao Phraya Riverboat Pier / Tourist Boat Ticket Surcharge",
-    category: "TRANSIT",
-    severity: "High Financial Risk",
-    description:
-      "At busy river piers, unofficial sellers can steer visitors toward an expensive tourist boat or private charter while presenting it as the only available service. Tickets may be quoted per person, per stop, or with surprise fees after boarding.",
-    prevention:
-      "Use the official ticket booth, look for the public orange-flag boat signs, and confirm the route and total price in writing before paying. Never hand over your passport or board a private boat because a tout says the public service has stopped.",
-  },
-  {
-    title: 'Patpong / Nana Bar "Free Show" Drink Bill Extortion',
-    category: "NIGHTLIFE",
-    severity: "High Financial Risk",
-    description:
-      "Promoters invite visitors to a bar with promises of a free show or cheap drinks. Once seated, the menu may be withheld and the final bill can include expensive drinks, performances, and unexplained service charges, backed by intimidating staff.",
-    prevention:
-      "Do not follow street promoters into venues advertising a free show. If you enter, ask for a menu and total prices before ordering, keep your own tab, and leave immediately if staff refuse to show the bill. Contact tourist police if you are threatened.",
-  },
-  { title: "Jet Ski Damage Claim Extortion", category: "WATERFRONT", description: "Operators may claim that pre-existing damage appeared after you returned a jet ski and demand a large cash payment.", gated: true },
-  { title: 'Fake Police "Passport / Drug Check"', category: "STREET TACTICS", description: "A person posing as police may demand your passport, search your wallet, or threaten arrest unless you pay an on-the-spot fine.", gated: true },
-  { title: "Tailor Shop Suit Scam", category: "SHOPPING", description: "A fast-moving tailor pitch can lead to deposits for poor-quality suits, missed delivery promises, or goods that do not match the agreed fabric and measurements.", gated: true },
-  { title: "Spilled Bird Seed Scam at Temples", category: "TEMPLE / SIGHTSEEING", description: "Scammers create a distraction with birds or spilled seed, then demand payment for an unsolicited photo, feeding experience, or cleanup.", gated: true },
-  { title: "Rigged Muay Thai / Street Game Bets", category: "STREET TACTICS", description: "A staged game or match invitation can draw you into a betting scheme where planted participants win and pressure you to keep raising your stake.", gated: true },
-  { title: "Fake Floating Market Private Longtail Boat Shakedown", category: "TRANSIT", description: "A private boat offer may become an expensive, unplanned tour with extra pier, fuel, waiting, or return charges demanded at the end.", gated: true },
-  { title: "Hotel Booking Interception by Fake Tour Counters", category: "ACCOMMODATION", description: "A booth or caller may impersonate your hotel or booking service, claim your reservation is unavailable, and redirect you to a more expensive room or transfer.", gated: true },
-];
+// src/lib/scam-data.js
+//
+// SEO destination pages read from the same `destinations` cache table used by
+// the dashboard. This module adapts the cached alert shape
+// ({ name, severity, description, avoid }) to the shape the /scams pages
+// render ({ title, category, severity, description, prevention, gated }).
+//
+// No hardcoded city list — every entry is derived from the cache.
 
-export const scamCities = {
-  bangkok: {
-    slug: "bangkok",
-    name: "Bangkok",
-    country: "Thailand",
-    alerts: bangkokAlerts,
-    faqs: [
-      { question: "What are the most common tourist scams in Bangkok?", answer: "Common warnings include the Grand Palace closure story, unmetered airport taxis, cheap tuk-tuk shopping detours, riverboat ticket surcharges, and free-show drink bills." },
-      { question: "How can I avoid taxi scams in Bangkok?", answer: "Use the official airport taxi queue, insist on the meter, confirm the destination before departure, and use the BTS, MRT, or a reputable ride-hailing service when possible." },
-      { question: "Is Bangkok safe for tourists in 2026?", answer: "Bangkok is visited safely by millions of travelers, but visitors should use normal precautions, verify prices before paying, and leave any situation involving threats or coercion." },
-    ],
-  },
-};
+import { getCachedCity, listCachedCities } from "./cache.js";
+import { normalizeCity } from "./city.js";
 
-export function getScamCity(slug) {
-  return scamCities[String(slug || "").toLowerCase()];
+const VISIBLE_ALERT_COUNT = 5;
+
+function slugToCityName(slug) {
+  if (!slug || typeof slug !== "string") return "";
+  return normalizeCity(slug.replace(/-/g, " "));
+}
+
+function cityNameToSlug(name) {
+  return String(name || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function normalizeSeverity(s) {
+  const v = String(s || "").toLowerCase();
+  return v === "high" ? "High Financial Risk" : "Common";
+}
+
+function inferCategory(alert) {
+  const text = `${alert.name || alert.title || ""} ${alert.description || alert.desc || ""}`.toLowerCase();
+  if (/\b(atm|skim|card|bank|money|currency|exchange)\b/.test(text)) return "MONEY / ATM";
+  if (/\b(bar|night|club|drink|show)\b/.test(text)) return "NIGHTLIFE";
+  if (/\b(temple|palace|monk|shrine)\b/.test(text)) return "TEMPLE / SIGHTSEEING";
+  if (/\b(taxi|transport|meter|grab|tuk|boat|ferry|transit|ride)\b/.test(text)) return "TRANSIT";
+  if (/\b(hotel|hostel|accommodation|booking)\b/.test(text)) return "ACCOMMODATION";
+  if (/\b(shop|market|tailor|vendor|souvenir)\b/.test(text)) return "SHOPPING";
+  if (/\b(police|official|inspector)\b/.test(text)) return "STREET TACTICS";
+  if (/\b(restaurant|food|eat|meal)\b/.test(text)) return "FOOD & DINING";
+  return "TRAVEL SAFETY";
+}
+
+function toPageAlert(rawAlert, index) {
+  return {
+    title: rawAlert.name || rawAlert.title || "Travel alert",
+    category: inferCategory(rawAlert),
+    severity: normalizeSeverity(rawAlert.severity),
+    description: rawAlert.description || rawAlert.desc || "",
+    prevention: rawAlert.avoid || rawAlert.prevention || "",
+    gated: index >= VISIBLE_ALERT_COUNT,
+  };
+}
+
+function buildIntro(cityName, rawAlerts) {
+  const high = rawAlerts.filter((a) => String(a.severity || "").toLowerCase() === "high").length;
+  const medium = rawAlerts.filter((a) => String(a.severity || "").toLowerCase() === "medium").length;
+  const topNames = rawAlerts.slice(0, 2).map((a) => a.name).filter(Boolean);
+  const topPart =
+    topNames.length >= 2
+      ? `The two most reported patterns are ${topNames[0]} and ${topNames[1]}.`
+      : topNames.length === 1
+        ? `The most reported pattern is ${topNames[0]}.`
+        : "";
+  return `Travelers have flagged ${rawAlerts.length} active scam patterns in ${cityName} for 2026 — ${high} high-risk and ${medium} common. ${topPart} The prevention advice below is drawn from the actual reports.`;
+}
+
+function buildFaqs(cityName, rawAlerts) {
+  const topNames = rawAlerts.slice(0, 5).map((a) => a.name).filter(Boolean);
+  const topAvoids = rawAlerts.slice(0, 3).map((a) => a.avoid).filter(Boolean);
+  return [
+    {
+      question: `What are the most common tourist scams in ${cityName}?`,
+      answer:
+        topNames.length > 0
+          ? `Traveler reports most frequently mention: ${topNames.join("; ")}.`
+          : `Recent traveler reports flag several active scam patterns in ${cityName}.`,
+    },
+    {
+      question: `How can I avoid scams in ${cityName}?`,
+      answer:
+        topAvoids.length > 0
+          ? `Common prevention advice: ${topAvoids.join(" ")}`
+          : `Use official transport, verify prices before paying, and leave any situation involving threats or coercion.`,
+    },
+    {
+      question: `Is ${cityName} safe for tourists?`,
+      answer: `Millions of travelers visit ${cityName} safely each year. Use normal precautions — verified transport, known ATMs, no unsolicited tours. Leave any situation involving threats or coercion.`,
+    },
+  ];
+}
+
+/**
+ * Returns the SEO-shaped destination object for a slug, or null if the city
+ * has no cached data. The slug is expected in hyphenated URL form
+ * (e.g. "new-york") and is converted back to the cache key form ("new york").
+ */
+export async function getScamCity(slug) {
+  const cityName = slugToCityName(slug);
+  if (!cityName) return null;
+
+  const cached = await getCachedCity(cityName);
+  if (!cached?.data) return null;
+
+  const rawAlerts = cached.data.alerts || [];
+  const alerts = rawAlerts.map(toPageAlert);
+
+  return {
+    slug,
+    name: cityName,
+    alerts,
+    rawAlerts,
+    tips: cached.data.tips || [],
+    intro: buildIntro(cityName, rawAlerts),
+    faqs: buildFaqs(cityName, rawAlerts),
+    updatedAt: cached.updatedAt,
+    source: cached.data.source || "cache",
+  };
+}
+
+/**
+ * Lists all cached cities for the sitemap and /scams index. Returns
+ * { slug, name, updatedAt } objects.
+ */
+export async function listScamCities() {
+  const rows = await listCachedCities();
+  return rows
+    .filter((row) => row.city)
+    .map((row) => ({
+      slug: cityNameToSlug(row.city),
+      name: normalizeCity(row.city) || row.city,
+      updatedAt: row.updated_at,
+    }));
 }
