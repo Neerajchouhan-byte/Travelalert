@@ -2,144 +2,116 @@
 
 import { useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
-import { motion } from "framer-motion";
-import {
-  CircleCheck,
-  TrendingDown,
-  TrendingUp,
-  TriangleAlert,
-} from "lucide-react";
-import { CardGlow } from "@/components/ui/card-glow";
-import { AnimatedNumber } from "@/components/ui/animated-number";
+import { TriangleAlert } from "lucide-react";
 
-/**
- * Deterministic pseudo-sparkline derived from the current rate so the chart
- * is stable per render but visually plausible (±1% drift over 30 sessions).
- */
-function makeSeries(rate) {
-  if (rate == null || Number.isNaN(Number(rate))) return [];
-  const base = Number(rate);
-  const pts = [];
-  for (let i = 0; i < 30; i++) {
-    // simple deterministic wave, no Math.random → no hydration issues
-    const drift = Math.sin(i * 1.7 + base) * 0.008 + Math.cos(i * 0.6) * 0.004;
-    pts.push({ i, v: Number((base * (1 + drift)).toFixed(4)) });
-  }
-  pts.push({ i: 30, v: base });
-  return pts;
+export function UsdConversionCard({ brief }) {
+  const code = brief?.code || "IDR";
+  const usd = brief?.usd != null ? Number(brief.usd).toLocaleString() : "15,420";
+
+  return (
+    <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+      <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white">
+        USD → {code}
+      </p>
+
+      <p className="mt-1 font-mono text-xl font-black tracking-tight text-zinc-900 sm:text-2xl dark:text-white">
+        1 USD = {usd} {code}
+      </p>
+
+      {/* Vertical bar sparkline indicator */}
+      <div className="mt-3 flex items-end gap-1.5 h-8">
+        {[20, 35, 28, 50, 42, 65, 58].map((h, i) => (
+          <div
+            key={i}
+            style={{ height: `${h}%` }}
+            className="w-2 rounded-full bg-[#f87171] dark:bg-[#ef4444]"
+          />
+        ))}
+      </div>
+
+      {/* DCC warning pill */}
+      <div className="mt-4">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fef3c7] px-3.5 py-1 text-xs font-bold text-[#b45309] dark:bg-[#2b1d0c] dark:text-[#fbbf24]">
+          <TriangleAlert className="size-3.5" />
+          Decline ATM DCC
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function ExchangeRateCard({ brief }) {
+  const code = brief?.code || "IDR";
+
+  const series = useMemo(() => {
+    return [
+      { t: "12AM", v: 15380 },
+      { t: "3AM", v: 15395 },
+      { t: "6AM", v: 15390 },
+      { t: "9AM", v: 15410 },
+      { t: "12PM", v: 15405 },
+      { t: "3PM", v: 15415 },
+      { t: "6PM", v: 15420 },
+      { t: "NOW", v: 15425 },
+    ];
+  }, []);
+
+  return (
+    <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-black tracking-tight text-zinc-900 sm:text-base dark:text-white">
+          Live Exchange Rate
+        </h4>
+        <span className="flex items-center gap-1 font-mono text-[11px] font-bold text-[#10b981]">
+          <span className="size-1.5 rounded-full bg-[#10b981]" />
+          LIVE
+        </span>
+      </div>
+
+      <p className="mt-0.5 font-mono text-xs text-zinc-400 dark:text-zinc-500">
+        24H · USD/{code}
+      </p>
+
+      {/* Chart */}
+      <div className="mt-3 h-20 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#e5283b" stopOpacity={0.25} />
+                <stop offset="100%" stopColor="#e5283b" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
+            <Area
+              type="monotone"
+              dataKey="v"
+              stroke="#e5283b"
+              strokeWidth={2}
+              fill="url(#rateGradient)"
+              isAnimationActive
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Time marks */}
+      <div className="mt-2 flex justify-between font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+        <span>12AM</span>
+        <span>6AM</span>
+        <span>12PM</span>
+        <span>6PM</span>
+        <span>NOW</span>
+      </div>
+    </div>
+  );
 }
 
 export function CurrencyCard({ brief }) {
-  const code = brief?.code || "—";
-  const usd = brief?.usd != null ? Number(brief.usd) : null;
-  const inr = brief?.inr != null ? Number(brief.inr).toFixed(2) : "—";
-  const eur = brief?.eur != null ? Number(brief.eur).toFixed(2) : "—";
-
-  const series = useMemo(() => makeSeries(usd), [usd]);
-  const up = series.length > 1 && series[series.length - 1].v >= series[0].v;
-
   return (
-    <CardGlow
-      glowColor="rgba(91, 157, 238, 0.12)"
-      borderColor="rgba(91, 157, 238, 0.3)"
-    >
-      <div className="flex h-full flex-col justify-between p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-[#68686f]">
-            Live FX{brief?.city ? ` · ${brief.city}` : ""}
-          </span>
-          {usd != null && (
-            <span
-              className={`flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${
-                up
-                  ? "bg-[rgba(62,207,142,0.13)] text-[#3ecf8e]"
-                  : "bg-[rgba(229,72,74,0.13)] text-[#e5484a]"
-              }`}
-            >
-              {up ? (
-                <TrendingUp className="size-3" />
-              ) : (
-                <TrendingDown className="size-3" />
-              )}
-              30D
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs text-[#a6a6ad]">1 USD =</span>
-          {usd != null ? (
-            <AnimatedNumber
-              value={usd}
-              decimals={2}
-              className="font-mono text-[1.35rem] font-bold text-[#f3f3f2]"
-            />
-          ) : (
-            <span className="font-mono text-[1.35rem] font-bold text-[#68686f]">
-              —
-            </span>
-          )}
-          <span className="font-mono text-sm text-[#a6a6ad]">{code}</span>
-        </div>
-
-        {/* Sparkline */}
-        <div className="mt-1.5 h-12 w-full">
-          {series.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={series}
-                margin={{ top: 4, right: 0, bottom: 0, left: 0 }}
-              >
-                <defs>
-                  <linearGradient id="fxFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#5b9dee" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#5b9dee" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <YAxis domain={["dataMin", "dataMax"]} hide />
-                <Area
-                  type="monotone"
-                  dataKey="v"
-                  stroke="#5b9dee"
-                  strokeWidth={1.8}
-                  fill="url(#fxFill)"
-                  isAnimationActive
-                  animationDuration={1100}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-full items-center justify-center text-[11px] text-[#68686f]">
-              Loading rate history…
-            </div>
-          )}
-        </div>
-
-        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-[#a6a6ad]">
-          <span>
-            1 INR = <b className="font-semibold text-[#f3f3f2]">{inr}</b> {code}
-          </span>
-          <span>
-            1 EUR = <b className="font-semibold text-[#f3f3f2]">{eur}</b> {code}
-          </span>
-        </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25, duration: 0.45 }}
-          className="mt-3 flex items-start gap-2 rounded-lg border border-[rgba(240,166,61,0.38)] bg-[rgba(240,166,61,0.13)] p-2"
-        >
-          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-[#f0a63d]" />
-          <p className="text-[11px] leading-relaxed text-[#a6a6ad]">
-            {brief?.money_avoid || "Fetching money advice…"}
-          </p>
-        </motion.div>
-        <p className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-[#3ecf8e]">
-          <CircleCheck className="size-3.5" />
-          {brief?.money_best || "…"}
-        </p>
-      </div>
-    </CardGlow>
+    <div className="space-y-4">
+      <UsdConversionCard brief={brief} />
+      <ExchangeRateCard brief={brief} />
+    </div>
   );
 }

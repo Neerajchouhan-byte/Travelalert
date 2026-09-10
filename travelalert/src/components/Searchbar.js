@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { cities } from "@/lib/dashboard-data";
 import { supabase } from "@/lib/supabase";
 
@@ -23,9 +23,12 @@ export default function SearchBar() {
   }
 
   return (
-    <div className="hero-search">
-      <form onSubmit={handleSubmit} className="search-bar">
-        <Search className="size-4 shrink-0 text-[#68686f]" aria-hidden="true" />
+    <div className="w-full max-w-lg">
+      <form
+        onSubmit={handleSubmit}
+        className="flex items-center rounded-full border border-zinc-200/90 bg-white p-1.5 pl-4 shadow-sm transition focus-within:border-zinc-400 dark:border-white/10 dark:bg-[#16161b] dark:focus-within:border-white/20"
+      >
+        <Search className="size-4 shrink-0 text-zinc-400 dark:text-zinc-500" />
         <input
           type="text"
           value={city}
@@ -33,22 +36,29 @@ export default function SearchBar() {
           placeholder="Bangkok, Bali, Rome..."
           aria-label="Destination to scan"
           list="landing-cities"
+          className="w-full bg-transparent px-3 text-xs text-zinc-900 outline-none placeholder:text-zinc-400 sm:text-sm dark:text-white dark:placeholder:text-zinc-500"
         />
         <datalist id="landing-cities">
           {cities.map((c) => (
             <option key={c.name} value={c.name} />
           ))}
         </datalist>
-        <button type="submit" className="btn-primary">
+
+        <button
+          type="submit"
+          className="group inline-flex shrink-0 items-center gap-1 rounded-full bg-[#e5283b] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#d32032] active:scale-95 sm:px-5"
+        >
           <span>Scan now</span>
-          <span className="icw">
-            <ArrowRight className="size-3" aria-hidden="true" />
-          </span>
+          <ChevronRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
       </form>
-      <p className="search-hint">
-        CHECKED TODAY: BANGKOK &middot; BALI &middot; TOKYO &middot; ROME
-        &middot; PRAGUE
+
+      {/* Suggested cities pills row */}
+      <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+        CHECKED TODAY:{" "}
+        <span className="text-zinc-600 dark:text-zinc-400">
+          Bangkok · Bali · Rome · Tokyo · Poland
+        </span>
       </p>
     </div>
   );

@@ -1,29 +1,25 @@
 "use client";
+
 import { supabase } from "@/lib/supabase";
 import { Suspense, useEffect, useState } from "react";
-import Link from "next/link";
-import { motion } from "framer-motion";
 import { Topbar } from "@/components/dashboard/Topbar";
+import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
 import { IntelTabs } from "@/components/dashboard/IntelTabs";
-import { CurrencyCard } from "@/components/dashboard/CurrencyCard";
-import { WeatherCard } from "@/components/dashboard/WeatherCard";
-import { RecentActivity } from "@/components/dashboard/RecentActivity";
-import { DestinationChips } from "@/components/dashboard/DestinationChips";
-import { ThreatOverview } from "@/components/dashboard/ThreatOverview";
+import {
+  Weather7DayCard,
+  WeatherNowCard,
+} from "@/components/dashboard/WeatherCard";
+import {
+  UsdConversionCard,
+  ExchangeRateCard,
+} from "@/components/dashboard/CurrencyCard";
 import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RefreshCw } from "lucide-react";
-import {
-  cities,
-  getDestination,
-  flagFromCountryCode,
-} from "@/lib/dashboard-data";
 
-// Simple in-memory cache for dashboard data to reduce latency on repeated views
 const dashboardCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000;
 
 function getCachedData(key) {
   const cached = dashboardCache.get(key);
@@ -37,7 +33,6 @@ function setCachedData(key, data) {
   dashboardCache.set(key, { data, timestamp: Date.now() });
 }
 
-// Helper to get auth headers
 async function getAuthHeaders() {
   let headers = {};
   if (supabase) {
@@ -50,9 +45,10 @@ async function getAuthHeaders() {
 
 function DashboardContent() {
   const searchParams = useSearchParams();
-  const city = searchParams.get("city") || "Bangkok";
+  const city = searchParams.get("city") || "Bali";
   const refresh = searchParams.get("refresh") === "1";
   const router = useRouter();
+
   const [alerts, setAlerts] = useState([]);
   const [tips, setTips] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -69,7 +65,7 @@ function DashboardContent() {
     () => searchParams.get("upgrade") === "true",
   );
   const [refreshing, setRefreshing] = useState(false);
-  // When returning from Dodo checkout with ?billing=success, activate Pro and unlock all cards
+
   useEffect(() => {
     if (searchParams.get("billing") === "success") {
       async function activatePro() {
@@ -87,7 +83,6 @@ function DashboardContent() {
             setPlan("annual");
             setLockedAlerts(0);
             setLockedTips(0);
-            // Clean up the URL query parameter without refreshing the page
             router.replace(`/dashboard?city=${encodeURIComponent(city)}`);
           }
         } catch (err) {
@@ -98,15 +93,12 @@ function DashboardContent() {
     }
   }, [searchParams, city, router]);
 
-  // Triggers live scan, bypasses cache, and updates cache for all users
   async function handleRefresh() {
     if (refreshing || loading) return;
     setRefreshing(true);
 
     try {
       let headers = await getAuthHeaders();
-
-      // Force live update via &refresh=1
       const res = await fetch(
         `/api/briefing?city=${encodeURIComponent(city)}&refresh=1`,
         { headers, cache: "no-store" },
@@ -122,7 +114,6 @@ function DashboardContent() {
         setSource("live");
         if (bData.safety) setSafety(String(bData.safety));
 
-        // Update local memory cache immediately
         setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
       }
     } catch (err) {
@@ -132,14 +123,12 @@ function DashboardContent() {
     }
   }
 
-  // Load briefing data (alerts, tips, safety) - independent effect
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
     const requestedCity = city.trim().toLowerCase();
 
     async function loadBriefing() {
-      // Check cache first
       const cacheKey = `briefing:${requestedCity}`;
       const cached = getCachedData(cacheKey);
       if (cached && !refresh) {
@@ -163,7 +152,6 @@ function DashboardContent() {
 
       try {
         const headers = await getAuthHeaders();
-
         const res = await fetch(
           "/api/briefing?city=" +
             encodeURIComponent(city) +
@@ -175,28 +163,9 @@ function DashboardContent() {
           router.replace("/login?city=" + encodeURIComponent(city));
           return;
         }
-        // Catch the 3-search limit reached
-        if (res.status === 403) {
-          const limitData = await res.json();
-          setError(limitData.error);
-          setShowUpgradeModal(true); // Automatically open the paywall modal
-          setLoading(false);
-          return;
-        }
 
         const data = await res.json();
         if (cancelled) return;
-
-        const resCity = String(data.city || "")
-          .trim()
-          .toLowerCase();
-        if (
-          resCity &&
-          !resCity.includes(requestedCity) &&
-          !requestedCity.includes(resCity)
-        ) {
-          console.warn("City mismatch:", { resCity, requestedCity });
-        }
 
         setAlerts(data.alerts || []);
         setTips(data.tips || []);
@@ -210,7 +179,6 @@ function DashboardContent() {
           setError(data.error);
         }
 
-        // Cache the results
         setCachedData(cacheKey, data);
       } catch (err) {
         if (!cancelled && err?.name !== "AbortError") {
@@ -228,7 +196,6 @@ function DashboardContent() {
     };
   }, [city, refresh, router]);
 
-  // Load city brief data (weather, currency)
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -245,10 +212,8 @@ function DashboardContent() {
       }
 
       setBriefLoading(true);
-
       try {
         const headers = await getAuthHeaders();
-
         const briefRes = await fetch(
           "/api/city-brief?city=" + encodeURIComponent(city),
           { cache: "no-store", headers, signal: controller.signal },
@@ -278,109 +243,125 @@ function DashboardContent() {
     };
   }, [city]);
 
+  const activeBrief = briefCity === city ? brief : null;
+
   return (
     <RequireAuth>
-      <>
-        <Topbar key={city} city={city} />
+      <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
+        {/* Topbar */}
+        <Topbar key={city} city={city} brief={activeBrief} />
 
-        {/* Live intel ticker */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.5 }}
-          className="dashboard-frame mx-auto w-full max-w-7xl px-4 pt-5 sm:px-6 lg:px-10"
-        >
+        {/* Content container */}
+        <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
+          {/* DESTINATIONS switcher */}
           <DestinationChips active={city} />
-        </motion.div>
-
-        <div className="dashboard-frame mx-auto w-full max-w-7xl space-y-5 px-4 pb-10 pt-5 sm:px-6 sm:pb-14 lg:px-10 lg:pt-7">
-          <DestinationHeader
-            city={city}
-            brief={briefCity === city ? brief : null}
-            alertCount={(alerts?.length || 0) + (lockedAlerts || 0)}
-            alerts={alerts}
-            safety={safety}
-          />
-
-          {/* STATUS ROW WITH DEDICATED REFRESH BUTTON */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-2.5">
-            <div className="text-xs text-[#a6a6ad]">
-              <span
-                className={
-                  source === "cache" ? "text-[#3ecf8e]" : "text-[#f0a63d]"
-                }
-              >
-                ●{" "}
-                {source === "cache"
-                  ? "Served from cache (instant)"
-                  : "Live scan"}
-              </span>
-              {" · "}
-              <Link
-                href="/disclaimer"
-                className="underline decoration-white/20 hover:text-white"
-              >
-                AI-organized Reddit intelligence
-              </Link>
-            </div>
-
-            {/* THE REFRESH BUTTON */}
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing || loading}
-              className="flex items-center gap-2 rounded-full border border-[#f0a63d]/30 bg-[#f0a63d]/10 px-3.5 py-1.5 text-xs font-semibold text-[#f0a63d] transition hover:border-[#f0a63d] hover:bg-[#f0a63d]/20 disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
-              />
-              <span>
-                {refreshing
-                  ? "Scanning Reddit live..."
-                  : "Refresh Intelligence"}
-              </span>
-            </button>
-          </div>
 
           {error && (
-            <motion.p
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: [0, -6, 6, -3, 3, 0] }}
-              transition={{ duration: 0.5 }}
-              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-            >
+            <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
               {error}
-            </motion.p>
+            </p>
           )}
 
-          <IntelTabs
-            city={city}
-            alerts={alerts}
-            tips={tips}
-            loading={loading}
-            plan={plan}
-            lockedAlerts={lockedAlerts}
-            lockedTips={lockedTips}
-            onUpgrade={() => setShowUpgradeModal(true)}
-          />
+          {/* 1. DESKTOP 3-COLUMN LAYOUT (Image 2) */}
+          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-12">
+            {/* Left Column: Safety Overview & Intel (6 cols) */}
+            <div className="space-y-5 xl:col-span-6">
+              <DestinationHeader
+                city={city}
+                brief={activeBrief}
+                alerts={alerts}
+                safety={safety}
+              />
+              <IntelTabs
+                city={city}
+                alerts={alerts}
+                tips={tips}
+                loading={loading}
+                plan={plan}
+                lockedAlerts={lockedAlerts}
+                lockedTips={lockedTips}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
+            </div>
 
-          <div className="dashboard-section-grid grid items-start gap-5 md:grid-cols-2">
-            <CurrencyCard brief={briefCity === city ? brief : null} />
-            <WeatherCard
-              city={city}
-              brief={briefCity === city ? brief : null}
-            />
+            {/* Middle Column: Weather (3 cols) */}
+            <div className="space-y-5 xl:col-span-3">
+              <Weather7DayCard brief={activeBrief} />
+              <WeatherNowCard brief={activeBrief} />
+            </div>
+
+            {/* Right Column: Currency & Rates (3 cols) */}
+            <div className="space-y-5 xl:col-span-3">
+              <UsdConversionCard brief={activeBrief} />
+              <ExchangeRateCard brief={activeBrief} />
+            </div>
           </div>
 
-          <ThreatOverview
-            city={city}
-            brief={briefCity === city ? brief : null}
-            alerts={alerts}
-            alertCount={(alerts?.length || 0) + (lockedAlerts || 0)}
-            safety={safety}
-          />
+          {/* 2. TABLET 2-COLUMN LAYOUT (Image 1) */}
+          <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
+            {/* Left Column */}
+            <div className="space-y-5">
+              <DestinationHeader
+                city={city}
+                brief={activeBrief}
+                alerts={alerts}
+                safety={safety}
+              />
+              <IntelTabs
+                city={city}
+                alerts={alerts}
+                tips={tips}
+                loading={loading}
+                plan={plan}
+                lockedAlerts={lockedAlerts}
+                lockedTips={lockedTips}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
+            </div>
 
-          <RecentActivity city={city} alerts={alerts} loading={loading} />
+            {/* Right Column */}
+            <div className="space-y-5">
+              <Weather7DayCard brief={activeBrief} />
+              <WeatherNowCard brief={activeBrief} />
+              <UsdConversionCard brief={activeBrief} />
+              <ExchangeRateCard brief={activeBrief} />
+            </div>
+          </div>
+
+          {/* 3. MOBILE STACKED LAYOUT (Images 3 & 4) */}
+          <div className="mt-5 space-y-5 md:hidden">
+            {/* Safety Overview */}
+            <DestinationHeader
+              city={city}
+              brief={activeBrief}
+              alerts={alerts}
+              safety={safety}
+            />
+
+            {/* 7-Day Weather carousel */}
+            <Weather7DayCard brief={activeBrief} />
+
+            {/* 2-col row: Now & USD → IDR */}
+            <div className="grid grid-cols-2 gap-3">
+              <WeatherNowCard brief={activeBrief} />
+              <UsdConversionCard brief={activeBrief} />
+            </div>
+
+            {/* Live Exchange Rate */}
+            <ExchangeRateCard brief={activeBrief} />
+
+            {/* Scam & Insider Intel */}
+            <IntelTabs
+              city={city}
+              alerts={alerts}
+              tips={tips}
+              loading={loading}
+              plan={plan}
+              lockedAlerts={lockedAlerts}
+              lockedTips={lockedTips}
+              onUpgrade={() => setShowUpgradeModal(true)}
+            />
+          </div>
         </div>
 
         {/* Upgrade Modal */}
@@ -389,7 +370,7 @@ function DashboardContent() {
           onClose={() => setShowUpgradeModal(false)}
           city={city}
         />
-      </>
+      </div>
     </RequireAuth>
   );
 }
@@ -397,7 +378,11 @@ function DashboardContent() {
 export default function DashboardPage() {
   return (
     <Suspense
-      fallback={<div className="p-8 text-[#a6a6ad]">Loading dashboard...</div>}
+      fallback={
+        <div className="flex min-h-screen items-center justify-center p-8 text-sm text-zinc-500">
+          Loading dashboard...
+        </div>
+      }
     >
       <DashboardContent />
     </Suspense>

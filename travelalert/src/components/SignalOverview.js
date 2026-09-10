@@ -1,56 +1,130 @@
 "use client";
 
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, ArrowUpRight, Radio, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
+import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 
 const signalData = [
-  { day: "Mon", reports: 34 },
-  { day: "Tue", reports: 48 },
-  { day: "Wed", reports: 42 },
-  { day: "Thu", reports: 61 },
-  { day: "Fri", reports: 55 },
-  { day: "Sat", reports: 76 },
-  { day: "Sun", reports: 68 },
-];
-
-const metrics = [
-  { value: "2,400+", label: "patterns tracked", icon: Activity, tone: "red" },
-  { value: "180+", label: "destinations", icon: Radio, tone: "blue" },
-  { value: "98%", label: "worth the brief", icon: ShieldCheck, tone: "green" },
+  { day: "Mon", reports: 28 },
+  { day: "Tue", reports: 34 },
+  { day: "Wed", reports: 32 },
+  { day: "Thu", reports: 46 },
+  { day: "Fri", reports: 42 },
+  { day: "Sat", reports: 68 },
+  { day: "Sun", reports: 72 },
 ];
 
 export default function SignalOverview() {
   return (
-    <section className="signal-overview" aria-labelledby="signal-title">
-      <div className="container">
-        <div className="signal-layout">
-          <div className="signal-copy reveal">
-            <span className="eyebrow"><span className="live-dot" /> Intelligence feed</span>
-            <h2 id="signal-title">A clearer read on <span className="grad-accent">what is changing.</span></h2>
-            <p className="sec-sub">We watch the conversation around each destination, then turn scattered traveler reports into signals you can act on.</p>
-            <div className="signal-metrics">
-              {metrics.map(({ value, label, icon: Icon, tone }, index) => (
-                <motion.div className={`signal-metric ${tone}`} key={label} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.08 }}>
-                  <Icon size={15} />
-                  <strong>{value}</strong>
-                  <span>{label}</span>
-                </motion.div>
-              ))}
+    <section className="py-20 sm:py-28 border-b border-zinc-200/80 dark:border-white/5">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        
+        <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
+          
+          {/* Left copy */}
+          <div className="reveal lg:col-span-6">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#e5283b]">
+              — INTELLIGENCE FEED
+            </span>
+            <h2 className="mt-2 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
+              A clearer read on <span className="text-[#e5283b]">what is changing.</span>
+            </h2>
+            <p className="mt-3 text-xs leading-relaxed text-zinc-500 sm:text-sm dark:text-zinc-400">
+              We watch the conversation around each destination, then turn
+              scattered traveler reports into signals you can act on.
+            </p>
+
+            <div className="mt-8 flex items-center gap-8 border-t border-zinc-100 pt-6 dark:border-white/5">
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+              >
+                <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
+                  2,480+
+                </p>
+                <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
+                  patterns tracked
+                </p>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.08 }}
+              >
+                <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
+                  188+
+                </p>
+                <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
+                  destinations
+                </p>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.16 }}
+              >
+                <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
+                  92%
+                </p>
+                <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
+                  worth the brief
+                </p>
+              </motion.div>
             </div>
           </div>
-          <motion.div className="signal-chart-panel" initial={{ opacity: 0, x: 18 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }}>
-            <div className="signal-chart-head"><div><span className="chart-kicker"><span className="live-dot" /> LIVE INDEX</span><strong>Traveler reports this week</strong></div><span className="chart-change"><ArrowUpRight size={14} /> 21.4%</span></div>
-            <div className="signal-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={signalData} margin={{ top: 10, right: 0, left: -24, bottom: 0 }}>
-              <defs><linearGradient id="signalFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#e5484a" stopOpacity={0.38} /><stop offset="100%" stopColor="#e5484a" stopOpacity={0} /></linearGradient></defs>
-              <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#68686f", fontSize: 10 }} dy={8} />
-              <YAxis hide domain={[0, 90]} />
-              <Tooltip cursor={{ stroke: "rgba(255,255,255,.16)" }} contentStyle={{ background: "#17171c", border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, color: "#f3f3f2", fontSize: 11 }} labelStyle={{ color: "#a6a6ad" }} />
-              <Area type="monotone" dataKey="reports" stroke="#e5484a" strokeWidth={2} fill="url(#signalFill)" />
-            </AreaChart></ResponsiveContainer></div>
-            <div className="chart-caption"><span>Aggregated from 2,400+ report patterns</span><span>Updated 12 min ago</span></div>
+
+          {/* Right Chart Card with Restored motion entrance */}
+          <motion.div
+            initial={{ opacity: 0, x: 18 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="rounded-[28px] border border-zinc-200/90 bg-white p-6 shadow-xs lg:col-span-6 dark:border-white/10 dark:bg-[#16161b]"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
+                  LIVE INDEX
+                </span>
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">
+                  Traveler reports this week
+                </p>
+              </div>
+              <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                +21.4%
+              </span>
+            </div>
+
+            <div className="mt-4 h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={signalData} margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="feedFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#e5283b" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#e5283b" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <YAxis hide domain={["dataMin - 10", "dataMax + 10"]} />
+                  <Area
+                    type="monotone"
+                    dataKey="reports"
+                    stroke="#e5283b"
+                    strokeWidth={2}
+                    fill="url(#feedFill)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <p className="mt-3 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+              Aggregated from 2,400+ report sources · Updated 12 min ago
+            </p>
           </motion.div>
+
         </div>
+
       </div>
     </section>
   );

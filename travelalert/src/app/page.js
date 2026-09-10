@@ -6,7 +6,6 @@ import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import Marquee from "@/components/Marquee";
 import Features from "@/components/Features";
-import Test from "@/components/Test";
 import Cta from "@/components/Cta";
 import Howitwork from "@/components/Howitwork";
 import Pricing from "@/components/Pricing";
@@ -31,7 +30,7 @@ export default function Home() {
           observer.unobserve(node);
         }
       },
-      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 }
     );
 
     nodes.forEach((node) => observer.observe(node));
@@ -39,7 +38,7 @@ export default function Home() {
   }, []);
 
   return (
-    <>
+    <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-white">
       <Navbar />
       <Hero />
       <Marquee />
@@ -48,9 +47,8 @@ export default function Home() {
       <SignalOverview />
       <Scamcards />
       <Pricing />
-      <Test />
       <Cta />
       <Footer />
-    </>
+    </main>
   );
 }

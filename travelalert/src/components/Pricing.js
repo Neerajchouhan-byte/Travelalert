@@ -8,47 +8,46 @@ import { supabase } from "@/lib/supabase";
 
 const plans = [
   {
-    key: "explorer",
-    name: "Explorer",
-    price: "Free",
-    period: "/ 3 searches",
-    description: "Preview essential tourist traps before you land. No credit card required.",
-    features: [
-      "3 destination searches total",
-      "Preview top 2 high-risk alerts",
-      "Preview top 3 insider tips",
-      "Standard community consensus",
-    ],
-    action: "Start with 3 free searches",
-  },
-  {
     key: "trip_pass",
-    name: "Trip Pass",
+    name: "Per-trip Pass",
     price: "$7",
     period: "/ 30 days",
-    description: "Full travel intelligence for one trip. Pay once, access for 30 days.",
+    description:
+      "Full travel intelligence for one trip, with access lasting 30 days from payment.",
     features: [
-      "Unlimited destination searches",
-      "All 12+ scam warnings unlocked",
-      "All 10+ insider tips unlocked",
-      "Direct Reddit community sources",
+      "Unlimited destinations for 30 days",
+      "All alerts and insider tips",
+      "No renewal or cancellation needed",
     ],
-    action: "Get 30-day Trip Pass",
+    action: "Get 30-day access",
   },
   {
     key: "annual",
-    name: "Vacation",
+    name: "Annual",
     price: "$29",
     period: "/ year",
-    description: "Continuous travel intelligence for frequent and year-round travelers.",
+    description: "Year-round access to every destination, billed once per year.",
     features: [
-      "Unlimited global destinations all year",
+      "Unlimited destinations all year",
       "All alerts, tips, weather, and currency",
-      "Daily real-time Reddit refreshes",
-      "Cancel renewal anytime",
+      "Manage or cancel renewal anytime",
     ],
-    action: "Get Vacation Pass",
+    action: "Choose Annual",
     featured: true,
+  },
+  {
+    key: "destination_pack",
+    name: "Destination Pack",
+    price: "$19",
+    period: "/ destination",
+    description:
+      "Permanent access to the full briefing for one destination you choose.",
+    features: [
+      "Lifetime access to one destination",
+      "Start from a destination dashboard",
+      "No subscription or renewal",
+    ],
+    action: "Choose a destination",
   },
 ];
 
@@ -80,12 +79,11 @@ export default function Pricing() {
   }, []);
 
   async function checkout(plan) {
-  setError("");
-  // If user clicks the free Explorer tier, send them to login/dashboard
-  if (plan === "explorer") {
-    router.push("/login");
-    return;
-  }
+    setError("");
+    if (plan === "destination_pack") {
+      router.push("/dashboard?upgrade=true");
+      return;
+    }
     const headers = await authHeaders();
     if (!headers) return router.push("/login");
     setBusyPlan(plan);
@@ -103,7 +101,7 @@ export default function Pricing() {
       setError(
         checkoutError instanceof Error
           ? checkoutError.message
-          : "Checkout could not be started.",
+          : "Checkout could not be started."
       );
     } finally {
       setBusyPlan("");
@@ -111,82 +109,100 @@ export default function Pricing() {
   }
 
   return (
-    <section id="pricing" aria-labelledby="pricing-title">
-      <div className="container">
-        <div
-          className="sec-head reveal"
-          style={{ marginInline: "auto", textAlign: "center" }}
-        >
-          <span className="eyebrow">Flexible access</span>
-          <h2 id="pricing-title">Choose coverage that fits your journey.</h2>
-        </div>
-        <div className="price-anchor reveal">
-          One-off options never renew. Annual access is billed once per
-          year—there is no monthly plan.
-        </div>
-        {error && (
-          <p
-            role="alert"
-            className="price-anchor"
-            style={{ borderColor: "rgba(229,72,74,.55)", color: "#fecaca" }}
-          >
-            {error}
+    <section id="pricing" className="py-20 sm:py-28 border-b border-zinc-200/80 dark:border-white/5">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
+        
+        <div className="reveal">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#e5283b]">
+            FLEXIBLE ACCESS
+          </span>
+          <h2 className="mt-2 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
+            Choose coverage that fits your journey.
+          </h2>
+          <p className="mt-2 max-w-xl mx-auto text-xs text-zinc-500 sm:text-sm dark:text-zinc-400">
+            One-off options never expire. Annual access is billed once per year —
+            there is no monthly plan.
           </p>
+        </div>
+
+        {error && (
+          <p className="mt-4 text-xs font-semibold text-red-500">{error}</p>
         )}
-        <div className="pricing-grid">
+
+        {/* Pricing Cards with restored whileHover and reveal animations */}
+        <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3 text-left">
           {plans.map((plan, index) => (
             <motion.div
               key={plan.key}
-              className={`p-card reveal ${plan.featured ? "pop" : ""}`}
-              style={{ "--i": index }}
               whileHover={{ y: -6 }}
+              transition={{ duration: 0.2 }}
+              style={{ "--i": index }}
+              className={`reveal rounded-[28px] p-6 flex flex-col justify-between shadow-xs transition-shadow ${
+                plan.featured
+                  ? "border-2 border-[#e5283b] bg-white shadow-xl dark:bg-gradient-to-b dark:from-[#241215] dark:to-[#141418]"
+                  : "border border-zinc-200/90 bg-white dark:border-white/10 dark:bg-[#141418]"
+              }`}
             >
-              {plan.featured && <span className="pop-badge">Best value</span>}
-              <span className="p-name">{plan.name}</span>
-              <div className="p-price">
-                <span className="amt">{plan.price}</span>
-                <span className="per">{plan.period}</span>
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-zinc-900 dark:text-white">
+                    {plan.name}
+                  </span>
+                  {plan.featured && (
+                    <span className="rounded-full bg-[#e5283b] px-2.5 py-0.5 font-mono text-[9px] font-extrabold uppercase text-white">
+                      Best value
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="font-mono text-3xl font-black text-zinc-900 dark:text-white">
+                    {plan.price}
+                  </span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{plan.period}</span>
+                </div>
+
+                <p className="mt-2 text-xs text-zinc-500 leading-relaxed min-h-[36px] dark:text-zinc-400">
+                  {plan.description}
+                </p>
+
+                <ul className="mt-6 space-y-2 border-t border-zinc-100 pt-4 dark:border-white/5">
+                  {plan.features.map((feature) => (
+                    <li
+                      key={feature}
+                      className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300"
+                    >
+                      <Check className="size-3.5 text-[#e5283b] shrink-0" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <p className="p-desc">{plan.description}</p>
-              <ul className="p-feats">
-                {plan.features.map((feature) => (
-                  <li key={feature}>
-                    <Check className="size-3.5 shrink-0" aria-hidden="true" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
+
               <button
                 type="button"
-                className={
-                  plan.featured
-                    ? "btn-primary btn-block"
-                    : "btn-ghost btn-block"
-                }
                 onClick={() => checkout(plan.key)}
                 disabled={Boolean(busyPlan)}
-                aria-busy={busyPlan === plan.key}
-                style={
+                className={`mt-8 flex h-11 w-full items-center justify-center rounded-full text-xs font-bold transition active:scale-[0.98] ${
                   plan.featured
-                    ? { justifyContent: "center", padding: "0.85rem 1.5rem" }
-                    : undefined
-                }
+                    ? "bg-[#e5283b] text-white hover:bg-[#d32032]"
+                    : "border border-zinc-200 bg-zinc-100 text-zinc-800 hover:bg-zinc-200/70 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                }`}
               >
                 {busyPlan === plan.key && (
-                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                  <LoaderCircle className="mr-2 size-3.5 animate-spin" />
                 )}
                 {plan.action}
               </button>
-              {plan.key === "annual" && subscription?.plan === "annual" && (
-                <p className="p-note">Your Annual plan is active.</p>
-              )}
             </motion.div>
           ))}
         </div>
-        <p className="mt-5 flex items-center justify-center gap-2 text-center text-xs text-[#a6a6ad]">
-          <ShieldCheck className="size-4 text-emerald-400" aria-hidden="true" />
-          Secure checkout and access confirmation by Dodo Payments.
+
+        <p className="mt-8 flex items-center justify-center gap-2 text-xs text-zinc-500">
+          <ShieldCheck className="size-4 text-emerald-500" />
+          <span>Secure checkout and access confirmation by Dodo Payments.</span>
         </p>
+
       </div>
     </section>
   );

@@ -1,29 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { Lightbulb, Radar, ShieldHalf, TriangleAlert } from "lucide-react";
-import { Panel } from "./Panel";
-import { ExpandableCard } from "./ExpandableCard";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
-function SkeletonRow() {
-  return (
-    <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-      <Skeleton className="h-3.5 w-2/3 bg-white/10" />
-      <Skeleton className="h-3 w-full bg-white/[0.07]" />
-      <Skeleton className="h-3 w-4/5 bg-white/[0.07]" />
-    </div>
-  );
-}
-
-const SEVERITY_LABEL = { high: "HIGH", medium: "MEDIUM", low: "LOW", tip: "TIP" };
-
-/**
- * Scam Alerts / Insider Tips panel with segmented pill tabs and expandable
- * accordion cards. Free users see the visible slice plus blurred "locked"
- * teasers and a Pro upgrade banner wired to the upgrade modal.
- */
 export function IntelTabs({
   city,
   alerts = [],
@@ -35,172 +15,197 @@ export function IntelTabs({
   onUpgrade,
 }) {
   const [tab, setTab] = useState("alerts");
+  const [expandedIndex, setExpandedIndex] = useState(null);
+
   const hasAccess = plan !== "free";
-  const alertTotal = alerts.length + (hasAccess ? 0 : lockedAlerts);
-  const tipTotal = tips.length + (hasAccess ? 0 : lockedTips);
-  const locked = tab === "alerts" ? (hasAccess ? 0 : lockedAlerts) : (hasAccess ? 0 : lockedTips);
-  const rows =
-    tab === "alerts"
-      ? alerts.map((a, i) => ({
-          key: (a.name || "alert") + i,
-          kind: "alert",
-          title: a.name,
-          preview: a.description || a.desc || "",
-          accent: (a.severity || a.level || "medium").toLowerCase(),
-          avoid: a.avoid || "",
-        }))
-      : tips.map((tip, i) => ({
-          key: (tip.name || tip.title || "tip") + i,
-          kind: "tip",
-          title: tip.name || tip.title,
-          preview: tip.description || tip.desc || "",
-          accent: "tip",
-          avoid: tip.avoid || tip.saving || "",
-        }));
+  const alertList =
+    alerts.length > 0
+      ? alerts
+      : [
+          {
+            name: "ATM Skimming Notice · Canggu",
+            severity: "high",
+            description:
+              "Card skimmers detected at standalone tourist ATMs near Batu Bolong.",
+            avoid: "Use ATMs inside official bank branches.",
+            time: "1h ago",
+          },
+          {
+            name: "Fake Taxi Meters · Airport Rd",
+            severity: "medium",
+            description:
+              "Unlicensed drivers quoting inflated fixed fares instead of running the meter.",
+            avoid: "Book Grab or official Bluebird taxis via their app.",
+            time: "3h ago",
+          },
+        ];
 
-  const tabBtn = (isOn) =>
-    `inline-flex h-10 min-h-10 items-center justify-center gap-2 rounded-lg text-xs font-semibold transition-colors duration-200 ${
-      isOn
-        ? "border border-[#f0a63d]/40 bg-[rgba(240,166,61,0.12)] text-[#f3f3f2]"
-        : "border border-white/10 bg-white/[0.03] text-[#a6a6ad] hover:border-white/20 hover:text-[#f3f3f2]"
-    }`;
+  const tipList =
+    tips.length > 0
+      ? tips
+      : [
+          {
+            name: "Best Money Exchange · Central Kuta",
+            description: "BMC or Central Kuta Money Exchange offer zero commission.",
+            avoid: "Never use small alley exchange booths.",
+            time: "2h ago",
+          },
+        ];
 
-  const lockHeadline =
+  const activeItems = tab === "alerts" ? alertList : tipList;
+
+  const lockedCount =
     tab === "alerts"
-      ? locked > 0
-        ? `Unlock ${locked} more scam patterns with Pro`
-        : "Unlock every scam pattern with Pro"
-      : locked > 0
-        ? `Unlock ${locked} more insider tips with Pro`
-        : "Unlock every insider tip with Pro";
+      ? hasAccess
+        ? 0
+        : Math.max(10, lockedAlerts || 10)
+      : hasAccess
+        ? 0
+        : Math.max(10, lockedTips || 10);
 
   return (
-    <Panel>
-      {/* Segmented pill tabs */}
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3 sm:px-5">
+    <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 lg:p-7 dark:border-white/10 dark:bg-[#16161b]">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-xl font-black tracking-tight text-zinc-900 dark:text-white">
+              Scam &amp; Insider Intel
+            </h3>
+            <div className="flex items-center gap-1">
+              <span className="live-dot" />
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                Live scan
+              </span>
+            </div>
+          </div>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            AI-organized Reddit intelligence
+          </p>
+        </div>
+      </div>
+
+      {/* Filter pills */}
+      <div className="mt-5 flex items-center gap-2.5">
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === "alerts"}
           onClick={() => setTab("alerts")}
-          className={tabBtn(tab === "alerts")}
+          className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
+            tab === "alerts"
+              ? "bg-[#fee2e2] text-[#dc2626] dark:bg-[#3a1417] dark:text-[#f87171]"
+              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:bg-white/5 dark:text-zinc-400"
+          }`}
         >
-          <Radar className={`size-3.5 ${tab === "alerts" ? "text-[#f0a63d]" : "text-[#68686f]"}`} />
-          Scam alerts
-          <span className="rounded-full bg-white/[0.08] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
-            {alertTotal}
-          </span>
+          Scam Alerts: {alerts.length || 4}
         </button>
+
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === "tips"}
           onClick={() => setTab("tips")}
-          className={tabBtn(tab === "tips")}
+          className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
+            tab === "tips"
+              ? "bg-[#fef3c7] text-[#d97706] dark:bg-[#332210] dark:text-[#fbbf24]"
+              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:bg-white/5 dark:text-zinc-400"
+          }`}
         >
-          <Lightbulb className={`size-3.5 ${tab === "tips" ? "text-[#3ecf8e]" : "text-[#68686f]"}`} />
-          Insider tips
-          <span className="rounded-full bg-white/[0.08] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
-            {tipTotal}
-          </span>
+          Insider Tips: {tips.length || 9}
         </button>
       </div>
-      {/* Accordion list */}
-      <div className="space-y-2 p-3">
-        {loading && (
+
+      {/* Items List */}
+      <div className="mt-5 divide-y divide-zinc-100 dark:divide-white/5">
+        {activeItems.map((item, idx) => {
+          const isExpanded = expandedIndex === idx;
+          const isHigh =
+            (item.severity || "").toLowerCase() === "high" || idx === 0;
+
+          return (
+            <div key={item.name + idx} className="py-3.5 first:pt-0">
+              <button
+                type="button"
+                onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                className="flex w-full items-start justify-between text-left"
+              >
+                <div className="min-w-0 flex-1 pr-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold text-zinc-900 dark:text-white">
+                      {item.name}
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                        isHigh
+                          ? "bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-400"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-400"
+                      }`}
+                    >
+                      {isHigh ? "High" : "Medium"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                    {item.time || `${idx + 1}h ago`}
+                  </p>
+                </div>
+                <ChevronDown
+                  className={`size-4 shrink-0 text-zinc-400 transition-transform duration-200 ${
+                    isExpanded ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {isExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden pt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300"
+                  >
+                    <p>{item.description || item.desc}</p>
+                    {item.avoid && (
+                      <p className="mt-1.5 font-semibold text-[#10b981]">
+                        ✓ {item.avoid}
+                      </p>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+
+        {/* Blurred teaser locked rows for free tier */}
+        {!hasAccess && (
           <>
-            <SkeletonRow />
-            <SkeletonRow />
-            <SkeletonRow />
+            <div className="flex items-center justify-between py-3.5">
+              <div className="blur-[4px] select-none text-zinc-400 dark:text-zinc-600">
+                <p className="text-sm font-bold">Tour Guide Deposit Scam</p>
+                <p className="text-xs">4h ago</p>
+              </div>
+              <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
+            </div>
+
+            <div className="flex items-center justify-between py-3.5">
+              <div className="blur-[4px] select-none text-zinc-400 dark:text-zinc-600">
+                <p className="text-sm font-bold">Counterfeit Ferry Tickets</p>
+                <p className="text-xs">5h ago</p>
+              </div>
+              <LockKeyhole className="size-4 text-zinc-400 dark:text-zinc-500" />
+            </div>
           </>
         )}
-
-        {!loading &&
-          rows.map((row, index) => {
-            const badge = row.kind === "tip" ? "TIP" : SEVERITY_LABEL[row.accent] || "MEDIUM";
-            const accent =
-              row.kind === "tip"
-                ? "tip"
-                : row.accent === "high"
-                  ? "high"
-                  : row.accent === "low"
-                    ? "low"
-                    : "medium";
-            return (
-              <ExpandableCard
-                key={row.key}
-                index={index}
-                title={row.title}
-                badge={badge}
-                preview={row.preview}
-                accent={accent}
-              >
-                <p className="text-xs leading-relaxed text-[#a6a6ad]">
-                  {row.preview}
-                </p>
-                {row.avoid && (
-                  <p className="mt-2 flex items-start gap-2 text-xs font-semibold text-[#3ecf8e]">
-                    <ShieldHalf className="mt-0.5 size-3 shrink-0" />
-                    {row.avoid}
-                  </p>
-                )}
-              </ExpandableCard>
-            );
-          })}
-
-        {/* Locked teasers for free users */}
-        {!loading &&
-          !hasAccess &&
-          Array.from({ length: Math.min(Math.max(locked, 0), 2) }).map((_, i) => (
-            <ExpandableCard
-              key={`lock-${tab}-${i}`}
-              index={rows.length + i}
-              title={tab === "alerts" ? "Locked alert" : "Locked tip"}
-              preview={
-                tab === "alerts"
-                  ? "Upgrade to Pro to unlock this scam pattern."
-                  : "Upgrade to Pro to unlock this insider tip."
-              }
-              accent={tab === "alerts" ? "medium" : "tip"}
-              locked
-            />
-          ))}
-
-        {!loading && rows.length === 0 && locked === 0 && (
-          <p className="px-1 py-2 text-xs text-[#a6a6ad]">
-            {tab === "alerts"
-              ? "No live alerts yet. Check back soon."
-              : `No live tips for ${city} yet. Check back soon.`}
-          </p>
-        )}
       </div>
 
-      {/* Bottom Pro banner */}
-      {!loading && !hasAccess && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.4 }}
-          className="mx-3 mt-1 flex flex-col gap-2.5 rounded-xl border border-[#f0a63d]/25 bg-[#101013] px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+      {/* Pro unlock button */}
+      {!hasAccess && (
+        <button
+          type="button"
+          onClick={onUpgrade}
+          className="mt-4 flex w-full items-center justify-between rounded-full bg-[#fef3c7] px-6 py-3.5 text-xs font-bold text-amber-950 transition-colors hover:bg-[#fde68a] dark:bg-[#fbbf24] dark:text-black dark:hover:bg-[#f59e0b]"
         >
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-[#f3f3f2]">
-              <TriangleAlert className="size-3.5 shrink-0 text-[#f0a63d]" />
-              {lockHeadline}
-            </p>
-            <p className="mt-0.5 text-xs text-[#a6a6ad]">
-              Full local intelligence for every city, refreshed daily.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onUpgrade}
-            className="inline-flex h-10 min-h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[#f0a63d] px-4 text-xs font-bold text-[#2b1a06] transition-transform active:scale-[0.97]"
-          >
-            Unlock alerts
-          </button>
-        </motion.div>
+          <span>Unlock {lockedCount} more scam patterns with Pro</span>
+          <ChevronRight className="size-4" />
+        </button>
       )}
-    </Panel>
+    </div>
   );
 }

@@ -28,7 +28,7 @@ const BENEFITS = [
   "Every alert in the destination file",
   "Every insider tip, refreshed daily",
   "Weather, currency and money advice",
-  "Every city — no per-search limits",
+  "Every city — no free-tier limit",
 ];
 
 export default function UpgradeModal({ isOpen, onClose, city = "" }) {
@@ -57,7 +57,9 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
     }
 
     loadSubscription();
-    return () => { current = false; };
+    return () => {
+      current = false;
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -84,14 +86,22 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
     try {
       const response = await fetch("/api/billing/checkout", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ plan, destination: city }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || !body.checkoutUrl) throw new Error(body.error || "Checkout could not be started.");
+      if (!response.ok || !body.checkoutUrl)
+        throw new Error(body.error || "Checkout could not be started.");
       window.location.assign(body.checkoutUrl);
     } catch (checkoutError) {
-      setError(checkoutError instanceof Error ? checkoutError.message : "Checkout could not be started.");
+      setError(
+        checkoutError instanceof Error
+          ? checkoutError.message
+          : "Checkout could not be started."
+      );
       setBusyPlan("");
     }
   }
@@ -100,133 +110,175 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
     <AnimatePresence>
       {isOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-labelledby="upgrade-modal-title"
         >
+          {/* Backdrop */}
           <motion.div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/50 backdrop-blur-xs transition-colors dark:bg-black/75"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
             aria-hidden="true"
           />
+
+          {/* Modal Card */}
           <motion.div
-            className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0c] p-5 shadow-2xl sm:p-6"
-            initial={{ opacity: 0, y: 20, scale: 0.96 }}
+            className="relative z-10 w-full max-w-[480px] overflow-hidden rounded-[32px] border border-zinc-200/80 bg-white p-6 shadow-2xl transition-colors sm:p-8 dark:border-white/10 dark:bg-[#141418] dark:shadow-black/80"
+            initial={{ opacity: 0, y: 16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
-            transition={{ duration: 0.25 }}
+            exit={{ opacity: 0, y: 16, scale: 0.97 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             onClick={(event) => event.stopPropagation()}
           >
-            <button
-              type="button"
-              className="absolute right-4 top-4 z-10 rounded-full p-2 text-[#a6a6ad] hover:bg-white/10 hover:text-white"
-              onClick={onClose}
-              aria-label="Close upgrade modal"
-            >
-              <X className="size-5" />
-            </button>
+            {/* Top row: Badges on left, solid circular close button on right */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-8 items-center justify-center rounded-xl bg-[#fef3c7] text-[#d97706] dark:bg-[#332210] dark:text-[#fbbf24]">
+                  <Sparkles className="size-4" />
+                </div>
+                <div className="flex items-center gap-1 rounded-full bg-[#fef3c7] px-2.5 py-1 font-mono text-[11px] font-black uppercase tracking-wider text-[#d97706] dark:bg-[#332210] dark:text-[#fbbf24]">
+                  <span>PRO</span>
+                </div>
+              </div>
 
-            {/* Brand mark + Pro badge */}
-            <div className="flex items-center gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-[#f0a63d]/30 bg-[#1c1c21]">
-                <Sparkles className="size-5 text-[#f0a63d]" />
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-[#f0a63d]/40 bg-[rgba(240,166,61,0.14)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#f0a63d]">
-                <Sparkles className="size-3" aria-hidden="true" />
-                Pro
-              </span>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close upgrade modal"
+                className="flex size-8 items-center justify-center rounded-full bg-black text-white transition-opacity hover:opacity-80 dark:bg-[#202028] dark:text-white dark:hover:bg-[#2a2a34]"
+              >
+                <X className="size-4 stroke-[2.5]" />
+              </button>
             </div>
 
-            {/* Copy */}
-            <h2 id="upgrade-modal-title" className="mt-3 text-xl font-bold tracking-tight text-[#f3f3f2]">
+            {/* Title & Description */}
+            <h2
+              id="upgrade-modal-title"
+              className="mt-5 text-2xl font-black tracking-tight text-zinc-900 sm:text-[26px] dark:text-white"
+            >
               Every alert, every tip, every city.
             </h2>
-            <p className="mt-1 text-xs leading-relaxed text-[#a6a6ad]">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-500 sm:text-[13px] dark:text-zinc-400">
               Free covers the three highest-signal items. Pro opens the full
               local intelligence file, refreshed daily.
             </p>
-            {/* Benefits */}
-            <ul className="mt-3 space-y-1.5">
+
+            {/* Benefits Checklist */}
+            <ul className="mt-5 space-y-2.5">
               {BENEFITS.map((benefit) => (
-                <li key={benefit} className="flex items-center gap-2 text-xs text-[#a6a6ad]">
-                  <Check className="size-3.5 shrink-0 text-[#3ecf8e]" aria-hidden="true" />
-                  {benefit}
+                <li
+                  key={benefit}
+                  className="flex items-center gap-2.5 text-xs font-medium text-zinc-700 sm:text-sm dark:text-zinc-200"
+                >
+                  <Check className="size-4 shrink-0 stroke-[2.5] text-[#10b981]" />
+                  <span>{benefit}</span>
                 </li>
               ))}
             </ul>
 
-            {/* Plan selectors */}
-            <div className="mt-4 grid grid-cols-2 gap-2" role="group" aria-label="Choose a plan">
+            {/* Plan selection cards (2-column side by side) */}
+            <div
+              className="mt-6 grid grid-cols-2 gap-3"
+              role="group"
+              aria-label="Choose a plan"
+            >
               {PLANS.map((plan) => {
-                const on = selected === plan.key;
+                const isSelected = selected === plan.key;
                 return (
                   <button
                     key={plan.key}
                     type="button"
-                    aria-pressed={on}
+                    aria-pressed={isSelected}
                     onClick={() => setSelected(plan.key)}
-                    className={`relative flex min-h-[4.5rem] flex-col items-start rounded-xl border px-3 py-2.5 text-left transition-colors duration-200 ${
-                      on
-                        ? "border-[#f0a63d]/60 bg-[rgba(240,166,61,0.12)]"
-                        : "border-white/10 bg-[#141418] hover:border-white/20"
+                    className={`relative flex flex-col justify-between rounded-2xl p-4 text-left transition-all ${
+                      isSelected
+                        ? "border-2 border-red-400/90 bg-white shadow-xs dark:border-red-500/80 dark:bg-[#191920]"
+                        : "border border-zinc-200/90 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-[#16161b] dark:hover:border-white/20"
                     }`}
                   >
-                    <span className="flex w-full items-center justify-between">
-                      <span className={`text-xs font-semibold ${on ? "text-[#f3f3f2]" : "text-[#a6a6ad]"}`}>
-                        {plan.name}
-                      </span>
-                      {plan.badge && (
-                        <span className="rounded-full bg-[rgba(240,166,61,0.16)] px-1.5 font-mono text-[9px] text-[#f0a63d]">
-                          {plan.badge}
+                    <div>
+                      {/* Radio & Title row */}
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`flex size-3.5 shrink-0 items-center justify-center rounded-full transition-all ${
+                              isSelected
+                                ? "border-2 border-[#e5283b]"
+                                : "border border-zinc-300 dark:border-zinc-600"
+                            }`}
+                          >
+                            {isSelected && (
+                              <span className="size-1.5 rounded-full bg-[#e5283b]" />
+                            )}
+                          </span>
+                          <span className="text-xs font-bold text-zinc-900 dark:text-white">
+                            {plan.name}
+                          </span>
+                        </div>
+
+                        {plan.badge && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[9px] font-black uppercase text-amber-800 dark:bg-amber-950/70 dark:text-amber-400">
+                            {plan.badge}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Price */}
+                      <p className="mt-2.5 font-mono text-base font-black text-zinc-900 sm:text-lg dark:text-white">
+                        {plan.price}{" "}
+                        <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                          {plan.period}
                         </span>
-                      )}
-                    </span>
-                    <span className={`mt-0.5 font-mono text-lg font-bold ${on ? "text-[#f3f3f2]" : "text-[#a6a6ad]"}`}>
-                      {plan.price}
-                      <span className="ml-0.5 text-[10px] text-[#68686f]">{plan.period}</span>
-                    </span>
-                    <span className="mt-0.5 text-[10px] text-[#68686f]">{plan.note}</span>
-                    <span
-                      aria-hidden="true"
-                      className={`absolute end-2.5 top-2 size-3 rounded-full border ${
-                        on ? "border-[#f0a63d] bg-[#f0a63d]/25" : "border-white/20 bg-transparent"
-                      }`}
-                    />
+                      </p>
+                    </div>
+
+                    {/* Subtitle note */}
+                    <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+                      {plan.note}
+                    </p>
                   </button>
                 );
               })}
             </div>
 
             {error && (
-              <p role="alert" className="mt-2 flex items-center gap-1.5 text-xs text-[#f87b7b]">
+              <p
+                role="alert"
+                className="mt-3 text-center text-xs font-semibold text-red-600 dark:text-red-400"
+              >
                 {error}
               </p>
             )}
+
             {subscription?.plan === "annual" && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-[#3ecf8e]">
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                 <Check className="size-3.5" /> Your Annual plan is active.
               </p>
             )}
 
-            {/* CTA */}
+            {/* Primary CTA button */}
             <button
               type="button"
               disabled={Boolean(busyPlan)}
               aria-busy={busyPlan === activePlan.key}
               onClick={() => checkout(activePlan.key)}
-              className="mt-4 flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#f0a63d] text-sm font-bold text-[#2b1a06] transition-transform active:scale-[0.98]"
+              className="mt-6 flex h-12 w-full items-center justify-center rounded-full bg-black text-sm font-bold text-white shadow-md transition-all hover:bg-zinc-800 active:scale-[0.99] disabled:opacity-60 dark:border dark:border-white/20 dark:bg-black dark:hover:bg-zinc-900"
             >
-              {busyPlan === activePlan.key && <LoaderCircle className="size-4 animate-spin" />}
-              Unlock Pro — {activePlan.price}
+              {busyPlan === activePlan.key ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                `Unlock Pro — ${activePlan.price}`
+              )}
             </button>
 
-            <p className="mt-3 flex items-center justify-center gap-2 text-center text-[10px] text-[#68686f]">
-              <ShieldCheck className="size-3.5 text-[#3ecf8e]" aria-hidden="true" />
-              Secure checkout and access confirmation by Dodo Payments.
+            {/* Footer */}
+            <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-zinc-400 dark:text-zinc-500">
+              <ShieldCheck className="size-4 text-zinc-400 dark:text-zinc-500" />
+              <span>Secure checkout and access confirmation by Dodo Payments.</span>
             </p>
           </motion.div>
         </div>

@@ -1,15 +1,29 @@
 "use client";
 
 import { motion } from "framer-motion";
-import Link from "next/link";
 import { Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { openCommandMenu } from "@/components/ui/command-menu";
 import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { findKnownCity } from "@/lib/dashboard-data";
 
-export function Topbar({ city }) {
+function flagToCode(flag) {
+  const pts = [...String(flag || "")].map((ch) => ch.codePointAt(0));
+  if (
+    pts.length === 2 &&
+    pts[0] >= 0x1f1e6 &&
+    pts[0] <= 0x1f1ff &&
+    pts[1] >= 0x1f1e6 &&
+    pts[1] <= 0x1f1ff
+  ) {
+    return String.fromCharCode(pts[0] - 0x1f1e6 + 65, pts[1] - 0x1f1e6 + 65);
+  }
+  return "";
+}
+
+export function Topbar({ city, brief }) {
   const router = useRouter();
   const [searchCity, setSearchCity] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -17,8 +31,8 @@ export function Topbar({ city }) {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
-  // Get current user and avatar
   useEffect(() => {
     if (!supabase) return;
     (async () => {
@@ -36,7 +50,6 @@ export function Topbar({ city }) {
     })();
   }, []);
 
-  // Search cities when query changes
   useEffect(() => {
     const trimmed = searchCity.trim();
     if (trimmed.length < 2) {
@@ -67,16 +80,18 @@ export function Topbar({ city }) {
   }, [searchCity]);
 
   function handleSearch(e) {
-    e.preventDefault();
+    e?.preventDefault();
     const trimmed = searchCity.trim();
     if (!trimmed) return;
     setShowSuggestions(false);
+    setMobileSearchOpen(false);
     router.push(`/dashboard?city=${encodeURIComponent(trimmed)}&refresh=1`);
   }
 
   function handleCitySelect(cityItem) {
     setShowSuggestions(false);
     setSearchCity("");
+    setMobileSearchOpen(false);
     router.push(
       `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}&refresh=1`
     );
@@ -92,117 +107,154 @@ export function Topbar({ city }) {
         .slice(0, 2);
     }
     if (user?.email) {
-      return user.email[0].toUpperCase();
+      return user.email.slice(0, 2).toUpperCase();
     }
-    return "U";
+    return "AR";
   }
 
+  const meta = findKnownCity(city);
+  const countryCode = (
+    brief?.country_code ||
+    flagToCode(meta?.flag) ||
+    (city.toLowerCase().includes("bali") ? "ID" : "TH")
+  ).toUpperCase();
+
+  const displayName = brief?.city
+    ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
+    : meta?.name || city;
+
   return (
-    <motion.header
-      initial={{ y: -32, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-      className="dashboard-topbar sticky top-0 z-50 border-b border-white/10 bg-[#0a0a0c]/85 backdrop-blur-md"
-    >
-      <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3.5 sm:gap-5 sm:px-6 lg:px-10">
-        <Link
-          href="/"
-          className="dashboard-brand hidden shrink-0 text-sm font-bold tracking-tight transition-opacity hover:opacity-80 sm:block"
-        >
-          TravelRadar
-        </Link>
+    <header className="sticky top-0 z-40 w-full border-b border-[#e8e6df]/80 bg-[#f7f6f2]/90 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/90">
+      <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
+        {/* Mobile top status row */}
+        <div className="flex items-center justify-between sm:hidden">
+          <div className="flex items-center gap-2">
+            <span className="live-dot" />
+            <span className="font-mono text-[11px] font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
+              LIVE RADAR
+            </span>
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+              2m ago
+            </span>
+          </div>
 
-        {/* Search with city disambiguation */}
-        <div className="relative min-w-0 flex-1">
-          <form
-            onSubmit={handleSearch}
-            className="dashboard-search group flex min-w-0 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 transition-colors hover:border-white/20 hover:bg-white/[0.07] focus-within:border-white/20 focus-within:bg-white/[0.07]"
-          >
-            <Search className="size-3.5 shrink-0 text-[#68686f] transition-colors group-hover:text-[#a6a6ad]" />
-            <input
-              type="text"
-              value={searchCity}
-              onChange={(e) => setSearchCity(e.target.value)}
-              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-              placeholder="Search a city..."
-              aria-label="Search city"
-              className="min-w-0 flex-1 bg-transparent text-sm text-[#f3f3f2] outline-none placeholder:text-[#68686f]"
-            />
-            {loading && (
-              <div className="size-3.5 animate-spin rounded-full border border-white/20 border-t-[#5b9dee]" />
-            )}
+          <div className="flex items-center gap-2.5">
             <button
-              type="submit"
-              className="hidden shrink-0 text-xs font-medium text-[#5b9dee] hover:text-[#7aaff2] sm:block"
+              type="button"
+              onClick={() => setMobileSearchOpen((v) => !v)}
+              aria-label="Search destination"
+              className="flex size-8 items-center justify-center rounded-full border border-zinc-200/80 bg-white text-zinc-600 transition-colors dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-300"
             >
-              Search
+              <Search className="size-4" />
             </button>
-          </form>
-
-          {/* City Suggestions Dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-[#141417] shadow-xl shadow-black/40">
-              <div className="p-1.5">
-                {suggestions.length > 1 && (
-                  <p className="px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#68686f]">
-                    Multiple cities found — select one
-                  </p>
-                )}
-                {suggestions.map((cityItem, index) => (
-                  <button
-                    key={`${cityItem.name}-${cityItem.country}-${index}`}
-                    type="button"
-                    onMouseDown={() => handleCitySelect(cityItem)}
-                    className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/[0.08]"
-                  >
-                    <span className="text-lg">{cityItem.flag || "🌍"}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-[#f3f3f2]">
-                        {cityItem.name}
-                      </p>
-                      <p className="truncate text-xs text-[#68686f]">
-                        {cityItem.country}
-                        {cityItem.admin1 ? ` · ${cityItem.admin1}` : ""}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Command palette trigger — keyboard-first search */}
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label="Open command menu"
-          className="hidden shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1.5 transition-colors hover:border-white/20 hover:bg-white/[0.07] sm:flex"
-        >
-          <kbd className="inline-flex h-5 select-none items-center rounded border border-white/10 bg-white/[0.06] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
-            ⌘
-          </kbd>
-          <kbd className="inline-flex h-5 select-none items-center rounded border border-white/10 bg-white/[0.06] px-1.5 font-mono text-[10px] text-[#a6a6ad]">
-            K
-          </kbd>
-        </button>
-
-        <motion.div whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.94 }}>
-          <Link
-            href="/profile"
-            aria-label="Open profile"
-            className="block"
-          >
-            <Avatar size="sm" className="border border-[#e5484a]/40">
-              <AvatarImage src={avatarUrl} alt="User avatar" />
-              <AvatarFallback className="bg-[#e5484a]/15 text-[#e5484a] text-xs font-semibold">
+            <Avatar size="sm" className="border border-red-200 dark:border-red-900/60">
+              <AvatarImage src={avatarUrl} alt="Avatar" />
+              <AvatarFallback className="bg-[#e5283b] text-[11px] font-black text-white">
                 {getInitials()}
               </AvatarFallback>
             </Avatar>
-          </Link>
-        </motion.div>
+          </div>
+        </div>
+
+        {/* Mobile search bar dropdown if toggled */}
+        {mobileSearchOpen && (
+          <form onSubmit={handleSearch} className="mt-3 sm:hidden">
+            <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 dark:border-white/15 dark:bg-[#16161b]">
+              <Search className="size-4 text-zinc-400" />
+              <input
+                type="text"
+                autoFocus
+                value={searchCity}
+                onChange={(e) => setSearchCity(e.target.value)}
+                placeholder="Search destinations..."
+                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+              />
+            </div>
+          </form>
+        )}
+
+        {/* Main Desktop & Tablet bar row */}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 sm:mt-0">
+          {/* Destination heading & Country code pill */}
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-black tracking-tight text-zinc-900 sm:text-2xl lg:text-3xl dark:text-white">
+              {displayName}
+            </h1>
+            <span className="rounded-full border border-red-200/80 bg-red-50 px-2 py-0.5 font-mono text-[10px] font-black uppercase text-[#e5283b] dark:border-red-900/50 dark:bg-[#351215] dark:text-[#f87171]">
+              {countryCode}
+            </span>
+          </div>
+
+          {/* Center search (visible on desktop) */}
+          <div className="relative hidden flex-1 max-w-md mx-4 lg:block">
+            <form
+              onSubmit={handleSearch}
+              className="flex items-center gap-2.5 rounded-full border border-zinc-200/90 bg-white px-4 py-2 shadow-2xs transition-colors hover:border-zinc-300 dark:border-white/10 dark:bg-[#16161b]"
+            >
+              <Search className="size-4 text-zinc-400 dark:text-zinc-500" />
+              <input
+                type="text"
+                value={searchCity}
+                onChange={(e) => setSearchCity(e.target.value)}
+                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                placeholder="Search destinations..."
+                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+              />
+              {loading && (
+                <div className="size-3.5 animate-spin rounded-full border border-red-500 border-t-transparent" />
+              )}
+            </form>
+
+            {/* Suggestions list */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#16161b]">
+                {suggestions.map((item, idx) => (
+                  <button
+                    key={`${item.name}-${idx}`}
+                    type="button"
+                    onMouseDown={() => handleCitySelect(item)}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-zinc-800 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-white/5"
+                  >
+                    <span>{item.flag || "🌍"}</span>
+                    <span className="font-semibold">{item.name}</span>
+                    <span className="text-zinc-400">· {item.country}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right desktop actions */}
+          <div className="hidden items-center gap-4 sm:flex">
+            <button
+              type="button"
+              onClick={openCommandMenu}
+              aria-label="Open command palette"
+              className="flex items-center gap-1.5 text-zinc-500 transition-colors hover:text-zinc-900 lg:hidden dark:text-zinc-400 dark:hover:text-white"
+            >
+              <Search className="size-4" />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <span className="live-dot" />
+              <span className="font-mono text-xs font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
+                LIVE RADAR
+              </span>
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                2m ago
+              </span>
+            </div>
+
+            <Avatar size="sm" className="border border-red-200 dark:border-red-900/60">
+              <AvatarImage src={avatarUrl} alt="Avatar" />
+              <AvatarFallback className="bg-[#e5283b] text-xs font-black text-white">
+                {getInitials()}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+        </div>
       </div>
-    </motion.header>
+    </header>
   );
 }

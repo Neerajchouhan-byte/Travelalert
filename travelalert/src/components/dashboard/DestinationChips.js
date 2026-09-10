@@ -1,79 +1,76 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import { cities } from "@/lib/dashboard-data";
-
-const CITY_CODE_MAP = {
-  Bangkok: "th",
-  Bali: "id",
-  Hanoi: "vn",
-  Tokyo: "jp",
-  "Siem Reap": "kh",
-  Rome: "it",
-  Barcelona: "es",
-  "Kuala Lumpur": "my",
-  Singapore: "sg",
-  Prague: "cz",
-  Kathmandu: "np",
-  Colombo: "lk",
-};
 
 export function DestinationChips({ active }) {
   const router = useRouter();
 
+  const defaultCities = [
+    { flag: "🇮🇩", name: "Bali", score: "7.1", arrow: "up" },
+    { flag: "🇸🇬", name: "Singapore", score: "9.4", arrow: "right" },
+    { flag: "🇯🇵", name: "Tokyo", score: "9.1", arrow: "down" },
+    { flag: "🇹🇭", name: "Bangkok", score: "6.8", arrow: "up" },
+    { flag: "🇻🇳", name: "Hanoi", score: "6.2", arrow: "right" },
+    { flag: "🇵🇭", name: "Manila", score: "5.9", arrow: "down" },
+  ];
+
+  const cityList = cities.length > 0 ? cities : defaultCities;
+
+  const renderArrow = (direction) => {
+    if (direction === "up") return <ArrowUpRight className="size-3.5" />;
+    if (direction === "down") return <ArrowDownRight className="size-3.5" />;
+    return <ArrowRight className="size-3.5" />;
+  };
+
   return (
-    <div
-      role="tablist"
-      aria-label="Switch destination"
-      className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1"
-    >
-      {cities.map((city) => {
-        const isActive =
-          city.name.toLowerCase() === String(active || "").toLowerCase();
-        const code = CITY_CODE_MAP[city.name] || "un";
-        const circleFlagUrl = `https://hatscripts.github.io/circle-flags/flags/${code}.svg`;
+    <div className="w-full">
+      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+        Destinations
+      </p>
 
-        const scoreTone =
-          city.tone === "good"
-            ? "bg-[rgba(62,207,142,0.16)] text-[#3ecf8e]"
-            : "bg-[rgba(240,166,61,0.16)] text-[#f0a63d]";
+      <div
+        role="tablist"
+        aria-label="Switch destination"
+        className="no-scrollbar flex items-center gap-2.5 overflow-x-auto pb-1"
+      >
+        {cityList.map((c) => {
+          const isActive =
+            c.name.toLowerCase() === String(active || "").toLowerCase();
+          const arrowDir =
+            c.arrow ||
+            (parseFloat(c.score) >= 7.5
+              ? "up"
+              : parseFloat(c.score) >= 6.5
+                ? "right"
+                : "down");
 
-        return (
-          <button
-            key={city.name}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() =>
-              router.push(`/dashboard?city=${encodeURIComponent(city.name)}`)
-            }
-            className={`inline-flex h-9 min-h-9 shrink-0 select-none items-center gap-2 whitespace-nowrap rounded-full px-3 text-xs font-semibold transition-colors duration-200 ${
-              isActive
-                ? "border border-[#f0a63d]/60 bg-[rgba(240,166,61,0.14)] text-[#f3f3f2]"
-                : "border border-white/10 bg-[#141418] text-[#a6a6ad] hover:border-white/20 hover:text-[#f3f3f2]"
-            }`}
-          >
-            {/* Real Circular Flag Icon */}
-            <img
-              src={circleFlagUrl}
-              alt=""
-              className="size-4 shrink-0 rounded-full object-cover"
-              loading="lazy"
-            />
-            <span>{city.name}</span>
-            {isActive ? (
-              <span className="flex items-center gap-1 text-[#f0a63d] font-mono text-[10px]">
-                <span className="size-1.5 rounded-full bg-[#f0a63d] animate-pulse" />
-                LIVE
+          return (
+            <button
+              key={c.name}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() =>
+                router.push(`/dashboard?city=${encodeURIComponent(c.name)}`)
+              }
+              className={`inline-flex h-9 shrink-0 select-none items-center gap-2 whitespace-nowrap rounded-full px-4 text-xs font-bold transition-all duration-150 ${
+                isActive
+                  ? "bg-[#e5283b] text-white shadow-sm dark:bg-[#c0262d]"
+                  : "border border-zinc-200/90 bg-white text-zinc-800 shadow-2xs hover:bg-zinc-50 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-300 dark:hover:bg-white/5"
+              }`}
+            >
+              <span aria-hidden="true" className="text-sm leading-none">
+                {c.flag}
               </span>
-            ) : (
-              <span className={`rounded-full px-1.5 font-mono text-[10px] ${scoreTone}`}>
-                {city.score}
-              </span>
-            )}
-          </button>
-        );
-      })}
+              <span>{c.name}</span>
+              <span className="font-mono text-xs font-semibold">{c.score}</span>
+              <span className="opacity-80">{renderArrow(arrowDir)}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
