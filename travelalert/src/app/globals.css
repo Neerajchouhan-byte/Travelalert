@@ -32,31 +32,29 @@
   --mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c0c0e;
-    --bg-soft: #141418;
-    --surface: #16161b;
-    --surface-inner: #16161b;
-    --surface-inner-2: #1c1c22;
-    --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.15);
-    --text: #f4f4f5;
-    --text-dim: #9ca3af;
-    --text-faint: #6b7280;
-    --accent: #e5283b;
-    --accent-soft: rgba(229, 72, 74, 0.18);
-    --accent-line: rgba(229, 72, 74, 0.45);
-    --safe: #3ecf8e;
-    --safe-soft: rgba(62, 207, 142, 0.14);
-    --safe-line: rgba(62, 207, 142, 0.35);
-    --warning: #f0a63d;
-    --warning-soft: rgba(240, 166, 61, 0.14);
-    --warning-line: rgba(240, 166, 61, 0.35);
-    --info: #5b9dee;
-    --info-soft: rgba(91, 157, 238, 0.14);
-    --info-line: rgba(91, 157, 238, 0.35);
-  }
+html.dark {
+  --bg: #0c0c0e;
+  --bg-soft: #141418;
+  --surface: #16161b;
+  --surface-inner: #16161b;
+  --surface-inner-2: #1c1c22;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --text: #f4f4f5;
+  --text-dim: #9ca3af;
+  --text-faint: #6b7280;
+  --accent: #e5283b;
+  --accent-soft: rgba(229, 72, 74, 0.18);
+  --accent-line: rgba(229, 72, 74, 0.45);
+  --safe: #3ecf8e;
+  --safe-soft: rgba(62, 207, 142, 0.14);
+  --safe-line: rgba(62, 207, 142, 0.35);
+  --warning: #f0a63d;
+  --warning-soft: rgba(240, 166, 61, 0.14);
+  --warning-line: rgba(240, 166, 61, 0.35);
+  --info: #5b9dee;
+  --info-soft: rgba(91, 157, 238, 0.14);
+  --info-line: rgba(91, 157, 238, 0.35);
 }
 
 html {
@@ -305,27 +303,27 @@ a {
       linear-gradient(180deg, #fbfaf8 0%, var(--bg) 42rem);
   }
 
-  .grad {
+    & .grad {
     background: linear-gradient(90deg, #17171b, #696a70);
   }
-  .btn-primary {
+ & .btn-primary {
     color: #fff;
     background: #17171b;
   }
-  .btn-primary .icw {
+  & .btn-primary .icw {
     background: rgba(255, 255, 255, 0.16);
   }
-  .nav-island {
+  & .nav-island {
     background: rgba(255, 255, 255, 0.78);
     box-shadow: 0 12px 35px rgba(25, 25, 30, 0.1);
   }
-  .nav-links {
+  & .nav-links {
     color: var(--text-dim);
   }
-  .nav-links.open {
+&  .nav-links.open {
     background: rgba(255, 255, 255, 0.96);
   }
-  .radar-core,
+ &  .radar-core,
   .blip .lbl,
   .signal-chart-panel,
   .command-dialog,
@@ -333,10 +331,10 @@ a {
   .signal-feature {
     background-color: rgba(255, 255, 255, 0.88);
   }
-  .radar-sweep {
+  & .radar-sweep {
     opacity: 0.7;
   }
-  .p-card.pop {
+ &  .p-card.pop {
     background:
       linear-gradient(160deg, rgba(229, 72, 74, 0.13), transparent 62%),
       #fff5f2;

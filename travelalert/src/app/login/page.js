@@ -87,15 +87,18 @@ function LoginContent() {
     setMessage("");
     if (!supabase) return setError("Authentication is not configured.");
     setBusy(true);
-    const origin = window.location.origin;
-    const callback = new URL("/auth/callback", origin);
-    if (city) callback.searchParams.set("city", city);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: callback.toString() },
-    });
-    if (error) {
-      setError(error.message);
+    try {
+      const origin = window.location.origin;
+      const callback = new URL("/auth/callback", origin);
+      if (city) callback.searchParams.set("city", city);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: callback.toString() },
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error("[Auth] Google sign-in failed:", err);
+      setError(err?.message || "Google sign-in could not be started.");
       setBusy(false);
     }
   }
@@ -103,17 +106,54 @@ function LoginContent() {
   async function handleTwitterAuth() {
     setError("");
     setMessage("");
-    if (!supabase) return setError("Authentication is not configured.");
+    if (!supabase) {
+      setError("Authentication is not configured.");
+      return;
+    }
+
     setBusy(true);
-    const origin = window.location.origin;
-    const callback = new URL("/auth/callback", origin);
-    if (city) callback.searchParams.set("city", city);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "twitter",
-      options: { redirectTo: callback.toString() },
-    });
-    if (error) {
-      setError(error.message);
+    try {
+      const origin = window.location.origin;
+      const callback = new URL("/auth/callback", origin);
+      if (city) callback.searchParams.set("city", city);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "twitter",
+        options: {
+          redirectTo: callback.toString(),
+          // X's OAuth 2.0 requires these scopes to fetch the user's email and
+          // profile. Supabase requests them by default, but listing them here
+          // makes the intent explicit and matches X's developer portal config.
+          scopes: "users.read tweet.read",
+        },
+      });
+
+      if (error) {
+        // Most common errors from Supabase for this provider:
+        //   - "Unsupported provider: provider is not enabled"
+        //     → Twitter provider isn't turned on in Supabase Auth settings.
+        //   - "Invalid redirect URL" / "Redirect URL not allowed"
+        //     → the app's /auth/callback URL isn't in Supabase's Redirect URLs list.
+        console.error("[Auth] X sign-in failed:", error);
+        throw error;
+      }
+
+      // The browser client auto-redirects on success, so this only fires if
+      // Supabase returned a URL without redirecting (e.g., a fetch/SSR client
+      // was used by mistake). Falling back to manual navigation keeps the flow
+      // working instead of leaving the button stuck on "Working...".
+      if (data?.url && typeof window !== "undefined") {
+        window.location.assign(data.url);
+        return;
+      }
+
+      // If neither the SDK redirect nor a manual fallback happened, reset and
+      // surface a clear message so the user is not stuck on a disabled button.
+      setBusy(false);
+      setError("X sign-in could not be started. Please try again.");
+    } catch (err) {
+      console.error("[Auth] X sign-in threw:", err);
+      setError(err?.message || "X sign-in could not be started.");
       setBusy(false);
     }
   }
@@ -184,7 +224,7 @@ function LoginContent() {
   return (
     <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col lg:grid lg:grid-cols-12">
-        
+
         {/* Left Hero Column (Desktop/Tablet) */}
         <div className="hidden flex-col justify-between p-8 sm:p-12 lg:col-span-6 lg:flex lg:p-16">
           {/* Logo */}
@@ -214,7 +254,7 @@ function LoginContent() {
         {/* Right Auth Column (Desktop & Mobile) */}
         <div className="flex flex-1 items-center justify-center p-6 sm:p-10 lg:col-span-6 lg:p-16">
           <div className="w-full max-w-[420px]">
-            
+
             {/* Header copy */}
             <div>
               <span className="font-mono text-xs font-bold uppercase tracking-widest text-[#e5283b] dark:text-[#f87171]">

@@ -7,7 +7,6 @@ import { adminDb } from "@/lib/supabase-admin";
 import { fillIntel } from "@/lib/seed-intel";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
-// Apify's synchronous actor can take around 80 seconds on a cold start.
 export const maxDuration = 180;
 
 function monthKey() {
@@ -15,9 +14,88 @@ function monthKey() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-// Rate limiting map: tracks [userId_city] -> lastRefreshTimestamp
+function dayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ---- Rate limits ----
+
+// Per-user + city cooldown between forced live scrapes.
 const refreshCooldowns = new Map();
-const COOLDOWN_MS = 3 * 60 * 1000; // 3-minute cooldown between forced live scrapes
+const COOLDOWN_MS = 3 * 60 * 1000;
+
+// Per-user daily cap on fresh live scrapes.
+const dailyFreshCounts = new Map();
+const DAILY_FRESH_LIMIT_FREE = 1;
+const DAILY_FRESH_LIMIT_PAID = 20;
+
+// ---- In-flight pipeline dedupe ----
+// Prevents concurrent requests for the same city from both running the
+// expensive Serper + Gemini pipeline. The second request awaits the first.
+const inFlightPipelines = new Map();
+
+function evictOldest(map, count) {
+  const iter = map.keys();
+  for (let i = 0; i < count; i++) {
+    const k = iter.next().value;
+    if (k === undefined) break;
+    map.delete(k);
+  }
+}
+
+function checkFreshQuota(userId, hasAccess) {
+  const key = `${userId}_${dayKey()}`;
+  const limit = hasAccess ? DAILY_FRESH_LIMIT_PAID : DAILY_FRESH_LIMIT_FREE;
+  const current = dailyFreshCounts.get(key) || 0;
+  if (current >= limit) return { ok: false, remaining: 0, limit };
+  if (dailyFreshCounts.size > 5000) evictOldest(dailyFreshCounts, 1000);
+  return { ok: true, remaining: limit - current - 1, limit };
+}
+
+function recordFreshUse(userId) {
+  const key = `${userId}_${dayKey()}`;
+  dailyFreshCounts.set(key, (dailyFreshCounts.get(key) || 0) + 1);
+}
+
+async function runPipelineOnce(city) {
+  const key = city.toLowerCase();
+  const existing = inFlightPipelines.get(key);
+  if (existing) {
+    console.info(`[Briefing] Joining in-flight pipeline for ${city}`);
+    return existing;
+  }
+  console.info(`[Briefing] Starting pipeline for ${city}`);
+  const promise = organizeCity(city).finally(() => {
+    inFlightPipelines.delete(key);
+  });
+  inFlightPipelines.set(key, promise);
+  return promise;
+}
+
+function buildCachedPayload(city, cached, extras = {}) {
+  return {
+    city,
+    alerts: cached.alerts,
+    tips: cached.tips,
+    source: "cache",
+    fetchedAt: cached.fetchedAt || null,
+    error: null,
+    ...extras,
+  };
+}
+
+function buildSeedPayload(city, extras = {}) {
+  const filled = fillIntel(city, [], []);
+  return {
+    city,
+    alerts: filled.alerts,
+    tips: filled.tips,
+    source: "seed",
+    fetchedAt: null,
+    error: null,
+    ...extras,
+  };
+}
 
 export async function GET(request) {
   const profile = await getRequestProfile(request);
@@ -27,14 +105,10 @@ export async function GET(request) {
 
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
-  let forceRefresh = url.searchParams.get("refresh") === "1";
+  const forceRefresh = url.searchParams.get("refresh") === "1";
 
-  // 1. Resolve and normalize city name FIRST
   let city = resolveCity(rawCity);
-  if (!city) {
-    city = normalizeCity(rawCity);
-  }
-
+  if (!city) city = normalizeCity(rawCity);
   if (!city) {
     return Response.json(
       {
@@ -47,65 +121,23 @@ export async function GET(request) {
     );
   }
 
-  // 2. Billing state — needed for both the Pro refresh gate AND the plan slice.
-  //    Compute this BEFORE the rate-limit block so we can gate force-refresh.
-  let billingState = {
-    subscription: null,
-    tripPass: null,
-    destinationPacks: [],
-  };
+  // ---- Billing state ----
+  let billingState = { subscription: null, tripPass: null };
   try {
     billingState = await getBillingState(profile.user.id);
   } catch (err) {
-    // Billing must never take the dashboard down — fall back to free plan.
     console.error("billing state failed:", err?.message || err);
   }
-  const hasAccess = hasBillingAccess(billingState, city);
+  const hasAccess = hasBillingAccess(billingState);
   const effectivePlan = hasAccess
     ? billingState.subscription?.plan_key === "annual"
       ? "annual"
       : billingState.tripPass
         ? "trip_pass"
-        : "destination_pack"
+        : "free"
     : "free";
 
-  // 3. Pro gate: force-refresh is a paid capability.
-  //    Free users always get the cache, regardless of what they request.
-  if (forceRefresh && !hasAccess) {
-    console.info(
-      `[Briefing] Free user force-refresh blocked (user=${profile.user.id}, city=${city}). Serving cache.`,
-    );
-    forceRefresh = false;
-  }
-
-  // 4. DEFENSIVE RATE LIMIT: Prevent API abuse.
-  //    Only paid users reach here because force-refresh was gated above.
-  if (forceRefresh) {
-    const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
-    const lastRefresh = refreshCooldowns.get(rateKey) || 0;
-    const now = Date.now();
-
-    if (now - lastRefresh < COOLDOWN_MS) {
-      console.warn(
-        `[AntiSpam] Cooldown active for user ${profile.user.id} on ${city}. Serving cache.`,
-      );
-      forceRefresh = false;
-    } else {
-      refreshCooldowns.set(rateKey, now);
-      if (refreshCooldowns.size > 2000) {
-        // Bounded eviction (FIX 9) — never wipe the whole map on overflow.
-        const toRemove = Math.floor(refreshCooldowns.size * 0.2);
-        const iter = refreshCooldowns.keys();
-        for (let i = 0; i < toRemove; i++) {
-          const k = iter.next().value;
-          if (k === undefined) break;
-          refreshCooldowns.delete(k);
-        }
-      }
-    }
-  }
-
-  // 5. Free-tier monthly limit: 3 distinct cities per calendar month.
+  // ---- Free-tier monthly city limit ----
   const month = monthKey();
   const searched =
     profile.search_month === month ? profile.searched_cities || [] : [];
@@ -131,68 +163,117 @@ export async function GET(request) {
     );
   }
 
-  let payload;
-  const cached = forceRefresh ? null : await getFreshCache(city);
+  // ---- Cache lookup (always first) ----
+  const cached = await getFreshCache(city);
   console.info("briefing.request", {
     city,
     forceRefresh,
     cache: cached ? "hit" : "miss",
   });
 
-  // Try cache first if it has enough data
-  if (
+  const cacheUsable =
     cached &&
     (cached.alerts || []).length >= 4 &&
-    (cached.tips || []).length >= 3
-  ) {
-    console.info("briefing.source", { city, source: "cache" });
-    payload = {
-      city,
-      alerts: cached.alerts,
-      tips: cached.tips,
-      source: "cache",
-      fetchedAt: cached.fetchedAt || null,
-    };
-  } else {
-    console.info("briefing.source", { city, source: "organize-live-pipeline" });
-    // Try to get live data from organizeCity (uses AI + Reddit)
-    const org = await organizeCity(city);
+    (cached.tips || []).length >= 3;
 
-    // If organizeCity returned enough data, use it
-    if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
-      payload = {
-        city,
-        alerts: org.alerts,
-        tips: org.tips,
-        source: org.source || "live",
-        fetchedAt: new Date().toISOString(),
-        error: org.error,
-      };
-      // Cache only real briefings — generic seed fallbacks must not stick in
-      // the 24h cache, or every search for that city would serve the same
-      // placeholder content even after live data becomes available.
-      // Cache any real live intelligence so next time it loads in 30ms
-      if (
-        payload.source !== "seed" &&
-        (payload.alerts?.length > 0 || payload.tips?.length > 0)
-      ) {
-        await saveCache(city, payload);
-      }
+  let payload;
+  let freshLimitInfo = null;
+
+  if (cacheUsable && !forceRefresh) {
+    // Cache hit — serve immediately, no pipeline.
+    console.info("briefing.source", { city, source: "cache" });
+    payload = buildCachedPayload(city, cached);
+  } else if (!forceRefresh) {
+    // Cold miss, no explicit refresh — seed only, no live scrape.
+    console.info("briefing.source", { city, source: "seed-cold" });
+    payload = buildSeedPayload(city);
+  } else {
+    // Explicit refresh — check daily quota, then cooldown, then run.
+    const quota = checkFreshQuota(profile.user.id, hasAccess);
+    if (!quota.ok) {
+      console.info(
+        `[Briefing] Fresh quota exhausted for ${profile.user.id} (limit ${quota.limit})`,
+      );
+      const reason = hasAccess
+        ? `Daily fresh-search limit reached (${quota.limit}/day). Serving cached data.`
+        : "Fresh searches are a paid feature. Upgrade to Trip Pass or Annual to refresh.";
+      payload = cacheUsable
+        ? buildCachedPayload(city, cached, {
+            refreshBlocked: true,
+            refreshBlockedReason: reason,
+          })
+        : buildSeedPayload(city, {
+            refreshBlocked: true,
+            refreshBlockedReason: reason,
+          });
+      freshLimitInfo = { remaining: 0, limit: quota.limit };
     } else {
-      // Use city-specific seed data as fallback - fillIntel ensures we always
-      // have enough destination-specific alerts and tips.
-      const filled = fillIntel(city, org.alerts || [], org.tips || []);
-      payload = {
-        city,
-        alerts: filled.alerts,
-        tips: filled.tips,
-        source: "seed",
-        fetchedAt: new Date().toISOString(),
-        error: org.error || null,
-      };
+      const rateKey = `${profile.user.id}_${city.toLowerCase()}`;
+      const lastRefresh = refreshCooldowns.get(rateKey) || 0;
+      const now = Date.now();
+
+      if (now - lastRefresh < COOLDOWN_MS) {
+        console.warn(
+          `[AntiSpam] Cooldown active for ${profile.user.id} on ${city}.`,
+        );
+        const reason =
+          "Just refreshed. Please wait a few minutes before refreshing again.";
+        payload = cacheUsable
+          ? buildCachedPayload(city, cached, {
+              refreshBlocked: true,
+              refreshBlockedReason: reason,
+            })
+          : buildSeedPayload(city, {
+              refreshBlocked: true,
+              refreshBlockedReason: reason,
+            });
+      } else {
+        refreshCooldowns.set(rateKey, now);
+        if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
+        recordFreshUse(profile.user.id);
+
+        let org;
+        try {
+          org = await runPipelineOnce(city);
+        } catch (err) {
+          console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+          org = {
+            alerts: [],
+            tips: [],
+            source: "seed",
+            error: err.message,
+          };
+        }
+
+        if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+          payload = {
+            city,
+            alerts: org.alerts,
+            tips: org.tips,
+            source: org.source || "live",
+            fetchedAt: new Date().toISOString(),
+            error: org.error,
+          };
+          if (payload.source !== "seed") {
+            await saveCache(city, payload);
+          }
+        } else {
+          const filled = fillIntel(city, org.alerts || [], org.tips || []);
+          payload = {
+            city,
+            alerts: filled.alerts,
+            tips: filled.tips,
+            source: "seed",
+            fetchedAt: new Date().toISOString(),
+            error: org.error || null,
+          };
+        }
+        freshLimitInfo = { remaining: quota.remaining, limit: quota.limit };
+      }
     }
   }
 
+  // ---- Free-tier counter write ----
   if (!hasAccess) {
     const { error: profileUpdateError } = await adminDb()
       .from("profiles")
@@ -214,8 +295,6 @@ export async function GET(request) {
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
 
-  // Destination-specific safety score: curated when available, otherwise
-  // estimated from the full high/medium signal mix in the payload.
   const curated = findKnownCity(payload.city) || findKnownCity(city);
   const safety = curated
     ? curated.safety
@@ -233,5 +312,9 @@ export async function GET(request) {
     plan: effectivePlan,
     safety,
     searchesLeft: hasAccess ? null : Math.max(0, 3 - distinctCount),
+    refreshBlocked: payload.refreshBlocked || false,
+    refreshBlockedReason: payload.refreshBlockedReason || null,
+    freshRemaining: freshLimitInfo ? freshLimitInfo.remaining : null,
+    freshLimit: freshLimitInfo ? freshLimitInfo.limit : null,
   });
 }

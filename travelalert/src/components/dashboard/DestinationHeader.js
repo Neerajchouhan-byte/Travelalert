@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Clock, DollarSign, MapPin, Maximize2 } from "lucide-react";
+import { Check, Clock, DollarSign, MapPin, RefreshCw } from "lucide-react";
 import { buildDestinationMeta } from "@/lib/dashboard-data";
 
 function tzMinutes(tz) {
@@ -28,7 +28,14 @@ function useLocalTime(tz) {
   return time;
 }
 
-export function DestinationHeader({ city, brief, alerts = [], safety }) {
+export function DestinationHeader({
+  city,
+  brief,
+  alerts = [],
+  safety,
+  onRefresh,
+  refreshing = false,
+}) {
   const d = buildDestinationMeta(city, brief);
   const localTime = useLocalTime(d.tz);
 
@@ -61,16 +68,21 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
 
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#e5283b] via-[#dc2235] to-[#c7182a] p-6 text-white shadow-lg sm:p-7 dark:border dark:border-red-900/40 dark:from-[#4a1824] dark:via-[#3b121c] dark:to-[#280b13]">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-white/80 dark:text-rose-200/80">
           SAFETY OVERVIEW
         </span>
         <button
           type="button"
-          aria-label="Expand overview"
-          className="text-white/70 transition-colors hover:text-white"
+          onClick={onRefresh}
+          disabled={refreshing}
+          aria-label="Refresh live intel"
+          className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-white/25 disabled:opacity-60 dark:bg-white/10 dark:hover:bg-white/20"
         >
-          <Maximize2 className="size-4" />
+          <RefreshCw
+            className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+          <span>{refreshing ? "Refreshing" : "Refresh"}</span>
         </button>
       </div>
 

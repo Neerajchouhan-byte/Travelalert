@@ -21,10 +21,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 const dashboardCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
-// Prevent cross-user cache leakage: drop every cached briefing when the
-// signed-in user changes (sign-out). The next sign-in on this browser then
-// starts with an empty cache and cannot read the previous user's plan,
-// locked-alert counts, or alerts.
 if (supabase) {
   supabase.auth.onAuthStateChange((event) => {
     if (event === "SIGNED_OUT") {
@@ -77,6 +73,7 @@ function DashboardContent() {
     () => searchParams.get("upgrade") === "true",
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState("");
 
   useEffect(() => {
     if (searchParams.get("billing") !== "success") return;
@@ -122,6 +119,7 @@ function DashboardContent() {
   async function handleRefresh() {
     if (refreshing || loading) return;
     setRefreshing(true);
+    setRefreshNotice("");
 
     try {
       const headers = await getAuthHeaders();
@@ -137,8 +135,18 @@ function DashboardContent() {
         setLockedAlerts(bData.lockedAlerts || 0);
         setLockedTips(bData.lockedTips || 0);
         setPlan(bData.plan || "free");
-        setSource("live");
+        setSource(bData.source || "live");
         if (bData.safety) setSafety(String(bData.safety));
+
+        if (bData.refreshBlocked) {
+          setRefreshNotice(bData.refreshBlockedReason || "Refresh blocked.");
+        } else if (bData.freshRemaining != null) {
+          setRefreshNotice(
+            `Live refresh complete · ${bData.freshRemaining} fresh ${
+              bData.freshRemaining === 1 ? "search" : "searches"
+            } remaining today`,
+          );
+        }
 
         setCachedData(`briefing:${city.trim().toLowerCase()}`, bData);
       }
@@ -166,6 +174,9 @@ function DashboardContent() {
         setLockedAlerts(cached.lockedAlerts || 0);
         setLockedTips(cached.lockedTips || 0);
         setSafety(cached.safety || null);
+        if (cached.refreshBlocked) {
+          setRefreshNotice(cached.refreshBlockedReason || "");
+        }
         return;
       }
 
@@ -175,6 +186,7 @@ function DashboardContent() {
       setTips([]);
       setSource("");
       setSafety(null);
+      setRefreshNotice("");
 
       try {
         const headers = await getAuthHeaders();
@@ -208,6 +220,16 @@ function DashboardContent() {
           setError(data.error);
         }
 
+        if (data.refreshBlocked) {
+          setRefreshNotice(data.refreshBlockedReason || "");
+        } else if (refresh && data.freshRemaining != null) {
+          setRefreshNotice(
+            `Live refresh complete · ${data.freshRemaining} fresh ${
+              data.freshRemaining === 1 ? "search" : "searches"
+            } remaining today`,
+          );
+        }
+
         setCachedData(cacheKey, data);
       } catch (err) {
         if (!cancelled && err?.name !== "AbortError") {
@@ -216,8 +238,6 @@ function DashboardContent() {
       } finally {
         if (!cancelled) setLoading(false);
         if (!cancelled && refresh) {
-          // Strip ?refresh=1 so a reload, bookmark, or shared link does not
-          // keep forcing a fresh scrape. Preserve every other query param.
           const params = new URLSearchParams(searchParams.toString());
           params.delete("refresh");
           const qs = params.toString();
@@ -290,13 +310,29 @@ function DashboardContent() {
         <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
           <DestinationChips active={city} />
 
+          {source && (
+            <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+              {source === "cache"
+                ? "Cached briefing"
+                : source === "seed"
+                  ? "Pre-loaded preview · Click Refresh for live reports"
+                  : "Live intelligence"}
+            </p>
+          )}
+
           {error && (
             <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
               {error}
             </p>
           )}
 
-          {/* 1. DESKTOP 3-COLUMN LAYOUT */}
+          {refreshNotice && (
+            <p className="mt-3 rounded-xl border border-amber-300/50 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300">
+              {refreshNotice}
+            </p>
+          )}
+
+          {/* DESKTOP 3-COLUMN */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
             <div className="space-y-5">
               <DestinationHeader
@@ -304,6 +340,8 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={alerts}
                 safety={safety}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
               />
               <IntelTabs
                 city={city}
@@ -328,7 +366,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 2. TABLET 2-COLUMN LAYOUT */}
+          {/* TABLET 2-COLUMN */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
             <div className="space-y-5">
               <DestinationHeader
@@ -336,6 +374,8 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={alerts}
                 safety={safety}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
               />
               <IntelTabs
                 city={city}
@@ -357,13 +397,15 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* 3. MOBILE STACKED LAYOUT */}
+          {/* MOBILE STACKED */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
               brief={activeBrief}
               alerts={alerts}
               safety={safety}
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
             />
 
             <Weather7DayCard brief={activeBrief} />

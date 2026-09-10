@@ -167,8 +167,8 @@ async function handlePayment(eventType, data, occurredAt, admin) {
     entitlementType = "trip_pass";
     expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   } else {
-    // Unknown product (maybe an old event, or a Destination Pack that is no
-    // longer sold) — log and move on.
+    // Unknown product (maybe an old event, or a product we no longer sell) —
+    // log and move on.
     console.info("[Webhook] payment for unrecognized product, ignoring");
     return;
   }
@@ -179,7 +179,6 @@ async function handlePayment(eventType, data, occurredAt, admin) {
   const row = {
     user_id: userId,
     entitlement_type: entitlementType,
-    destination_key: null,
     dodo_payment_id: paymentId,
     dodo_customer_id: pickCustomerId(data),
     product_id: productId,

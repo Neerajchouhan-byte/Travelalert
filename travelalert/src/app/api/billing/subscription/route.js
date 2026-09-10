@@ -14,7 +14,6 @@ export async function GET(request) {
     const state = await getBillingState(user.id);
     return Response.json({
       subscription: publicSubscription(state),
-      destinationPacks: state.destinationPacks,
     });
   } catch (error) {
     console.error("[BillingSubscription]", error);

@@ -174,20 +174,42 @@ export function Topbar({ city, brief }) {
           </div>
         </div>
 
-        {mobileSearchOpen && (
-          <form onSubmit={handleSearch} className="mt-2.5 md:hidden">
-            <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
-              <Search className="size-4 text-zinc-400" />
-              <input
-                type="text"
-                autoFocus
-                value={searchCity}
-                onChange={(e) => setSearchCity(e.target.value)}
-                placeholder="Search destinations..."
-                className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
-              />
-            </div>
-          </form>
+                       {mobileSearchOpen && (
+          <div className="relative mt-2.5 md:hidden">
+            <form onSubmit={handleSearch}>
+              <div className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3.5 py-2 shadow-xs dark:border-white/15 dark:bg-[#16161b]">
+                <Search className="size-4 text-zinc-400" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={searchCity}
+                  onChange={(e) => setSearchCity(e.target.value)}
+                  placeholder="Search destinations..."
+                  className="w-full bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+                />
+                {loading && (
+                  <div className="size-3.5 animate-spin rounded-full border border-red-500 border-t-transparent" />
+                )}
+              </div>
+            </form>
+
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#16161b]">
+                {suggestions.map((item, idx) => (
+                  <button
+                    key={`m-${item.name}-${idx}`}
+                    type="button"
+                    onMouseDown={() => handleCitySelect(item)}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-zinc-800 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-white/5"
+                  >
+                    <span>{item.flag || "🌍"}</span>
+                    <span className="font-semibold">{item.name}</span>
+                    <span className="text-zinc-400">· {item.country}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Sub-row for mobile-only: destination heading */}
