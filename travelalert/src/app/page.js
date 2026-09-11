@@ -33,6 +33,7 @@ export const metadata = {
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live";
 
+// SoftwareApplication schema — describes the product itself for rich results.
 const appSchema = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",

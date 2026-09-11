@@ -1,91 +1,104 @@
-import Footer from "@/components/Footer";
-import Navbar from "@/components/Navbar";
-import Hero from "@/components/Hero";
-import Marquee from "@/components/Marquee";
-import Features from "@/components/Features";
-import Howitwork from "@/components/Howitwork";
-import SignalOverview from "@/components/SignalOverview";
-import Scamcards from "@/components/Scamcards";
-import Pricing from "@/components/Pricing";
-import Cta from "@/components/Cta";
-import { HomeRevealObserver } from "@/components/HomeRevealObserver";
+"use client";
 
-export const metadata = {
-  title: "TravelRadar — Live Scam Intel Before You Land",
-  description:
-    "Real traveler reports, organized by AI. Check tourist scams, transit traps, and insider tips for any destination before you arrive. Free to start.",
-  alternates: { canonical: "/" },
-  openGraph: {
-    url: "/",
-    title: "TravelRadar — Live Scam Intel Before You Land",
-    description:
-      "Real traveler reports, organized by AI. Check tourist scams, transit traps, and insider tips for any destination before you arrive.",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "TravelRadar — Live Scam Intel Before You Land",
-    description:
-      "Real traveler reports, organized by AI. Check tourist scams, transit traps, and insider tips for any destination before you arrive.",
-  },
-};
+import Link from "next/link";
+import { useState } from "react";
+import { Radar, Menu, X } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live";
+const NAV_LINKS = [
+  { href: "#features", label: "Features" },
+  { href: "#how", label: "How it works" },
+  { href: "#pricing", label: "Pricing" },
+];
 
-// SoftwareApplication schema — describes the product itself for rich results.
-const appSchema = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "TravelRadar",
-  applicationCategory: "TravelApplication",
-  operatingSystem: "Web",
-  url: SITE_URL,
-  description:
-    "Real traveler reports, organized by AI. Check tourist scams, transit traps, and insider tips for any destination before you arrive.",
-  offers: [
-    {
-      "@type": "Offer",
-      name: "Explorer",
-      price: "0",
-      priceCurrency: "USD",
-      description: "3 destination searches, preview of top alerts and tips.",
-    },
-    {
-      "@type": "Offer",
-      name: "Trip Pass",
-      price: "7",
-      priceCurrency: "USD",
-      description: "Unlimited destinations for 30 days.",
-    },
-    {
-      "@type": "Offer",
-      name: "Annual",
-      price: "29",
-      priceCurrency: "USD",
-      description: "Unlimited destinations for a full year.",
-    },
-  ],
-};
+export default function Navbar() {
+  const [open, setOpen] = useState(false);
 
-export default function Home() {
   return (
-    <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(appSchema) }}
-      />
-      <Navbar />
-      <Hero />
-      <Marquee />
-      <Features />
-      <Howitwork />
-      <SignalOverview />
-      <Scamcards />
-      <Pricing />
-      <Cta />
-      <Footer />
-      <HomeRevealObserver />
-    </main>
+    <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <Link
+          href="/?home=1"
+          aria-label="TravelRadar home"
+          className="flex items-center gap-2 text-base font-black text-zinc-900 transition-opacity hover:opacity-90 dark:text-white"
+        >
+          <span className="flex size-7 items-center justify-center rounded-lg bg-[#e5283b] text-white">
+            <Radar className="size-4" />
+          </span>
+          <span>TravelRadar</span>
+        </Link>
+
+        <nav className="hidden items-center gap-8 md:flex">
+          {NAV_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="hidden items-center gap-3 md:flex">
+          <ThemeToggle />
+          <Link
+            href="/login"
+            className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
+          >
+            Log in
+          </Link>
+          <Link
+            href="/signup"
+            className="rounded-lg bg-[#e5283b] px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90"
+          >
+            Get started
+          </Link>
+        </div>
+
+        <div className="flex items-center gap-2 md:hidden">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-label={open ? "Close menu" : "Open menu"}
+            className="flex size-8 items-center justify-center text-zinc-700 dark:text-zinc-300"
+          >
+            {open ? <X className="size-5" /> : <Menu className="size-5" />}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="border-t border-zinc-200/80 bg-[#f7f6f2] px-4 py-4 dark:border-white/10 dark:bg-[#0c0c0e] md:hidden">
+          <nav className="flex flex-col gap-4">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setOpen(false)}
+                className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <Link
+              href="/login"
+              onClick={() => setOpen(false)}
+              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+            >
+              Log in
+            </Link>
+            <Link
+              href="/signup"
+              onClick={() => setOpen(false)}
+              className="rounded-lg bg-[#e5283b] px-4 py-2 text-center text-sm font-bold text-white"
+            >
+              Get started
+            </Link>
+          </nav>
+        </div>
+      )}
+    </header>
   );
 }
