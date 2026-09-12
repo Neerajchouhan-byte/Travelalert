@@ -6,6 +6,7 @@ import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
 import { TripModeCard } from "@/components/dashboard/TripModeCard";
+import { AddToTripButton } from "@/components/dashboard/AddToTripButton";
 import { IntelTabs } from "@/components/dashboard/IntelTabs";
 import {
   Weather7DayCard,
@@ -19,9 +20,6 @@ import { RequireAuth } from "@/components/dashboard/RequireAuth";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// Client-side defensive cap. The server also applies the same slice via
-// sliceForPlan, but a stale response or a plan-drift edge case must never
-// leak full data to a free user.
 function capForPlan(plan, alerts = [], tips = []) {
   if (plan !== "free") {
     return { alerts, tips, lockedAlerts: 0, lockedTips: 0 };
@@ -60,8 +58,6 @@ function DashboardContent() {
   const [source, setSource] = useState("");
   const [brief, setBrief] = useState(null);
   const [briefCity, setBriefCity] = useState("");
-  // Owner-city marker for the briefing payload. Until it matches `city`,
-  // the render shows loading instead of the previous city's data.
   const [briefingCity, setBriefingCity] = useState("");
   const [plan, setPlan] = useState("free");
   const [lockedAlerts, setLockedAlerts] = useState(0);
@@ -69,9 +65,6 @@ function DashboardContent() {
   const [safety, setSafety] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
 
-  // Upgrade modal — `upgradeReason` tracks which prompt opened it, so the
-  // Trip Mode benefit line can be emphasised when the modal was triggered
-  // by a Trip Mode lock. Values: "trip_mode" | null.
   const upgradeParam = searchParams.get("upgrade");
   const [showUpgradeModal, setShowUpgradeModal] = useState(
     () => upgradeParam === "true" || upgradeParam === "trip_mode",
@@ -91,8 +84,6 @@ function DashboardContent() {
   const [searchLimit, setSearchLimit] = useState(null);
   const [noData, setNoData] = useState(false);
 
-  // Monotonic request counter. A response whose id no longer matches is
-  // discarded before it can touch state.
   const requestIdRef = useRef(0);
 
   useEffect(() => {
@@ -181,7 +172,7 @@ function DashboardContent() {
         setPlan(effectivePlan);
         setSource(bData.source || "live");
         setNoData(Boolean(bData.noData));
-        if (bData.safety) setSafety(String(bData.safety));
+        setSafety(bData.safety != null ? String(bData.safety) : null);
         if (bData.searchesLeft !== undefined) setSearchesLeft(bData.searchesLeft);
         if (bData.searchLimit !== undefined) setSearchLimit(bData.searchLimit);
         setBriefingCity(city);
@@ -213,9 +204,6 @@ function DashboardContent() {
     const reqId = ++requestIdRef.current;
 
     async function loadBriefing() {
-      // Reset per-city state up front. `briefingCity` is intentionally NOT
-      // reset here so the render gate continues to hide the previous
-      // payload until this fetch resolves.
       setLoading(true);
       setError("");
       setRefreshNotice("");
@@ -276,7 +264,7 @@ function DashboardContent() {
         );
         setSource(data.source || "");
         setPlan(effectivePlan);
-        setSafety(data.safety || null);
+        setSafety(data.safety != null ? String(data.safety) : null);
         setNoData(Boolean(data.noData));
         if (data.searchesLeft !== undefined) setSearchesLeft(data.searchesLeft);
         if (data.searchLimit !== undefined) setSearchLimit(data.searchLimit);
@@ -359,8 +347,6 @@ function DashboardContent() {
     plan === "free" && searchesLeft !== null && searchesLeft <= 0;
   const refreshLocked = searchLocked;
 
-  // Render gate: the briefing payload is only shown when its owner city
-  // matches the selected city.
   const showBriefing = briefingCity === city;
   const renderAlerts = showBriefing ? alerts : [];
   const renderTips = showBriefing ? tips : [];
@@ -370,6 +356,14 @@ function DashboardContent() {
   const renderLockedAlerts = showBriefing ? lockedAlerts : 0;
   const renderLockedTips = showBriefing ? lockedTips : 0;
   const renderLoading = !showBriefing && !error;
+
+  const addToTripSlot = (
+    <AddToTripButton
+      city={city}
+      plan={plan}
+      onUpgrade={() => openUpgrade("trip_mode")}
+    />
+  );
 
   return (
     <RequireAuth>
@@ -408,11 +402,7 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* DESKTOP (xl+). Top section is a 3-column grid whose cells are
-              flex-column wrappers, so cards within a group stack tightly with
-              no interposed grid-row height. `items-start` is retained so no
-              card is stretched beyond its own content.
-              IntelTabs is a full-width row beneath, unchanged. */}
+          {/* DESKTOP (xl+) */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr] items-start">
             <div className="space-y-5">
               <DestinationHeader
@@ -420,6 +410,7 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={renderAlerts}
                 safety={renderSafety}
+                actionSlot={addToTripSlot}
               />
               <TripModeCard
                 plan={plan}
@@ -456,7 +447,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* TABLET 2-COLUMN. Unchanged. */}
+          {/* TABLET 2-COLUMN */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden items-start">
             <div className="space-y-5">
               <DestinationHeader
@@ -464,6 +455,7 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={renderAlerts}
                 safety={renderSafety}
+                actionSlot={addToTripSlot}
               />
               <TripModeCard
                 plan={plan}
@@ -494,13 +486,14 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* MOBILE STACKED. Unchanged. */}
+          {/* MOBILE STACKED */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
               brief={activeBrief}
               alerts={renderAlerts}
               safety={renderSafety}
+              actionSlot={addToTripSlot}
             />
 
             <TripModeCard

@@ -18,13 +18,13 @@ export function IntelTabs({
   onRefresh,
   refreshing = false,
   refreshLocked = false,
+  actionSlot = null,
 }) {
   const [tab, setTab] = useState("alerts");
   const [expandedIndex, setExpandedIndex] = useState(null);
 
   const hasAccess = plan !== "free";
   const hasAnyData = alerts.length > 0 || tips.length > 0;
-  // Loading wins over any stale data — even if the parent forgot to clear it.
   const showLoading = loading;
   const showEmpty = !loading && !hasAnyData && noData;
 
@@ -32,6 +32,24 @@ export function IntelTabs({
   const tipList = tips;
   const activeItems = tab === "alerts" ? alertList : tipList;
   const lockedCount = tab === "alerts" ? lockedAlerts : lockedTips;
+  const totalLocked = lockedAlerts + lockedTips;
+
+  // Free users should always see the upgrade prompt when there is intel to
+  // look at — the value proposition is not contingent on how many items the
+  // pipeline happened to find for this specific city. The wording adapts:
+  //   - specific count when there IS hidden content on the current tab
+  //   - honest generic phrasing otherwise (no fabricated "N more" claim)
+  const ctaLabel =
+    lockedCount > 0
+      ? `Unlock ${lockedCount} more ${
+          tab === "alerts" ? "scam patterns" : "insider tips"
+        } with Pro`
+      : totalLocked > 0
+        ? `Unlock ${totalLocked} more across alerts and tips with Pro`
+        : "Unlock full intel across every destination with Pro";
+
+  const showLockedPlaceholders = !hasAccess && lockedCount > 0;
+  const showUpgradeCta = !hasAccess && !showEmpty && !showLoading && hasAnyData;
 
   function handleRefreshClick() {
     if (refreshLocked) {
@@ -61,23 +79,23 @@ export function IntelTabs({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleRefreshClick}
-          disabled={refreshing}
-          aria-label={refreshLocked ? "Upgrade to refresh intel" : "Refresh intel"}
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-200/90 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-300 dark:hover:bg-white/5"
-        >
-          <RefreshCw
-            className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
-          />
-          <span>{refreshing ? "Refreshing" : "Refresh"}</span>
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {actionSlot}
+          <button
+            type="button"
+            onClick={handleRefreshClick}
+            disabled={refreshing}
+            aria-label={refreshLocked ? "Upgrade to refresh intel" : "Refresh intel"}
+            className="flex items-center gap-1.5 rounded-full border border-zinc-200/90 bg-white px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-300 dark:hover:bg-white/5"
+          >
+            <RefreshCw
+              className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
+            <span>{refreshing ? "Refreshing" : "Refresh"}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Inline disclaimer — sits directly above the alerts/tips list so
-          users see it while reading scam content, not only in the legal
-          pages. Same sentence as /disclaimer's boxed paragraph. */}
       <ScamDataDisclaimer className="mt-3" />
 
       <div className="mt-5 flex items-center gap-2.5">
@@ -196,7 +214,7 @@ export function IntelTabs({
               );
             })}
 
-            {!hasAccess && lockedCount > 0 && (
+            {showLockedPlaceholders && (
               <>
                 <div className="flex items-center justify-between py-3.5">
                   <div className="select-none blur-[4px] text-zinc-400 dark:text-zinc-600">
@@ -219,13 +237,13 @@ export function IntelTabs({
         )}
       </div>
 
-      {!hasAccess && lockedCount > 0 && !showEmpty && !showLoading && (
+      {showUpgradeCta && (
         <button
           type="button"
           onClick={onUpgrade}
           className="mt-5 flex w-full items-center justify-between rounded-2xl bg-[#fef08a] px-6 py-3.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-[#fde047] sm:rounded-full dark:bg-[#fde047] dark:text-zinc-950 dark:hover:bg-[#facc15]"
         >
-          <span>Unlock {lockedCount} more scam patterns with Pro</span>
+          <span>{ctaLabel}</span>
           <ChevronRight className="size-4" />
         </button>
       )}

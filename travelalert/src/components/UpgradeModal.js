@@ -4,32 +4,27 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, LoaderCircle, ShieldCheck, Sparkles, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { PRICES } from "@/lib/pricing";
 
-// Upgrade modal shows only paid tiers. The Explorer/Free tier is not a paid
-// upgrade and would confuse a user who is already on it — it's presented on
-// the pricing page (src/components/Pricing.js) instead.
 const PLANS = [
   {
     key: "trip_pass",
-    name: "Trip Pass",
-    price: "$7",
-    period: "/ 30 days",
-    note: "Pay once · 30 days · Unlimited cities",
+    name: PRICES.trip_pass.label,
+    price: PRICES.trip_pass.amount,
+    period: PRICES.trip_pass.period,
+    note: PRICES.trip_pass.note,
     badge: null,
   },
   {
     key: "annual",
-    name: "Annual",
-    price: "$29",
-    period: "/ year",
-    note: "Unlimited access all year",
+    name: PRICES.annual.label,
+    price: PRICES.annual.amount,
+    period: PRICES.annual.period,
+    note: PRICES.annual.note,
     badge: "BEST VALUE",
   },
 ];
 
-// Wording for the Trip Mode benefit must match Pricing.js's TRIP_MODE_FEATURE
-// constant verbatim. The `key: "trip_mode"` marker lets the modal highlight
-// this exact line when `highlight="trip_mode"` is passed.
 const BENEFITS = [
   { text: "Every alert in the destination file" },
   { text: "Every insider tip, refreshed daily" },

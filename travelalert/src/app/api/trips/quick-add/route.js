@@ -2,7 +2,7 @@ import { getRequestProfile } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
 import {
-  normalizeTripDestinations,
+  normalizeSingleDestination,
   normalizeTripName,
   insertTripDestinations,
   appendTripDestination,
@@ -21,11 +21,16 @@ function isPaidPlan(plan) {
 }
 
 // POST /api/trips/quick-add { city, visit_date? }
+//
 // One-call "Add to trip" used by the dashboard button. If the user has no
-// trip yet, creates a "My Trip" and adds the city. Otherwise appends to the
-// most recent trip. After the row is saved, lazily fetches intel for the city
-// if the cache is missing — using the SAME organizeCity pipeline the
-// pre-cache script uses, no new fetch/summarize logic.
+// trip yet, creates a trip named "<City> Trip" and adds the city as its
+// FIRST destination — no 3-destination minimum is enforced here, because a
+// trip can legitimately start with one city and grow later. The 3-6 rule
+// applies when the user later edits the full trip via TripBuilder.
+//
+// Otherwise appends to the most recent trip. After the row is saved, lazily
+// fetches intel for the city if the cache is missing — using the SAME
+// organizeCity pipeline the pre-cache script uses.
 export async function POST(request) {
   const profile = await getRequestProfile(request);
   if (!profile.user) {
@@ -100,14 +105,15 @@ export async function POST(request) {
 
   if (!recentTrip) {
     // ---- Path A: no trip yet — create one with this city as the first entry.
-    const { destinations, error: validationError } = normalizeTripDestinations([
-      { city: rawCity, visit_date: visitDate },
-    ]);
-    if (validationError) {
-      return Response.json({ error: validationError }, { status: 400 });
+    //
+    // Uses normalizeSingleDestination (not normalizeTripDestinations) so the
+    // 3-destination minimum does not block a first-add.
+    const destination = normalizeSingleDestination(rawCity, visitDate);
+    if (!destination) {
+      return Response.json({ error: "Invalid city name." }, { status: 400 });
     }
-    const cityLabel = destinations[0].city;
-    const name = normalizeTripName(`${cityLabel} Trip`);
+
+    const name = normalizeTripName(`${destination.city} Trip`);
 
     const { data: newTrip, error: tripErr } = await admin
       .from("trips")
@@ -123,7 +129,7 @@ export async function POST(request) {
       );
     }
 
-    const write = await insertTripDestinations(admin, newTrip.id, destinations);
+    const write = await insertTripDestinations(admin, newTrip.id, [destination]);
     if (!write.ok) {
       await admin.from("trips").delete().eq("id", newTrip.id);
       const mapped = describeTripSaveError(write.error);
@@ -135,11 +141,11 @@ export async function POST(request) {
 
     tripId = newTrip.id;
     tripName = newTrip.name;
-    savedCity = destinations[0].city;
-    savedDestinationKey = destinations[0].destination_key;
+    savedCity = destination.city;
+    savedDestinationKey = destination.destination_key;
     savedOrderIndex = 0;
   } else {
-    // ---- Path B: existing trip — append (same helper as the trip detail page).
+    // ---- Path B: existing trip — append.
     const result = await appendTripDestination(
       profile.user.id,
       recentTrip.id,
@@ -160,7 +166,6 @@ export async function POST(request) {
   }
 
   // 2. Lazy-cache: only fetch intel if the destination has no usable cache.
-  //    Same cache-read function the rest of the app uses.
   let intel;
   const cached = await getFreshCache(savedCity);
   const usable =
@@ -175,9 +180,6 @@ export async function POST(request) {
       tips: cached.tips.length,
     };
   } else {
-    // No usable cache — run the SAME production pipeline the pre-cache
-    // script runs, for this one city. organizeCity() is the exact function
-    // the /api/briefing route and scripts/precache-top-cities.mjs call.
     try {
       const org = await organizeCity(savedCity);
       const hasLiveData =
@@ -208,9 +210,6 @@ export async function POST(request) {
           };
         }
       } else {
-        // Pipeline ran but produced no live Reddit/Gemini output. Do NOT
-        // write seed data to the cache — the pre-cache script refuses for
-        // the same reason (it would poison future lookups).
         intel = { status: "empty" };
       }
     } catch (err) {

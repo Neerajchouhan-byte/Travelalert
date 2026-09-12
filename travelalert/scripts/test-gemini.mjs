@@ -11,7 +11,7 @@ for (const line of readFileSync(new URL("../.env.local", import.meta.url), "utf8
 }
 
 const key = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-const configured = env.GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const configured = env.GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-flash-latest";
 const base = "https://generativelanguage.googleapis.com/v1beta";
 
 if (!key) {
@@ -24,7 +24,6 @@ console.log(
 );
 console.log(`Configured GEMINI_MODEL: ${configured}\n`);
 
-// 1) List models visible to this key — definitive auth + model-ID check.
 console.log("Listing models visible to this key...");
 let modelNames = [];
 try {
@@ -52,8 +51,9 @@ try {
   process.exit(1);
 }
 
-// 2) Which of the models the app tries actually exist?
-const wanted = [configured, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+// Models the app's runtime cascade tries. Keep this list in sync with
+// MODELS in src/lib/organize.js.
+const wanted = [configured, "gemini-flash-latest", "gemini-flash-lite-latest"];
 console.log("Models the app tries vs availability:");
 for (const name of [...new Set(wanted)]) {
   console.log(`  ${modelNames.includes(name) ? "AVAILABLE " : "MISSING   "}${name}`);
@@ -64,9 +64,6 @@ if (flash.length) {
   flash.forEach((n) => console.log("  -", n));
 }
 
-// 3) generateContent sanity check: mirror the app's failover chain (one
-//    attempt per model, skip fast on 429/503) for two different cities — the
-//    outputs must differ (that is the whole product).
 async function ask(model, prompt) {
   const res = await fetch(`${base}/models/${model}:generateContent`, {
     method: "POST",
@@ -84,13 +81,11 @@ async function ask(model, prompt) {
   }
 }
 
-const CHAIN = [configured, "gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+// Preferred chain: the runtime cascade order, then any working flash-latest
+// models discovered in the probe below.
+const CHAIN = [configured, "gemini-flash-latest", "gemini-flash-lite-latest"]
   .filter((m, i, arr) => arr.indexOf(m) === i && modelNames.includes(m));
 
-// The models list can include IDs that still 404 on generateContent (retired
-// for inference despite being listed). Probe every flash model with a tiny
-// request and keep only the ones that actually answer — that becomes the
-// evidence-based fallback chain.
 const candidates = modelNames.filter(
   (n) =>
     n.includes("flash") &&

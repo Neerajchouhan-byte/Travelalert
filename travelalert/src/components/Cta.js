@@ -17,7 +17,7 @@ export default function Cta() {
           <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-red-600/10 blur-3xl dark:bg-red-900/20" />
 
           <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#e5283b] dark:text-[#f87171]">
-            12 SCAMS REPORTED IN THE LAST 24 HOURS
+            CHECK BEFORE YOU LAND
           </span>
 
           <h2 className="mt-3 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl lg:text-5xl dark:text-white">

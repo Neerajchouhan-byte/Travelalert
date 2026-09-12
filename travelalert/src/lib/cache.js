@@ -2,39 +2,25 @@ import { cityKey } from "./city.js";
 import { adminDb } from "./supabase-admin.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_IN_MEMORY_ENTRIES = 100; // Strictly bound RAM usage to top 100 cities
+const BRIEF_TTL_MS = 60 * 60 * 1000; // 1 hour — weather + FX snapshot
+const MAX_IN_MEMORY_ENTRIES = 100; // Strictly bound RAM usage
 
-// Self-pruning memory cache (prevents OOM crashes)
+// Self-pruning memory cache for intel (alerts + tips).
 const memoryCache = new Map();
 
-function setMemoryBounded(key, value) {
-  if (memoryCache.size >= MAX_IN_MEMORY_ENTRIES) {
-    // Evict oldest entry
-    const oldestKey = memoryCache.keys().next().value;
-    memoryCache.delete(oldestKey);
+// Separate in-process cache for the city-brief payload (weather + FX). Kept
+// separate from the intel cache because it has a different TTL (1h vs 24h)
+// and is populated by a different route. Bounded to the same 100 entries.
+const briefMemoryCache = new Map();
+
+function setMemoryBounded(map, key, value) {
+  if (map.size >= MAX_IN_MEMORY_ENTRIES) {
+    const oldestKey = map.keys().next().value;
+    map.delete(oldestKey);
   }
-  memoryCache.set(key, value);
+  map.set(key, value);
 }
 
-/**
- * Reads a single destination row, at most one, deterministically the freshest.
- *
- * WHY NOT .maybeSingle():
- * PostgREST's object-mode Accept header (.single() / .maybeSingle()) errors
- * out if the query matches more than one row. The destinations table may
- * legitimately contain more than one row per city — saveCache's upsert has no
- * explicit conflict target, so a second script run against a schema whose PK
- * is not `city` produces a duplicate row. When that happened, .maybeSingle()
- * returned { data: null, error: "multiple rows" }, and the previous
- * `if (error || !row) return null` swallowed the error silently — the
- * dashboard rendered "no cached intel" while the row was right there in the
- * table.
- *
- * The fix is to cap the result at the SQL level (limit=1) and pick the
- * freshest row by updated_at, so the read is deterministic and cannot trip
- * the multi-row guard. This is a read-side hardening; it does NOT change
- * behavior in the common single-row case.
- */
 async function readCityRow(key) {
   const { data: rows, error } = await adminDb()
     .from("destinations")
@@ -55,13 +41,11 @@ export async function getFreshCache(city) {
   const key = cityKey(city);
   if (!key) return null;
 
-  // 1. Check RAM (0ms)
   const inMem = memoryCache.get(key);
   if (inMem && Date.now() - inMem.time < ONE_DAY_MS) {
     return inMem.data;
   }
 
-  // 2. Check Supabase Database (~30ms)
   try {
     const row = await readCityRow(key);
     if (!row) return null;
@@ -69,7 +53,7 @@ export async function getFreshCache(city) {
     const age = Date.now() - new Date(row.updated_at).getTime();
     if (Number.isNaN(age) || age > ONE_DAY_MS) return null;
 
-    setMemoryBounded(key, { data: row.data, time: Date.now() });
+    setMemoryBounded(memoryCache, key, { data: row.data, time: Date.now() });
     return row.data;
   } catch (err) {
     console.error("cache read failed:", err.message);
@@ -81,7 +65,7 @@ export async function saveCache(city, payload) {
   const key = cityKey(city);
   if (!key) return { ok: false, error: "city too short" };
 
-  setMemoryBounded(key, { data: payload, time: Date.now() });
+  setMemoryBounded(memoryCache, key, { data: payload, time: Date.now() });
 
   try {
     const { error } = await adminDb().from("destinations").upsert({
@@ -97,18 +81,6 @@ export async function saveCache(city, payload) {
   }
 }
 
-/**
- * Reads a cached destination WITHOUT the freshness filter.
- *
- * getFreshCache() intentionally returns null for rows older than 24h so live
- * search never serves stale data. SEO destination pages have the opposite
- * requirement — the page must keep rendering even when the cache is old, or
- * Google would 404 on URLs it has already indexed.
- *
- * Same table, same client, same row shape — only the age filter is skipped.
- * Uses the same limit=1 + order-by-freshest read as getFreshCache so the
- * duplicate-row failure mode cannot silently return null here either.
- */
 export async function getCachedCity(city) {
   const key = cityKey(city);
   if (!key) return null;
@@ -127,15 +99,6 @@ export async function getCachedCity(city) {
   }
 }
 
-/**
- * Lists every city currently in the destinations cache. Used by
- * generateStaticParams, sitemap, and the /scams index. Bounded to 500 rows to
- * keep the query cheap regardless of table growth.
- *
- * Note: this returns one entry per matching row. If duplicates exist (see
- * readCityRow above), the list will contain duplicate city slugs; callers
- * that care (sitemap, generateStaticParams) deduplicate downstream.
- */
 export async function listCachedCities() {
   try {
     const { data, error } = await adminDb()
@@ -153,4 +116,58 @@ export async function listCachedCities() {
     console.error("cache list failed:", err.message);
     return [];
   }
+}
+
+/**
+ * Real live COUNT(*) against the destinations table.
+ *
+ * `head: true` returns only the count metadata (no row body transferred);
+ * `count: "exact"` asks PostgREST for an accurate count, not an estimate.
+ * Returns 0 on error so the landing page can degrade gracefully.
+ */
+export async function countCachedCities() {
+  try {
+    const { count, error } = await adminDb()
+      .from("destinations")
+      .select("city", { count: "exact", head: true });
+
+    if (error) {
+      console.error("cache count failed:", error.message);
+      return 0;
+    }
+
+    return typeof count === "number" ? count : 0;
+  } catch (err) {
+    console.error("cache count failed:", err.message);
+    return 0;
+  }
+}
+
+/**
+ * In-process cache for the /api/city-brief payload (weather + FX + geocoding).
+ *
+ * TTL is 1 hour. Long enough that a dashboard visit rarely triggers the three
+ * external HTTP calls, short enough that an hourly user still sees fresh
+ * conditions. Not persisted — on cold server restart the first request per
+ * city re-fetches. That is acceptable; the previous behavior was zero caching.
+ *
+ * Reads and writes are keyed by cityKey() so "Tokyo" and "tokyo" resolve to
+ * the same entry.
+ */
+export function getCachedBrief(city) {
+  const key = cityKey(city);
+  if (!key) return null;
+  const entry = briefMemoryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.time > BRIEF_TTL_MS) {
+    briefMemoryCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+export function saveCachedBrief(city, data) {
+  const key = cityKey(city);
+  if (!key) return;
+  setMemoryBounded(briefMemoryCache, key, { data, time: Date.now() });
 }

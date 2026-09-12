@@ -81,6 +81,8 @@ src/
         [id]/
           briefing/
             route.js
+          email/
+            route.js
           export/
             route.js
           route.js
@@ -150,6 +152,7 @@ src/
     Navbar.js
     Pricing.js
     Scamcards.js
+    ScamDataDisclaimer.js
     Searchbar.js
     SignalOverview.js
     Stats.js
@@ -166,11 +169,14 @@ src/
     live-posts.js
     organize.js
     profile.js
+    quota.js
     rate-limit.js
     scam-data.js
     seed-intel.js
+    subreddits.js
     supabase-admin.js
     supabase.js
+    trip-briefing-format.js
     trips.js
     utils.js
   proxy.js
@@ -312,6 +318,13 @@ const targets = SPECIFIC.length
 // 3s gives them room to breathe without dragging the run out.
 const DELAY_MS = 3000;
 
+// Minimum counts the READER requires before it treats a cached row as
+// usable. These MUST match src/app/api/briefing/route.js (isLiveResult and
+// cacheUsable) — a lower write-side threshold causes the dashboard to keep
+// showing "no cached intel" for cities the script reports as successful.
+const MIN_ALERTS = 4;
+const MIN_TIPS = 3;
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -331,7 +344,7 @@ async function runOne(rawCity) {
 
   if (SKIP_EXISTING) {
     const existing = await getFreshCache(city);
-    if (existing && (existing.alerts || []).length >= 4) {
+    if (existing && (existing.alerts || []).length >= MIN_ALERTS) {
       return {
         city,
         status: "skipped",
@@ -353,33 +366,41 @@ async function runOne(rawCity) {
     };
   }
 
-  if (!org || (org.alerts || []).length === 0) {
-    return {
-      city,
-      status: "failed",
-      reason:
-        org?.error ||
-        `no alerts returned (source=${org?.source || "unknown"})`,
-      ms: Date.now() - t0,
-    };
-  }
+  // Single unified gate — must be IDENTICAL to isLiveResult() in
+  // src/app/api/briefing/route.js. Any result that the reader would reject
+  // is treated as a failed pre-cache run, not written to the table.
+  //
+  // Reasons this rejects:
+  //   1. source !== "reddit+gemini"  → pipeline fell back to seed template
+  //   2. alerts.length < 4           → reader would treat cache as unusable
+  //   3. tips.length   < 3           → same
+  const alertCount = (org?.alerts || []).length;
+  const tipCount = (org?.tips || []).length;
+  const hasLiveData =
+    org?.source === "reddit+gemini" &&
+    alertCount >= MIN_ALERTS &&
+    tipCount >= MIN_TIPS;
 
-  if (org.source === "seed") {
-    // organizeCity falls back to seed when Serper or Gemini returns nothing
-    // usable. The briefing route refuses to cache seed responses for the same
-    // reason — writing them would poison the cache for every future user.
-    return {
-      city,
-      status: "failed",
-      reason: "pipeline fell back to seed (no live Serper/Gemini output)",
-      ms: Date.now() - t0,
-    };
+  if (!hasLiveData) {
+    let reason;
+    if (!org) {
+      reason = "organizeCity returned no result";
+    } else if (org.source === "seed") {
+      reason = "pipeline fell back to seed (no live Serper/Gemini output)";
+    } else if (org.source !== "reddit+gemini") {
+      reason = `unexpected pipeline source "${org.source}"`;
+    } else {
+      reason =
+        `insufficient items (${alertCount} alerts, ${tipCount} tips) — ` +
+        `reader requires ${MIN_ALERTS}+ alerts and ${MIN_TIPS}+ tips`;
+    }
+    return { city, status: "failed", reason, ms: Date.now() - t0 };
   }
 
   const payload = {
     city,
     alerts: org.alerts,
-    tips: org.tips || [],
+    tips: org.tips,
     source: org.source,
     fetchedAt: new Date().toISOString(),
     error: null,
@@ -1531,6 +1552,13 @@ export const maxDuration = 180;
 
 const FREE_SEARCH_LIMIT = 3;
 
+// Targets the pipeline itself aims for (see cleanList in organize.js).
+// Used as the fill ceiling when merging sparse live results with cached
+// filler — NOT as an "is this a valid result" gate. A result with 1 alert
+// is valid; the merge just tops it up.
+const EXPECTED_ALERTS = 12;
+const EXPECTED_TIPS = 10;
+
 function monthKey() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -1576,9 +1604,9 @@ function cachePayload(city, cached) {
   };
 }
 
-// Honest empty state. Returned whenever no live or cached intel exists for a
-// city. The dashboard's IntelTabs already renders this as a "no cached intel
-// yet" message with a refresh prompt — no mock content is ever shown.
+// Honest empty state. Returned only when BOTH live and cached data are
+// completely empty for a city. The dashboard's IntelTabs already renders
+// this as a "no cached intel yet" message with a refresh prompt.
 function emptyPayload(city, extras = {}) {
   return {
     city,
@@ -1593,17 +1621,172 @@ function emptyPayload(city, extras = {}) {
 }
 
 /**
- * Whether a pipeline result is acceptable to surface and cache.
+ * Whether a pipeline result contains ANY usable live data.
  *
- * The ONLY accepted source is `reddit+gemini`, the marker organizeCity
- * returns on a live Serper → Gemini → JSON run. Any other marker — "seed"
- * (template fallback), "error" (thrown), undefined — is treated as no data.
- * This mirrors the refusal condition in scripts/precache-top-cities.mjs.
+ * The previous gate was `alerts.length >= 4 && tips.length >= 3`, which
+ * rejected legitimate sparse pipelines (1–3 results) as "no data" and made
+ * the UI show "no cached intel" even though the live fetch had succeeded.
+ * The merge step below now handles sparse results by topping them up with
+ * cache; the gate here only needs to decide "is there live output at all".
  */
-function isLiveResult(org) {
+function hasLiveData(org) {
   if (!org) return false;
   if (org.source !== "reddit+gemini") return false;
-  return (org.alerts || []).length >= 4 && (org.tips || []).length >= 3;
+  return (org.alerts || []).length > 0 || (org.tips || []).length > 0;
+}
+
+/**
+ * Whether a cache row contains ANY usable data (not the stricter
+ * `>= 4 && >= 3` "high-quality" threshold used to skip the pipeline).
+ */
+function cacheHasAny(cached) {
+  if (!cached) return false;
+  return (cached.alerts || []).length > 0 || (cached.tips || []).length > 0;
+}
+
+/**
+ * Whether a cache row is rich enough that we can skip running the pipeline
+ * for a fresh visit. Unchanged from the original threshold.
+ */
+function cacheIsFull(cached) {
+  if (!cached) return false;
+  return (
+    (cached.alerts || []).length >= 4 && (cached.tips || []).length >= 3
+  );
+}
+
+/** Fisher–Yates, in-place. Returns the same array. */
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Merge live results (kept first, in order — they are the freshest) with
+ * cached results used as filler for the remaining display slots.
+ *
+ * Dedup by lowercased name so the same pattern never appears twice.
+ * Filler is shuffled per call so two consecutive refreshes of the same
+ * sparse city do not show the identical filler set.
+ *
+ * Live items are NEVER dropped by this function — even a single live alert
+ * always survives the merge. Only the filler slots are bounded by the
+ * EXPECTED_* targets, matching the pipeline's own output ceiling.
+ */
+function mergeLiveWithCache(
+  liveAlerts,
+  liveTips,
+  cachedAlerts,
+  cachedTips,
+  targetAlerts = EXPECTED_ALERTS,
+  targetTips = EXPECTED_TIPS,
+) {
+  const outAlerts = [];
+  const outTips = [];
+  const seenA = new Set();
+  const seenT = new Set();
+  const norm = (x) => String(x?.name || "").trim().toLowerCase();
+
+  // 1. Live first, order preserved.
+  for (const a of liveAlerts || []) {
+    const k = norm(a);
+    if (!k || seenA.has(k)) continue;
+    seenA.add(k);
+    outAlerts.push(a);
+  }
+  for (const t of liveTips || []) {
+    const k = norm(t);
+    if (!k || seenT.has(k)) continue;
+    seenT.add(k);
+    outTips.push(t);
+  }
+
+  // 2. Fill remaining slots from cache, shuffled, deduped against live.
+  const fillA = shuffle(
+    (cachedAlerts || []).filter((a) => {
+      const k = norm(a);
+      return k && !seenA.has(k);
+    }),
+  );
+  const fillT = shuffle(
+    (cachedTips || []).filter((t) => {
+      const k = norm(t);
+      return k && !seenT.has(k);
+    }),
+  );
+
+  for (const a of fillA) {
+    if (outAlerts.length >= targetAlerts) break;
+    seenA.add(norm(a));
+    outAlerts.push(a);
+  }
+  for (const t of fillT) {
+    if (outTips.length >= targetTips) break;
+    seenT.add(norm(t));
+    outTips.push(t);
+  }
+
+  return { alerts: outAlerts, tips: outTips };
+}
+
+/**
+ * Runs the pipeline once, merges its output with the existing cache, and
+ * returns a payload in the shape the response builder expects.
+ *
+ * Saves the MERGED result back to cache so subsequent visits and refreshes
+ * benefit from the fill even when a single pipeline run is sparse. The
+ * source field stays "reddit+gemini" because a live fetch did occur; the
+ * item-level origin (live vs cached filler) is not tracked downstream.
+ */
+async function runPipelineMerged(city, cached) {
+  let org;
+  try {
+    org = await runPipelineOnce(city);
+  } catch (err) {
+    console.error(`[Briefing] Pipeline failed for ${city}:`, err);
+    org = { alerts: [], tips: [], source: "error", error: err.message };
+  }
+
+  if (!hasLiveData(org)) {
+    // Live produced nothing at all. Fall back to cache if it has anything,
+    // otherwise an honest empty state.
+    if (cacheHasAny(cached)) {
+      return { payload: cachePayload(city, cached), blockReason: null, consumed: true };
+    }
+    return {
+      payload: emptyPayload(city, { error: org?.error || null }),
+      blockReason: null,
+      consumed: true,
+    };
+  }
+
+  const liveAlerts = org.alerts || [];
+  const liveTips = org.tips || [];
+  const merged = mergeLiveWithCache(
+    liveAlerts,
+    liveTips,
+    cached?.alerts || [],
+    cached?.tips || [],
+  );
+
+  const payload = {
+    city,
+    alerts: merged.alerts,
+    tips: merged.tips,
+    source: org.source,
+    fetchedAt: new Date().toISOString(),
+    error: null,
+  };
+
+  // Persist the merged result — cache grows richer over time and future
+  // merges have more filler to draw on. Save failures are logged by
+  // saveCache itself and do not block the response.
+  await saveCache(city, payload);
+
+  return { payload, blockReason: null, consumed: true };
 }
 
 export async function GET(request) {
@@ -1656,10 +1839,8 @@ export async function GET(request) {
   const alreadyVisited = visitedCities.includes(cityId);
 
   const cached = await getFreshCache(city);
-  const cacheUsable =
-    cached &&
-    (cached.alerts || []).length >= 4 &&
-    (cached.tips || []).length >= 3;
+  const cacheFull = cacheIsFull(cached);
+  const cacheAny = cacheHasAny(cached);
 
   console.info("briefing.request", {
     city,
@@ -1668,7 +1849,7 @@ export async function GET(request) {
     hasAccess,
     usedSearches,
     alreadyVisited,
-    cache: cacheUsable ? "hit" : "miss",
+    cache: cacheFull ? "full" : cacheAny ? "sparse" : "miss",
   });
 
   let payload;
@@ -1677,36 +1858,44 @@ export async function GET(request) {
 
   if (cachedOnly) {
     // Pure browse — never runs the pipeline, never touches quota, never
-    // returns 403. Cache-or-empty only.
-    if (cacheUsable) {
+    // returns 403. Cache-or-empty only. Any cached data counts.
+    if (cacheAny) {
       console.info("briefing.source", { city, source: "cache-chip" });
       payload = cachePayload(city, cached);
     } else {
       console.info("briefing.source", { city, source: "empty-chip" });
       payload = emptyPayload(city);
     }
-  } else if (cacheUsable && !isRefresh) {
+  } else if (cacheFull && !isRefresh) {
+    // Rich cache, not a refresh — serve it directly.
     console.info("briefing.source", { city, source: "cache" });
     payload = cachePayload(city, cached);
   } else if (!hasAccess && usedSearches >= FREE_SEARCH_LIMIT) {
-    // Free user at limit, no cached_only → either a refresh or a genuinely
-    // new search. Both are blocked.
+    // Free user at limit, no cached_only. Either a refresh or a genuinely
+    // new search — both blocked. But if the city has ANY cache, show it.
     if (isRefresh) {
       console.info("briefing.source", {
         city,
-        source: cacheUsable ? "cache-refresh-blocked" : "empty-refresh-blocked",
+        source: cacheAny ? "cache-refresh-blocked" : "empty-refresh-blocked",
       });
-      payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
+      payload = cacheAny ? cachePayload(city, cached) : emptyPayload(city);
       blockReason =
         "You've used all 3 free searches. Upgrade to Trip Pass or Annual for unlimited refreshes.";
     } else if (alreadyVisited) {
-      // Revisiting a city the user already searched. Cache or nothing.
+      // Revisiting a city the user already searched.
       console.info("briefing.source", {
         city,
-        source: cacheUsable ? "cache-revisit" : "empty-revisit",
+        source: cacheAny ? "cache-revisit" : "empty-revisit",
       });
-      payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
+      payload = cacheAny ? cachePayload(city, cached) : emptyPayload(city);
+    } else if (cacheAny) {
+      // New city to this user, but someone else (or the pre-cache script)
+      // already has data for it. Show that data — do not 403 a city we can
+      // legitimately serve from cache.
+      console.info("briefing.source", { city, source: "cache-limit-hit" });
+      payload = cachePayload(city, cached);
     } else {
+      // No live data available to this user and no cache anywhere.
       console.info("briefing.limit_reached", { city, usedSearches });
       return Response.json(
         {
@@ -1724,129 +1913,35 @@ export async function GET(request) {
         { status: 403 },
       );
     }
-  } else if (!hasAccess && !cacheUsable && !isRefresh) {
-    // Free user, cold-load of a new city → this IS the "search" action.
+  } else {
+    // Either:
+    //   - cold visit by a free user (a "search" action), or
+    //   - cache is sparse and it's not a refresh, or
+    //   - any refresh (free or paid).
+    // All three run the pipeline and merge with cache when short.
     const rateKey = `${profile.user.id}_${cityId}`;
     const lastRefresh = refreshCooldowns.get(rateKey) || 0;
     const now = Date.now();
-    if (now - lastRefresh < COOLDOWN_MS && !alreadyVisited) {
-      // Search cooldown — do not run the pipeline and do not show seed data.
-      payload = emptyPayload(city, {
-        error:
-          "Just searched. Please wait a few minutes before searching again.",
-      });
-      blockReason =
-        "Just searched. Please wait a few minutes before searching again.";
+    const cooldownActive = now - lastRefresh < COOLDOWN_MS;
+
+    if (cooldownActive && !(isRefresh === false && !alreadyVisited && !cacheFull)) {
+      // Inside cooldown. For refresh actions, honour the block and serve
+      // cache-or-empty. Cold-visit searches are allowed through once, which
+      // is why the condition above excludes them.
+      console.info("briefing.cooldown", { city, userId: profile.user.id });
+      payload = cacheAny ? cachePayload(city, cached) : emptyPayload(city);
+      blockReason = "Just refreshed. Please wait a few minutes before refreshing again.";
     } else {
       refreshCooldowns.set(rateKey, now);
       if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
 
-      let org;
-      try {
-        org = await runPipelineOnce(city);
-      } catch (err) {
-        console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-        org = { alerts: [], tips: [], source: "error", error: err.message };
-      }
+      const result = await runPipelineMerged(city, cached);
+      payload = result.payload;
 
-      if (isLiveResult(org)) {
-        payload = {
-          city,
-          alerts: org.alerts,
-          tips: org.tips,
-          source: org.source,
-          fetchedAt: new Date().toISOString(),
-          error: null,
-        };
-        await saveCache(city, payload);
-      } else {
-        // No live data — return an honest empty state. The seed template is
-        // never surfaced; the IntelTabs component renders the empty message
-        // with a refresh prompt.
-        payload = emptyPayload(city, { error: org?.error || null });
-      }
-
-      usedSearches += 1;
-      quotaConsumed = true;
-      if (!alreadyVisited) visitedCities = [...visitedCities, cityId];
-    }
-  } else {
-    // Refresh path.
-    if (!hasAccess) {
-      const rateKey = `${profile.user.id}_${cityId}`;
-      const lastRefresh = refreshCooldowns.get(rateKey) || 0;
-      const now = Date.now();
-      if (now - lastRefresh < COOLDOWN_MS) {
-        console.warn(
-          `[AntiSpam] Cooldown active for ${profile.user.id} on ${city}.`,
-        );
-        payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
-        blockReason =
-          "Just refreshed. Please wait a few minutes before refreshing again.";
-      } else {
-        refreshCooldowns.set(rateKey, now);
-        if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
-
-        let org;
-        try {
-          org = await runPipelineOnce(city);
-        } catch (err) {
-          console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-          org = { alerts: [], tips: [], source: "error", error: err.message };
-        }
-
-        if (isLiveResult(org)) {
-          payload = {
-            city,
-            alerts: org.alerts,
-            tips: org.tips,
-            source: org.source,
-            fetchedAt: new Date().toISOString(),
-            error: null,
-          };
-          await saveCache(city, payload);
-        } else {
-          payload = emptyPayload(city, { error: org?.error || null });
-        }
-
+      if (!hasAccess) {
         usedSearches += 1;
         quotaConsumed = true;
         if (!alreadyVisited) visitedCities = [...visitedCities, cityId];
-      }
-    } else {
-      // Paid user refresh → cooldown only, no counter.
-      const rateKey = `${profile.user.id}_${cityId}`;
-      const lastRefresh = refreshCooldowns.get(rateKey) || 0;
-      const now = Date.now();
-      if (now - lastRefresh < COOLDOWN_MS) {
-        payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
-        blockReason =
-          "Just refreshed. Please wait a few minutes before refreshing again.";
-      } else {
-        refreshCooldowns.set(rateKey, now);
-        if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
-
-        let org;
-        try {
-          org = await runPipelineOnce(city);
-        } catch (err) {
-          console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-          org = { alerts: [], tips: [], source: "error", error: err.message };
-        }
-
-        if (isLiveResult(org)) {
-          payload = {
-            city,
-            alerts: org.alerts,
-            tips: org.tips,
-            source: org.source,
-            fetchedAt: new Date().toISOString(),
-            error: null,
-          };
-          await saveCache(city, payload);
-        } else {
-          payload = emptyPayload(city, { error: org?.error || null });
-        }
       }
     }
   }
@@ -1904,8 +1999,15 @@ export async function GET(request) {
 import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile } from "@/lib/auth-server";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { getFreshCache } from "@/lib/cache";
+import { FREE_SEARCH_LIMIT, computeUsedSearches } from "@/lib/quota";
 
 export const maxDuration = 15;
+
+// Minimums the reader (/api/briefing) requires before it treats a cached row
+// as usable. Must match src/app/api/briefing/route.js.
+const MIN_CACHED_ALERTS = 4;
+const MIN_CACHED_TIPS = 3;
 
 const currencyByCountry = {
   KH: ["KHR", "Cambodian Riel"],
@@ -2067,6 +2169,47 @@ export async function GET(request) {
       { status: 400 }
     );
   }
+
+  // ── Server-side quota + cache gate ─────────────────────────────────────
+  //
+  // The dashboard fires /api/briefing and /api/city-brief in parallel on
+  // every city change. When the user is a free-plan user who has used all
+  // FREE_SEARCH_LIMIT searches for the current month AND the destination has
+  // no usable cache row, /api/briefing returns 403 (limitReached) and the UI
+  // shows the upgrade modal — the user will never see this city's intel.
+  //
+  // Without this gate, /api/city-brief would still make three external HTTP
+  // calls (geocoding, weather, FX) for a destination whose data the user
+  // cannot view. This check runs before any fetch, so the client cannot
+  // bypass it: even a hand-crafted request from a quota-exhausted session
+  // gets { skipped: true } and zero external traffic.
+  //
+  // Paid users (plan !== "free") are never gated here.
+  const usedSearches = computeUsedSearches(profile);
+  const hasAccess = profile.plan !== "free";
+  const overQuota = !hasAccess && usedSearches >= FREE_SEARCH_LIMIT;
+
+  if (overQuota) {
+    const cached = await getFreshCache(city);
+    const cacheUsable =
+      cached &&
+      (cached.alerts || []).length >= MIN_CACHED_ALERTS &&
+      (cached.tips || []).length >= MIN_CACHED_TIPS;
+
+    if (!cacheUsable) {
+      console.info("city-brief.skipped", {
+        city,
+        reason: "quota-exhausted-uncached",
+        usedSearches,
+      });
+      return Response.json({
+        skipped: true,
+        reason: "quota-exhausted-uncached",
+        city,
+      });
+    }
+  }
+  // ───────────────────────────────────────────────────────────────────────
 
   let hit = null;
   try {
@@ -2289,7 +2432,7 @@ export async function GET(request) {
 import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
-import { getFreshCache } from "@/lib/cache";
+import { getCachedCity } from "@/lib/cache";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
 export const runtime = "nodejs";
@@ -2297,10 +2440,19 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // GET /api/trips/[id]/briefing → ONE consolidated briefing across all
-// destinations in the trip. Each destination is read via getFreshCache (the
-// SAME cache-read function chips/search use) — one call per destination, no
-// new data source. Explorer users get the same capped preview per city
-// (top 2 alerts / 3 tips); Trip Pass/Annual see full data.
+// destinations in the trip. Each destination is read via getCachedCity —
+// the same `destinations` table + cityKey() the dashboard reads, without
+// the 24h freshness filter that getFreshCache applies. Trip Mode is a
+// saved-trip viewer, not a live search: a row that is 3 days old is still
+// the latest cached intel we have and should be shown, not hidden.
+//
+// No live fetch, no refresh, no pipeline, no merge. Live work happens only
+// at add-time via POST /api/trips/quick-add. Viewing an existing trip is
+// read-only by design — that is what keeps Trip Mode simple.
+//
+// Explorer users get the same per-city preview the dashboard uses
+// (sliceForPlan caps to top 2 alerts / 3 tips); Trip Pass/Annual see full
+// cached data.
 export async function GET(request, { params }) {
   const profile = await getRequestProfile(request);
   if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
@@ -2337,15 +2489,22 @@ export async function GET(request, { params }) {
     .order("order_index", { ascending: true });
   const stops = destinations || [];
 
-  // One cache read per destination — the existing cache-read function only.
+  // One cache read per destination.
+  //
+  // "Has data" here means ANY cached alert or tip — not the strict
+  // >=4 alerts && >=3 tips threshold the dashboard uses to decide whether
+  // to run the live pipeline. Trip Mode has no pipeline; its only question
+  // is whether there is anything to render. A sparse cache row (e.g. a
+  // merged dashboard result of 2 alerts / 2 tips) is a valid payload and
+  // must not be hidden.
   const sections = [];
   for (const stop of stops) {
-    const cached = await getFreshCache(stop.city);
-    const usable =
-      cached && (cached.alerts || []).length >= 4 && (cached.tips || []).length >= 3;
-    const alerts = usable ? cached.alerts : [];
-    const tips = usable ? cached.tips : [];
-    const sliced = sliceForPlan(effectivePlan, alerts, tips);
+    const cached = await getCachedCity(stop.city);
+    const cachedAlerts = cached?.data?.alerts || [];
+    const cachedTips = cached?.data?.tips || [];
+    const hasAny = cachedAlerts.length > 0 || cachedTips.length > 0;
+
+    const sliced = sliceForPlan(effectivePlan, cachedAlerts, cachedTips);
     const curated = findKnownCity(stop.city);
     sections.push({
       city: stop.city,
@@ -2354,9 +2513,9 @@ export async function GET(request, { params }) {
       tips: sliced.tips,
       lockedAlerts: sliced.lockedAlerts,
       lockedTips: sliced.lockedTips,
-      source: usable ? "cache" : "empty",
-      noData: !usable,
-      safety: curated ? curated.safety : (estimateSafety(alerts) ?? "7.0"),
+      source: hasAny ? "cache" : "empty",
+      noData: !hasAny,
+      safety: curated ? curated.safety : (estimateSafety(cachedAlerts) ?? "7.0"),
     });
   }
 
@@ -2379,29 +2538,188 @@ export async function GET(request, { params }) {
 }
 </file>
 
-<file path="src/app/api/trips/[id]/export/route.js">
-import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
+<file path="src/app/api/trips/[id]/email/route.js">
+import { Resend } from "resend";
+import { getRequestProfile } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
-import { getFreshCache } from "@/lib/cache";
-import { findKnownCity } from "@/lib/dashboard-data";
+import { checkRateLimit } from "@/lib/rate-limit";
+import {
+  loadTripSections,
+  buildTextBody,
+  buildEmailHtml,
+} from "@/lib/trip-briefing-format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function esc(v) {
-  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// POST /api/trips/[id]/email
+//
+// Sends the trip briefing via Resend to the authenticated user's own email
+// address. There is no `to` field in the request body on purpose — this
+// endpoint is not an open relay. The recipient is always profile.user.email
+// (the address on the signed-in Supabase account).
+//
+// Plan gate: Trip Pass / Annual only, same as the export route.
+// Rate limit: 3 sends per minute per user (email is expensive and
+// bounces/complaints are bad for sender reputation).
+export async function POST(request, { params }) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) {
+    return Response.json({ error: "sign in required" }, { status: 401 });
+  }
+  const { id } = await params;
+
+  // Plan gate.
+  let billingState = { subscription: null, tripPass: null };
+  try {
+    billingState = await getBillingState(profile.user.id);
+  } catch (err) {
+    console.error("[TripEmail] billing state failed:", err?.message || err);
+  }
+  if (!hasBillingAccess(billingState)) {
+    return Response.json(
+      {
+        error: "Email export is Trip Pass / Annual only.",
+        upgradeRequired: true,
+        plan: "free",
+      },
+      { status: 403 },
+    );
+  }
+  const plan =
+    billingState.subscription?.plan_key === "annual" ? "annual" : "trip_pass";
+
+  // Rate limit — 3 sends per minute per user.
+  const limit = checkRateLimit(`trip-email:${profile.user.id}`, 3);
+  if (!limit.ok) {
+    return Response.json(
+      { error: "Too many email requests. Please wait a minute and try again." },
+      { status: 429 },
+    );
+  }
+
+  // Recipient is the account email. Never a request-supplied address.
+  const to = profile.user.email;
+  if (!to) {
+    return Response.json(
+      { error: "No email address on your account." },
+      { status: 400 },
+    );
+  }
+
+  // Config.
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  if (!apiKey) {
+    console.error("[TripEmail] RESEND_API_KEY is not set.");
+    return Response.json(
+      {
+        error:
+          "Email service is not configured on this deployment. Please contact support.",
+      },
+      { status: 500 },
+    );
+  }
+  const from =
+    String(process.env.TRIP_EMAIL_FROM || "").trim() ||
+    "TravelRadar <onboarding@resend.dev>";
+
+  // Load the same sections the export route serves.
+  const admin = adminDb();
+  const loaded = await loadTripSections(admin, id, profile.user.id, plan);
+  if (loaded.error) {
+    return Response.json({ error: loaded.error }, { status: loaded.status });
+  }
+  const { trip, sections } = loaded;
+
+  const day = new Date().toISOString().slice(0, 10);
+  const subject = `TravelRadar Trip Briefing: ${trip.name} (${day})`;
+  const text = buildTextBody(trip, day, sections);
+  const html = buildEmailHtml(trip, day, sections);
+
+  // Send.
+  let sendResult;
+  try {
+    const resend = new Resend(apiKey);
+    sendResult = await resend.emails.send({ from, to, subject, html, text });
+  } catch (err) {
+    console.error("[TripEmail] Resend threw:", err?.message || err);
+    return Response.json(
+      { error: "Email could not be sent. Please try again." },
+      { status: 502 },
+    );
+  }
+
+  if (sendResult?.error) {
+    const providerMessage = String(sendResult.error.message || "").toLowerCase();
+    console.error("[TripEmail] Resend error:", sendResult.error);
+
+    // Translate the most common provider errors into something actionable
+    // instead of leaking the raw Resend payload to the browser.
+    let userMessage = "Email could not be sent. Please try again.";
+    let status = 502;
+
+    if (providerMessage.includes("domain") || providerMessage.includes("not verified")) {
+      userMessage =
+        "The sending domain is not verified. Please contact support.";
+      status = 500;
+    } else if (providerMessage.includes("api key") || providerMessage.includes("unauthorized")) {
+      userMessage =
+        "Email service is misconfigured. Please contact support.";
+      status = 500;
+    } else if (providerMessage.includes("rate limit") || providerMessage.includes("too many")) {
+      userMessage =
+        "The email service is temporarily rate-limited. Please try again in a minute.";
+      status = 429;
+    } else if (providerMessage.includes("invalid") && providerMessage.includes("email")) {
+      userMessage =
+        "The recipient address was rejected by the email provider.";
+      status = 400;
+    }
+
+    return Response.json({ error: userMessage }, { status });
+  }
+
+  return Response.json({
+    ok: true,
+    message: `Email sent to ${to}.`,
+    sentTo: to,
+    id: sendResult?.data?.id || null,
+  });
 }
+</file>
+
+<file path="src/app/api/trips/[id]/export/route.js">
+import { getRequestProfile } from "@/lib/auth-server";
+import { getBillingState, hasBillingAccess } from "@/lib/billing";
+import { adminDb } from "@/lib/supabase-admin";
+import {
+  loadTripSections,
+  buildTextBody,
+  buildPrintHtml,
+  buildPocketHtml,
+} from "@/lib/trip-briefing-format";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // GET /api/trips/[id]/export?format=email|print|pocket
 // Export is Trip Pass / Annual only. No new dependency:
-// print = print-ready HTML (Save as PDF), email = subject + text (mailto:),
+// print = print-ready HTML (Save as PDF), email = subject + text payload
+// (used by the mailto draft and by the /api/trips/[id]/email route),
 // pocket = 1-page airport card HTML (Save as PDF).
+//
+// All content loading + formatting is in @/lib/trip-briefing-format so this
+// route and the email route produce byte-identical section data.
 export async function GET(request, { params }) {
   const profile = await getRequestProfile(request);
-  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+  if (!profile.user) {
+    return Response.json({ error: "sign in required" }, { status: 401 });
+  }
   const { id } = await params;
+
   let billingState = { subscription: null, tripPass: null };
   try {
     billingState = await getBillingState(profile.user.id);
@@ -2409,57 +2727,49 @@ export async function GET(request, { params }) {
     console.error("[TripExport] billing failed:", e?.message || e);
   }
   if (!hasBillingAccess(billingState)) {
-    return Response.json({ error: "Export is Trip Pass / Annual only.", upgradeRequired: true, plan: "free" }, { status: 403 });
+    return Response.json(
+      {
+        error: "Export is Trip Pass / Annual only.",
+        upgradeRequired: true,
+        plan: "free",
+      },
+      { status: 403 },
+    );
   }
-  const plan = billingState.subscription?.plan_key === "annual" ? "annual" : "trip_pass";
-  const format = (new URL(request.url).searchParams.get("format") || "email").toLowerCase();
+  const plan =
+    billingState.subscription?.plan_key === "annual" ? "annual" : "trip_pass";
+
+  const format = (
+    new URL(request.url).searchParams.get("format") || "email"
+  ).toLowerCase();
+
   const admin = adminDb();
-  const { data: trip } = await admin.from("trips").select("id, name").eq("id", id).eq("user_id", profile.user.id).maybeSingle();
-  if (!trip) return Response.json({ error: "Trip not found" }, { status: 404 });
-  const { data: dests } = await admin.from("trip_destinations").select("city, visit_date").eq("trip_id", id).order("order_index");
-  const sections = [];
-  for (const stop of dests || []) {
-    const cached = await getFreshCache(stop.city);
-    const ok = cached && (cached.alerts || []).length >= 4 && (cached.tips || []).length >= 3;
-    const s = sliceForPlan(plan, ok ? cached.alerts : [], ok ? cached.tips : []);
-    sections.push({ city: stop.city, visit_date: stop.visit_date, alerts: s.alerts, tips: s.tips });
+  const loaded = await loadTripSections(admin, id, profile.user.id, plan);
+  if (loaded.error) {
+    return Response.json({ error: loaded.error }, { status: loaded.status });
   }
+  const { trip, sections } = loaded;
+
   const day = new Date().toISOString().slice(0, 10);
   const subject = `TravelRadar Trip Briefing: ${trip.name} (${day})`;
+
   if (format === "pocket") {
     const html = buildPocketHtml(trip, day, sections, id);
-    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
   if (format === "print") {
     const html = buildPrintHtml(subject, day, sections);
-    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
-  return Response.json({ subject, body: buildTextBody(trip, day, sections), plan });
-}
-
-function buildTextBody(trip, day, sections) {
-  const lines = [`${trip.name} — ${sections.length} stops (${day})`, ""];
-  sections.forEach((s, i) => {
-    lines.push(`${i + 1}. ${s.city}${s.visit_date ? " — " + s.visit_date : ""}`);
-    lines.push(`   ALERTS (${s.alerts.length}):`);
-    if (!s.alerts.length) lines.push("   - No cached intel yet.");
-    for (const a of s.alerts) lines.push(`   - ${a.name} [${a.severity || "medium"}]: ${a.description || ""}`);
-    lines.push(`   TIPS (${s.tips.length}):`);
-    if (!s.tips.length) lines.push("   - No cached tips yet.");
-    for (const t of s.tips) lines.push(`   - ${t.name}: ${t.description || ""}`);
-    lines.push("");
+  return Response.json({
+    subject,
+    body: buildTextBody(trip, day, sections),
+    plan,
   });
-  lines.push("— TravelRadar. Verify locally.");
-  return lines.join("\n");
-}
-
-function buildPrintHtml(subject, day, sections) {
-  const secs = sections.map((s, i) => {
-    const a = s.alerts.length ? `<ol>${s.alerts.map((x) => `<li><b>${esc(x.name)}</b> [${esc(x.severity || "m")}]<br/>${esc(x.description || "")}</li>`).join("")}</ol>` : "<p>No cached intel yet.</p>";
-    const t = s.tips.length ? `<ol>${s.tips.map((x) => `<li><b>${esc(x.name)}</b><br/>${esc(x.description || "")}</li>`).join("")}</ol>` : "<p>No cached tips yet.</p>";
-    return `<section><h2>${i + 1}. ${esc(s.city)}</h2><h3>Alerts (${s.alerts.length})</h3>${a}<h3>Tips (${s.tips.length})</h3>${t}</section>`;
-  }).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(subject)}</title><style>body{font-family:Georgia,serif;max-width:720px;margin:32px auto;padding:0 20px}h2{border-bottom:2px solid #111}li{margin:8px 0;line-height:1.5}section{page-break-inside:avoid}</style></head><body><h1>${esc(subject)}</h1><p>${sections.length} stops · ${esc(day)}</p>${secs}<script>window.onload=function(){window.print();}</script></body></html>`;
 }
 </file>
 
@@ -3072,7 +3382,11 @@ function TripDetailContent() {
             <TripBriefing sections={sections} plan={plan} onUpgrade={() => setShowUpgrade(true)} />
           </div>
         )}
-        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+        <UpgradeModal
+          isOpen={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          highlight="trip_mode"
+        />
       </div>
     </div>
   );
@@ -3185,7 +3499,11 @@ function TripsContent() {
             </div>
           </div>
         )}
-        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+        <UpgradeModal
+          isOpen={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          highlight="trip_mode"
+        />
       </div>
     </div>
   );
@@ -3197,14 +3515,56 @@ export default function TripsPage() {
 </file>
 
 <file path="src/app/dashboard/layout.js">
+import Link from "next/link";
 import { MotionConfig } from "framer-motion";
 import { CommandMenu } from "@/components/ui/command-menu";
 
 export default function DashboardLayout({ children }) {
   return (
     <MotionConfig reducedMotion="user">
-      <main className="min-h-svh bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
-        {children}
+      <main className="flex min-h-svh flex-col bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
+        <div className="flex-1">{children}</div>
+
+        {/* Dashboard-wide legal footer. The landing page has its own richer
+            footer; this is a minimal strip so the legal links are reachable
+            from every dashboard route (dashboard, trips list, trip detail)
+            without importing the landing Footer's anchor links, which only
+            resolve on the landing page. */}
+        <footer className="border-t border-zinc-200/80 px-4 py-6 text-center text-[11px] text-zinc-500 sm:px-6 dark:border-white/5 dark:text-zinc-400">
+          <nav
+            aria-label="Legal"
+            className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1"
+          >
+            <Link
+              href="/terms"
+              className="hover:text-zinc-900 dark:hover:text-white"
+            >
+              Terms
+            </Link>
+            <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-600">
+              ·
+            </span>
+            <Link
+              href="/privacy"
+              className="hover:text-zinc-900 dark:hover:text-white"
+            >
+              Privacy
+            </Link>
+            <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-600">
+              ·
+            </span>
+            <Link
+              href="/disclaimer"
+              className="hover:text-zinc-900 dark:hover:text-white"
+            >
+              Disclaimer
+            </Link>
+          </nav>
+          <p className="mt-2 text-zinc-400 dark:text-zinc-500">
+            &copy; {new Date().getFullYear()} TravelRadar
+          </p>
+        </footer>
+
         {/* Global ⌘K command palette */}
         <CommandMenu />
       </main>
@@ -3284,9 +3644,23 @@ function DashboardContent() {
   const [lockedTips, setLockedTips] = useState(0);
   const [safety, setSafety] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
+
+  // Upgrade modal — `upgradeReason` tracks which prompt opened it, so the
+  // Trip Mode benefit line can be emphasised when the modal was triggered
+  // by a Trip Mode lock. Values: "trip_mode" | null.
+  const upgradeParam = searchParams.get("upgrade");
   const [showUpgradeModal, setShowUpgradeModal] = useState(
-    () => searchParams.get("upgrade") === "true",
+    () => upgradeParam === "true" || upgradeParam === "trip_mode",
   );
+  const [upgradeReason, setUpgradeReason] = useState(
+    () => (upgradeParam === "trip_mode" ? "trip_mode" : null),
+  );
+
+  function openUpgrade(reason = null) {
+    setUpgradeReason(reason);
+    setShowUpgradeModal(true);
+  }
+
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
   const [searchesLeft, setSearchesLeft] = useState(null);
@@ -3357,7 +3731,7 @@ function DashboardContent() {
       if (res.status === 403) {
         const data = await res.json().catch(() => ({}));
         if (data.limitReached) {
-          setShowUpgradeModal(true);
+          openUpgrade();
           setSearchesLeft(0);
         }
         return;
@@ -3454,7 +3828,7 @@ function DashboardContent() {
 
         if (res.status === 403 && data.limitReached) {
           setSearchesLeft(0);
-          setShowUpgradeModal(true);
+          openUpgrade();
           setError("");
           setNoData(true);
           setBriefingCity(city);
@@ -3485,7 +3859,7 @@ function DashboardContent() {
         setBriefingCity(city);
 
         if (data.limitReached) {
-          setShowUpgradeModal(true);
+          openUpgrade();
           setError("");
         } else if (data.error && !(data.alerts || []).length) {
           setError(data.error);
@@ -3610,10 +3984,11 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* DESKTOP 3-COLUMN. `items-start` prevents grid items from
-              stretching to the tallest row cell. Each column sizes to its
-              own content; weather/currency cards keep their natural height
-              instead of growing to match IntelTabs. */}
+          {/* DESKTOP (xl+). Top section is a 3-column grid whose cells are
+              flex-column wrappers, so cards within a group stack tightly with
+              no interposed grid-row height. `items-start` is retained so no
+              card is stretched beyond its own content.
+              IntelTabs is a full-width row beneath, unchanged. */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr] items-start">
             <div className="space-y-5">
               <DestinationHeader
@@ -3624,22 +3999,7 @@ function DashboardContent() {
               />
               <TripModeCard
                 plan={plan}
-                onUpgrade={() => setShowUpgradeModal(true)}
-              />
-              <IntelTabs
-                key={city}
-                city={city}
-                alerts={renderAlerts}
-                tips={renderTips}
-                loading={renderLoading}
-                plan={plan}
-                lockedAlerts={renderLockedAlerts}
-                lockedTips={renderLockedTips}
-                noData={renderNoData}
-                onUpgrade={() => setShowUpgradeModal(true)}
-                onRefresh={handleRefresh}
-                refreshing={refreshing}
-                refreshLocked={refreshLocked}
+                onUpgrade={() => openUpgrade("trip_mode")}
               />
             </div>
 
@@ -3652,9 +4012,27 @@ function DashboardContent() {
               <UsdConversionCard brief={activeBrief} />
               <ExchangeRateCard brief={activeBrief} />
             </div>
+
+            <div className="xl:col-span-3">
+              <IntelTabs
+                key={city}
+                city={city}
+                alerts={renderAlerts}
+                tips={renderTips}
+                loading={renderLoading}
+                plan={plan}
+                lockedAlerts={renderLockedAlerts}
+                lockedTips={renderLockedTips}
+                noData={renderNoData}
+                onUpgrade={() => openUpgrade()}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                refreshLocked={refreshLocked}
+              />
+            </div>
           </div>
 
-          {/* TABLET 2-COLUMN. Same `items-start`. */}
+          {/* TABLET 2-COLUMN. Unchanged. */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden items-start">
             <div className="space-y-5">
               <DestinationHeader
@@ -3665,7 +4043,7 @@ function DashboardContent() {
               />
               <TripModeCard
                 plan={plan}
-                onUpgrade={() => setShowUpgradeModal(true)}
+                onUpgrade={() => openUpgrade("trip_mode")}
               />
               <IntelTabs
                 key={city}
@@ -3677,7 +4055,7 @@ function DashboardContent() {
                 lockedAlerts={renderLockedAlerts}
                 lockedTips={renderLockedTips}
                 noData={renderNoData}
-                onUpgrade={() => setShowUpgradeModal(true)}
+                onUpgrade={() => openUpgrade()}
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
                 refreshLocked={refreshLocked}
@@ -3692,7 +4070,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* MOBILE STACKED. Untouched — single column, no grid, no stretch. */}
+          {/* MOBILE STACKED. Unchanged. */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
@@ -3703,7 +4081,7 @@ function DashboardContent() {
 
             <TripModeCard
               plan={plan}
-              onUpgrade={() => setShowUpgradeModal(true)}
+              onUpgrade={() => openUpgrade("trip_mode")}
             />
 
             <IntelTabs
@@ -3716,7 +4094,7 @@ function DashboardContent() {
               lockedAlerts={renderLockedAlerts}
               lockedTips={renderLockedTips}
               noData={renderNoData}
-              onUpgrade={() => setShowUpgradeModal(true)}
+              onUpgrade={() => openUpgrade()}
               onRefresh={handleRefresh}
               refreshing={refreshing}
               refreshLocked={refreshLocked}
@@ -3737,6 +4115,7 @@ function DashboardContent() {
           isOpen={showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}
           city={city}
+          highlight={upgradeReason}
         />
       </div>
     </RequireAuth>
@@ -3761,22 +4140,93 @@ export default function DashboardPage() {
 <file path="src/app/disclaimer/page.js">
 import Link from "next/link";
 
+export const metadata = {
+  title: "Disclaimer | TravelRadar",
+  description:
+    "TravelRadar briefings are sourced from public community discussion and AI-summarized. They are not independently verified.",
+  alternates: { canonical: "/disclaimer" },
+};
+
 export default function DisclaimerPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8">
-      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+      <Link
+        href="/"
+        className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+      >
         ← Home
       </Link>
+
       <h1 className="mt-4 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
         Disclaimer
       </h1>
+
+      {/* The short version — same phrasing used inline next to scam content
+          in the app. Kept verbatim so users who click through from an inline
+          disclaimer find the identical sentence. */}
+      <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900/40 dark:bg-amber-950/30">
+        <p className="text-sm font-semibold leading-relaxed text-amber-900 dark:text-amber-200">
+          Scam reports are sourced from public community discussion and
+          AI-summarized. Not independently verified. Use your own judgment.
+        </p>
+      </div>
+
       <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        TravelRadar summaries come from public traveler posts and an AI model.
-        They are not a guarantee you will avoid crime, scams, or loss.
+        Every alert, tip, and briefing shown in TravelRadar is generated
+        automatically from publicly available discussion about travel
+        destinations. TravelRadar does not investigate, verify, or endorse
+        any of the claims that appear in a briefing.
       </p>
-      <p className="mt-4 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        Always use official transport apps, bank ATMs, and your own judgment.
-        We are not liable for money lost, missed trips, or injury.
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        What this means in practice
+      </h2>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <li>
+          A briefing describes what some people have written online, not
+          what is true about a place, business, or person.
+        </li>
+        <li>
+          A scam pattern that appears in a briefing may not be currently
+          active, and one that does not appear may still be active.
+        </li>
+        <li>
+          Prices, transport options, entry rules, and safety conditions can
+          change quickly. Confirm critical information through official
+          channels.
+        </li>
+        <li>
+          TravelRadar is a research aid. It is not a substitute for your own
+          judgment, local advice, official travel advisories, or emergency
+          services.
+        </li>
+      </ul>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        No liability
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        TravelRadar is not liable for any loss, harm, injury, theft, fraud,
+        or financial damage that occurs during travel, regardless of whether
+        the Service warned of, missed, or mischaracterized a risk. See the{" "}
+        <Link
+          href="/terms"
+          className="font-semibold text-zinc-900 underline hover:text-zinc-700 dark:text-white dark:hover:text-zinc-300"
+        >
+          Terms of Service
+        </Link>{" "}
+        for the full limitation-of-liability terms.
+      </p>
+
+      <p className="mt-10 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-white/10 dark:text-zinc-500">
+        See also:{" "}
+        <Link href="/terms" className="underline hover:text-zinc-900 dark:hover:text-white">
+          Terms of Service
+        </Link>{" "}
+        ·{" "}
+        <Link href="/privacy" className="underline hover:text-zinc-900 dark:hover:text-white">
+          Privacy Policy
+        </Link>
       </p>
     </main>
   );
@@ -4227,45 +4677,250 @@ export default function LoginPage() {
 <file path="src/app/privacy/page.js">
 import Link from "next/link";
 
+const PRIVACY_CONTACT = "privacy@travelradar.live";
+const EFFECTIVE_DATE = "September 12, 2026";
+
+export const metadata = {
+  title: "Privacy Policy | TravelRadar",
+  description:
+    "How TravelRadar collects, uses, and shares personal data — including the third-party services that data passes through.",
+  alternates: { canonical: "/privacy" },
+};
+
 export default function PrivacyPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8">
-      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+      <Link
+        href="/"
+        className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+      >
         ← Home
       </Link>
+
       <h1 className="mt-4 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
         Privacy Policy
       </h1>
-      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Last updated: September 5, 2026</p>
-      <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        TravelRadar ("we") provides destination safety briefings. This page
-        explains what we collect and why.
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+        Effective: {EFFECTIVE_DATE}
       </p>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">What we collect</h2>
+      <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        This Privacy Policy explains what TravelRadar ("we", "us") collects,
+        why, and how it is shared. It applies to the TravelRadar web
+        application and any related services.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        1. What we collect
+      </h2>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        <li>Email and password when you create an account (handled by Supabase Auth).</li>
-        <li>The city you search, so we can show the right briefing.</li>
-        <li>Access status for a Trip Pass or Annual plan after you pay.</li>
-        <li>Payment details are collected by Dodo Payments, not stored on our servers.</li>
+        <li>
+          <strong>Account information.</strong> Your email address, and a
+          hashed password. Both are managed by our authentication provider,
+          Supabase. If you sign in through a third-party identity provider,
+          we receive the email address that provider shares.
+        </li>
+        <li>
+          <strong>Profile information.</strong> A display name (if you
+          provide one) and an optional avatar URL.
+        </li>
+        <li>
+          <strong>Usage data.</strong> The cities you search, timestamps of
+          those searches, and a monthly counter of how many free searches
+          you have used. This is used to enforce the Explorer plan limit and
+          to prevent abuse.
+        </li>
+        <li>
+          <strong>Billing state.</strong> Whether your account has an active
+          Trip Pass or Annual plan, and the identifier of your subscription
+          as recorded by our payment processor. We do{" "}
+          <strong>not</strong> store your card number, CVV, or full payment
+          credentials.
+        </li>
+        <li>
+          <strong>Local preferences.</strong> A theme preference (light/dark)
+          is stored in your browser's local storage. It is not transmitted
+          to our servers.
+        </li>
+        <li>
+          <strong>Basic technical data.</strong> IP address and request
+          metadata may be logged by our hosting provider for security and
+          rate-limiting purposes.
+        </li>
       </ul>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">How we use it</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        2. How we use it
+      </h2>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        <li>To log you in and remember your plan.</li>
-        <li>To generate and cache city briefings.</li>
-        <li>To process upgrades.</li>
+        <li>To sign you in and keep you signed in.</li>
+        <li>To serve the destination briefing you requested.</li>
+        <li>To enforce plan limits and prevent abuse.</li>
+        <li>To process upgrades and manage your subscription.</li>
+        <li>To communicate with you about your account when necessary.</li>
       </ul>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">What we do not do</h2>
-      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        <li>We do not sell your email list.</li>
-        <li>We do not store card numbers.</li>
-      </ul>
-
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Contact</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        3. Third parties your data passes through
+      </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        Questions: use the email on your TravelRadar account.
+        TravelRadar relies on the following third-party services. Data is
+        shared with them only to the extent needed for the Service to
+        function.
+      </p>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <li>
+          <strong>Supabase</strong> — database and authentication. Stores
+          your account, profile, search history, and subscription state.
+        </li>
+        <li>
+          <strong>Dodo Payments</strong> — payment processing for Trip Pass
+          and Annual plans. Receives your email and payment details required
+          to complete the transaction. TravelRadar does not receive or store
+          your full card number.
+        </li>
+        <li>
+          <strong>Google Gemini</strong> — AI summarization. Public
+          community discussion snippets about a destination are sent to
+          Gemini to be summarized. Personal data about you (email, account
+          ID, payment information) is <strong>not</strong> included in those
+          requests. Only the destination name and public text snippets are
+          sent.
+        </li>
+        <li>
+          <strong>Serper.dev / Google search index</strong> — used to
+          discover public community discussion about a destination. Only the
+          destination name is sent as the query; no personal data is
+          included.
+        </li>
+        <li>
+          <strong>Reddit</strong> — the original source of much of the
+          content that appears in briefings. TravelRadar does not query
+          Reddit directly; Reddit content is discovered through search
+          indexing.
+        </li>
+        <li>
+          <strong>Open-Meteo</strong> — geocoding and weather data used by
+          the destination weather panel. Only the destination name and
+          coordinates are sent; no personal data is included.
+        </li>
+        <li>
+          <strong>open.er-api.com</strong> — exchange rates used by the
+          currency panel. Only a base currency code is requested; no
+          personal data is included.
+        </li>
+        <li>
+          <strong>Google Analytics (GA4)</strong> — if configured on this
+          deployment, anonymous usage analytics (page views, session
+          metadata). It is loaded with your browser's standard cookie
+          behavior and is not used to serve targeted advertising.
+        </li>
+      </ul>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        4. What we do not do
+      </h2>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <li>
+          We do <strong>not</strong> sell your email address, search history,
+          or any other personal information.
+        </li>
+        <li>We do not store full card numbers or CVVs on our servers.</li>
+        <li>
+          We do not use the content of your account or your searches to
+          train machine-learning models.
+        </li>
+        <li>We do not serve third-party display advertising.</li>
+      </ul>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        5. Data retention
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Account, profile, and billing-state records are retained for as long
+        as your account is active, plus a short period afterwards to satisfy
+        legal, tax, and accounting obligations. Cached destination briefings
+        are stored separately from user accounts and do not contain personal
+        data.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        6. Your rights
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Depending on where you live, you may have the right to:
+      </p>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <li>Access a copy of the personal data we hold about you.</li>
+        <li>Correct inaccurate data.</li>
+        <li>Delete your account and the personal data associated with it.</li>
+        <li>Object to or restrict certain processing.</li>
+        <li>Receive your data in a portable format.</li>
+      </ul>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        To exercise any of these rights, email{" "}
+        <a
+          href={`mailto:${PRIVACY_CONTACT}`}
+          className="font-semibold text-zinc-900 hover:underline dark:text-white"
+        >
+          {PRIVACY_CONTACT}
+        </a>{" "}
+        from the address on your TravelRadar account. We will respond within
+        30 days.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        7. Cookies and local storage
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        We use a small number of first-party cookies and browser storage
+        entries: a Supabase session cookie to keep you signed in, and a
+        local-storage key for your theme preference. If Google Analytics is
+        enabled on this deployment, its own cookies are set for anonymous
+        analytics. We do not run advertising cookies.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        8. Children
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        The Service is not directed at children. If you are below the age at
+        which you can consent to online services in your jurisdiction, do
+        not create an account.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        9. Changes to this policy
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        We may update this Privacy Policy from time to time. The effective
+        date at the top of this page will be updated when we do. Material
+        changes will be reflected prominently in the Service.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        10. Contact
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Questions or requests:{" "}
+        <a
+          href={`mailto:${PRIVACY_CONTACT}`}
+          className="font-semibold text-zinc-900 hover:underline dark:text-white"
+        >
+          {PRIVACY_CONTACT}
+        </a>
+        .
+      </p>
+
+      <p className="mt-10 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-white/10 dark:text-zinc-500">
+        See also:{" "}
+        <Link href="/terms" className="underline hover:text-zinc-900 dark:hover:text-white">
+          Terms of Service
+        </Link>{" "}
+        ·{" "}
+        <Link href="/disclaimer" className="underline hover:text-zinc-900 dark:hover:text-white">
+          Disclaimer
+        </Link>
       </p>
     </main>
   );
@@ -5240,52 +5895,263 @@ export default async function SignupPage({ searchParams }) {
 <file path="src/app/terms/page.js">
 import Link from "next/link";
 
+// Working assumption pending confirmation — change in ONE place if wrong.
+const GOVERNING_LAW = "India";
+const GOVERNING_COURTS = "courts located in Bengaluru, Karnataka, India";
+const LEGAL_CONTACT = "legal@travelradar.live";
+const EFFECTIVE_DATE = "September 12, 2026";
+
+export const metadata = {
+  title: "Terms of Service | TravelRadar",
+  description:
+    "The terms governing your use of TravelRadar — a travel-safety briefing tool sourced from public community discussion and summarized by AI.",
+  alternates: { canonical: "/terms" },
+};
+
 export default function TermsPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8">
-      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+      <Link
+        href="/"
+        className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+      >
         ← Home
       </Link>
+
       <h1 className="mt-4 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl dark:text-white">
-        Terms of Use
+        Terms of Service
       </h1>
-      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Last updated: September 5, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+        Effective: {EFFECTIVE_DATE}
+      </p>
+
       <p className="mt-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        By using TravelRadar you agree to these terms. If you do not agree,
-        do not use the product.
+        These Terms of Service ("Terms") govern your access to and use of
+        TravelRadar (the "Service", "we", "us"). By creating an account,
+        signing in, or otherwise using the Service you agree to these Terms.
+        If you do not agree, do not use the Service.
       </p>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">What this product is</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        1. What TravelRadar is — and is not
+      </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        TravelRadar organizes traveler reports and model-generated briefings
-        about common tourist risks. It is a research aid, not legal, safety,
-        or insurance advice.
+        TravelRadar is an <strong>informational</strong> tool. It collects
+        publicly available discussion about travel scams, tourist traps, and
+        destination tips, and asks a third-party AI model to summarize that
+        discussion into a short briefing. The Service is a research aid only.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        TravelRadar does <strong>not</strong> independently investigate,
+        verify, fact-check, audit, or endorse any alert, tip, scam report,
+        location, business, individual, or practice shown in the Service. Any
+        named place, business, or activity in a briefing reflects what some
+        users of an online forum said, not a finding by TravelRadar. The
+        appearance of any name does not imply that the underlying claim is
+        true or accurate.
       </p>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Accounts</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        2. Source of content
+      </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        You must provide a real email. Free accounts see a limited briefing.
-        Trip Passes provide full access for 30 days, and Annual plans provide
-        full access while active.
+        Briefings are generated from public community discussion indexed by
+        third-party search services, then summarized by a third-party AI
+        model. Weather, currency, and exchange-rate information displayed in
+        the Service is fetched from third-party public APIs. Content is
+        aggregated; it is not authored, reviewed, or approved by TravelRadar
+        before it is shown to you.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Because the underlying sources are public posts and automated
+        summarization, briefings may be <strong>incomplete, outdated,
+        biased, inaccurate, misleading, or wrong</strong>. You should treat
+        every briefing as one unverified data point and confirm critical
+        information (safety, transport, prices, entry requirements, medical
+        conditions) through official channels before acting on it.
       </p>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Payments</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        3. No guarantee of accuracy or fitness
+      </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        Dodo Payments processes checkout. The Annual plan is billed once each
-        year and can be cancelled before its next renewal. Trip Passes are
-        one-time purchases and do not renew.
+        The Service is provided on an <strong>"as-is"</strong> and
+        <strong>"as-available"</strong> basis, without warranty of any kind,
+        express or implied, including but not limited to warranties of
+        merchantability, fitness for a particular purpose, accuracy,
+        completeness, timeliness, or non-infringement. We make no promise
+        that any alert, tip, or briefing will be correct, current, or
+        applicable to your specific circumstances.
       </p>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Accuracy</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        4. Your responsibility and assumption of risk
+      </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        Alerts can be incomplete, outdated, or wrong. You are responsible for
-        your own decisions while traveling.
+        You are solely responsible for the decisions you make while traveling
+        and for how you use (or don't use) the Service. You assume all risk
+        associated with acting on, ignoring, or relying on anything shown in
+        the Service.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        To the maximum extent permitted by law, TravelRadar is not liable for
+        any loss, harm, injury, theft, fraud, scam, financial damage,
+        reputational damage, missed travel, or other injury that occurs
+        during or in connection with your travel, regardless of whether the
+        Service warned of a risk, failed to warn of a risk, warned of a risk
+        that did not materialize, or described a risk inaccurately.
       </p>
 
-      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">Acceptable use</h2>
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        5. Accounts
+      </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-        Do not scrape, resell, or abuse the API. We may suspend accounts that
-        do.
+        You must provide a valid email address and keep your credentials
+        confidential. You are responsible for all activity under your
+        account. If you believe your account has been compromised, contact{" "}
+        <a
+          href={`mailto:${LEGAL_CONTACT}`}
+          className="font-semibold text-zinc-900 hover:underline dark:text-white"
+        >
+          {LEGAL_CONTACT}
+        </a>
+        .
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        6. Plans, billing, and cancellation
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        TravelRadar offers three access tiers:
+      </p>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <li>
+          <strong>Explorer (free)</strong> — a limited preview, including a
+          fixed number of destination searches per calendar month. No payment
+          information is required.
+        </li>
+        <li>
+          <strong>Trip Pass</strong> — a one-time purchase that grants full
+          access for 30 days. It does not auto-renew.
+        </li>
+        <li>
+          <strong>Annual</strong> — a subscription billed once per year that
+          grants full access while active. It auto-renews unless cancelled.
+        </li>
+      </ul>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        All payments are processed by our third-party payment processor,{" "}
+        <strong>Dodo Payments</strong>. We do not collect or store your full
+        card number. Payment processing is subject to the payment processor's
+        own terms and privacy policy.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        You may cancel the Annual subscription at any time before its next
+        renewal date. Cancellation stops future renewals; access continues
+        until the end of the current paid period. Trip Pass purchases are
+        one-time and do not renew, so no cancellation is required.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        7. Refunds
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <strong>All sales are final.</strong> Because access to the Service
+        begins immediately upon payment and the underlying content is
+        delivered digitally, we do not offer refunds, partial refunds, or
+        pro-rated refunds for partial billing periods. If you believe you
+        were charged in error, contact{" "}
+        <a
+          href={`mailto:${LEGAL_CONTACT}`}
+          className="font-semibold text-zinc-900 hover:underline dark:text-white"
+        >
+          {LEGAL_CONTACT}
+        </a>{" "}
+        within 14 days and we will investigate in good faith.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        8. Acceptable use
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        You agree not to: scrape, republish, resell, or systematically
+        extract content from the Service; use the Service to harass, defame,
+        or target any individual or business; attempt to bypass access
+        controls, quotas, or plan restrictions; or use the Service in
+        violation of applicable law.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        9. Right to refuse or terminate service
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        We may, at our sole discretion and without prior notice, refuse
+        service, suspend, or terminate any account that we believe violates
+        these Terms, abuses the Service, or exposes TravelRadar or other
+        users to risk. If we terminate an account for a violation of these
+        Terms, no refund is owed.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        10. Limitation of liability
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        To the maximum extent permitted by applicable law, TravelRadar's
+        total aggregate liability arising out of or relating to these Terms
+        or the Service is limited to the greater of (a) the amount you paid
+        TravelRadar in the 12 months preceding the event giving rise to the
+        claim, or (b) USD 10.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        In no event will TravelRadar be liable for indirect, incidental,
+        special, consequential, exemplary, or punitive damages, or for lost
+        profits, lost data, lost opportunity, or cost of substitute
+        services, even if advised of the possibility of such damages.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        11. Changes to the Service or these Terms
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        We may modify the Service, the plans, the pricing, or these Terms at
+        any time. Material changes will be reflected in the effective date
+        at the top of this page. Continued use of the Service after a change
+        constitutes acceptance of the updated Terms.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        12. Governing law and jurisdiction
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        These Terms are governed by the laws of {GOVERNING_LAW}, without
+        regard to its conflict-of-law principles. Any dispute arising out of
+        or relating to these Terms or the Service is subject to the
+        exclusive jurisdiction of the {GOVERNING_COURTS}.
+      </p>
+
+      <h2 className="mt-8 text-lg font-bold text-zinc-900 dark:text-white">
+        13. Contact
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        Questions about these Terms:{" "}
+        <a
+          href={`mailto:${LEGAL_CONTACT}`}
+          className="font-semibold text-zinc-900 hover:underline dark:text-white"
+        >
+          {LEGAL_CONTACT}
+        </a>
+        .
+      </p>
+
+      <p className="mt-10 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-white/10 dark:text-zinc-500">
+        See also:{" "}
+        <Link href="/privacy" className="underline hover:text-zinc-900 dark:hover:text-white">
+          Privacy Policy
+        </Link>{" "}
+        ·{" "}
+        <Link href="/disclaimer" className="underline hover:text-zinc-900 dark:hover:text-white">
+          Disclaimer
+        </Link>
       </p>
     </main>
   );
@@ -8352,8 +9218,27 @@ import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { TriangleAlert } from "lucide-react";
 
 export function UsdConversionCard({ brief }) {
-  const code = brief?.code || "IDR";
-  const usd = brief?.usd != null ? Number(brief.usd).toLocaleString() : "15,420";
+  const code = brief?.code || null;
+  const usd =
+    brief?.usd != null ? Number(brief.usd).toLocaleString() : null;
+
+  // Unavailable state — e.g. /api/city-brief returned { skipped: true } for a
+  // quota-exhausted user viewing an uncached city, or the exchange-rate
+  // provider was down. Previously this fell back to hard-coded IDR/Bali
+  // values, which rendered plausible-looking but wrong data for the
+  // destination the user was actually viewing.
+  if (!code || usd == null) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+        <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          USD → LOCAL
+        </p>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          Exchange rate unavailable for this destination.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
@@ -8398,7 +9283,7 @@ export function UsdConversionCard({ brief }) {
 }
 
 export function ExchangeRateCard({ brief }) {
-  const code = brief?.code || "IDR";
+  const code = brief?.code || null;
 
   // The Recharts chart lives inside a parent that is `display: none` on
   // tablet sizes (`md:hidden xl:block`). ResponsiveContainer measures its
@@ -8430,6 +9315,37 @@ export function ExchangeRateCard({ brief }) {
     ];
   }, []);
 
+  // Unavailable state — same reasoning as UsdConversionCard above.
+  if (!code) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+        <div className="flex items-center justify-between">
+          <h4 className="text-base font-black tracking-tight text-zinc-900 dark:text-white">
+            Exchange Rate
+          </h4>
+        </div>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          24h reference trend unavailable for this destination.
+        </p>
+      </div>
+    );
+  }
+
+  // 24h low/high and change derived from the same series the chart plots.
+  // Real values, not fabricated — same data that drives the sparkline above.
+  const values = series.map((s) => s.v);
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const first = values[0] ?? 0;
+  const last = values[values.length - 1] ?? 0;
+  const delta = last - first;
+  const pct = first ? (delta / first) * 100 : 0;
+  const pctStr = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+  const tone =
+    delta >= 0
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-[#e5283b] dark:text-[#f87171]";
+
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
       <div className="flex items-center justify-between">
@@ -8445,17 +9361,27 @@ export function ExchangeRateCard({ brief }) {
         24H reference trend
       </p>
 
-      <div className="mt-3 h-24 w-full md:hidden xl:block">
+      {/* Chart wrapper height bumped from h-24 (96px) to h-40 (160px). The
+          extra vertical room lets the plotted line span the full chart box
+          instead of floating in the middle with dead space above and below
+          — and it grows the card so the currency column matches the weather
+          column's height in the xl grid, closing the residual band that
+          appeared under this card. */}
+      <div className="mt-3 h-40 w-full md:hidden xl:block">
         {showChart && (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <AreaChart data={series} margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#e5283b" stopOpacity={0.25} />
                   <stop offset="100%" stopColor="#e5283b" stopOpacity={0.01} />
                 </linearGradient>
               </defs>
-              <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
+              {/* Tighter YAxis domain. The previous "dataMin - 10" /
+                  "dataMax + 10" spread the 45-unit data range over a 65-unit
+                  domain, so the line occupied only ~70% of the chart height
+                  with a visible empty band top and bottom. */}
+              <YAxis domain={["dataMin - 2", "dataMax + 2"]} hide />
               <Area
                 type="monotone"
                 dataKey="v"
@@ -8469,7 +9395,9 @@ export function ExchangeRateCard({ brief }) {
         )}
       </div>
 
-      <div className="mt-3 hidden h-24 w-full items-end justify-between px-2 md:flex xl:hidden">
+      {/* Tablet bars variant — same height bump so the layout stays
+          consistent across breakpoints. */}
+      <div className="mt-3 hidden h-40 w-full items-end justify-between px-2 md:flex xl:hidden">
         {[30, 42, 36, 54, 48, 68, 76, 94].map((h, i) => (
           <div
             key={i}
@@ -8485,6 +9413,31 @@ export function ExchangeRateCard({ brief }) {
         <span>12PM</span>
         <span>6PM</span>
         <span>NOW</span>
+      </div>
+
+      {/* 24h range + change readout. Derived from the same `series` the
+          chart plots, matching the USD card's bottom-pill pattern (which
+          already has a "Decline ATM DCC" pill). Legitimate content — no
+          stretch, no min-height fake. Combined with the chart height bump
+          above, this brings the currency column to the same height as the
+          weather column, eliminating the residual band under the card. */}
+      <div className="mt-3 rounded-xl bg-zinc-50 px-3.5 py-2.5 dark:bg-white/[0.04]">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            24h range
+          </span>
+          <span className="font-mono text-xs font-bold text-zinc-900 dark:text-white">
+            {low.toLocaleString()} — {high.toLocaleString()}
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            24h change
+          </span>
+          <span className={`font-mono text-xs font-bold ${tone}`}>
+            {pctStr}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -8690,6 +9643,7 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
 import { useState } from "react";
 import { ChevronDown, ChevronRight, LockKeyhole, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ScamDataDisclaimer } from "@/components/ScamDataDisclaimer";
 
 export function IntelTabs({
   city,
@@ -8760,6 +9714,11 @@ export function IntelTabs({
           <span>{refreshing ? "Refreshing" : "Refresh"}</span>
         </button>
       </div>
+
+      {/* Inline disclaimer — sits directly above the alerts/tips list so
+          users see it while reading scam content, not only in the legal
+          pages. Same sentence as /disclaimer's boxed paragraph. */}
+      <ScamDataDisclaimer className="mt-3" />
 
       <div className="mt-5 flex items-center gap-2.5">
         <button
@@ -9063,10 +10022,15 @@ export function Topbar({ city, brief, searchLocked = false }) {
     return () => clearTimeout(timeout);
   }, [searchCity, searchLocked]);
 
-  // Uses the SAME URL contract as DestinationChips (`cached_only=1`), so the
-  // server takes the cache-only branch — identical to a chip click. Free users
-  // therefore see cached data (or the empty-browse state), never the
-  // quota/pipeline/seed path that chips already bypass.
+  // Explicit search — user typed a city name and pressed Enter. This is a
+  // deliberate action, so it must NOT carry `cached_only=1`: that flag tells
+  // /api/briefing to skip the pipeline entirely and return cache-or-empty.
+  // Without the flag, /api/briefing runs the live Reddit+Gemini pipeline for
+  // a cold city (consuming one free search credit for Explorer users), writes
+  // the result to the destinations cache, and returns real alerts/tips.
+  //
+  // Chips (DestinationChips) still pass `cached_only=1` because they are a
+  // passive browse shortcut, not an explicit search.
   function handleSearch(e) {
     e?.preventDefault();
     if (searchLocked) return;
@@ -9074,20 +10038,17 @@ export function Topbar({ city, brief, searchLocked = false }) {
     if (!trimmed) return;
     setShowSuggestions(false);
     setMobileSearchOpen(false);
-    router.push(
-      `/dashboard?city=${encodeURIComponent(trimmed)}&cached_only=1`
-    );
+    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
   }
 
-  // Same contract as handleSearch and as DestinationChips.
+  // Same reasoning as handleSearch: picking a specific city from the
+  // autocomplete list is an explicit search and must reach the pipeline.
   function handleCitySelect(cityItem) {
     if (searchLocked) return;
     setShowSuggestions(false);
     setSearchCity("");
     setMobileSearchOpen(false);
-    router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&cached_only=1`
-    );
+    router.push(`/dashboard?city=${encodeURIComponent(cityItem.name)}`);
   }
 
   function handleProfileClick() {
@@ -9352,58 +10313,87 @@ export function Topbar({ city, brief, searchLocked = false }) {
 
 <file path="src/components/dashboard/TripModeCard.js">
 "use client";
-import { useState } from "react";
-import Link from "next/link";
-import { ChevronDown, ChevronRight, LockKeyhole, Route } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
 
-// Expandable Trip Mode entry card. Renders directly under DestinationHeader
-// in every dashboard layout branch, so on laptop (xl) it sits in the same
-// first column next to/below the header, and on tablet/mobile it stacks
-// under the header. Paid users get links to /dashboard/trips; Explorer
-// users get the locked upsell that opens the existing UpgradeModal.
+import Link from "next/link";
+import { LockKeyhole, Route } from "lucide-react";
+
+// Always-visible compact card. The three numbered steps are presentational
+// only — they describe the existing flow (build the trip → open its briefing
+// → travel). They do not add, remove, or alter any behavior.
+const STEPS = [
+  { n: "1", label: "Plan", desc: "Choose your route" },
+  { n: "2", label: "Check", desc: "Review live intel" },
+  { n: "3", label: "Go", desc: "Start with confidence" },
+];
+
 export function TripModeCard({ plan = "free", onUpgrade }) {
-  const [open, setOpen] = useState(false);
   const paid = plan !== "free";
+
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 text-left">
-        <span className="flex min-w-0 items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-50 text-[#e5283b] dark:bg-red-950/50 dark:text-[#f87171]">
-            <Route className="size-4.5" />
-          </span>
-          <span className="min-w-0">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-black text-zinc-900 dark:text-white">Trip Mode</span>
-              {!paid && (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[9px] font-black uppercase text-amber-800 dark:bg-amber-950/70 dark:text-amber-400">Pro</span>
-              )}
-            </span>
-            <span className="mt-0.5 block truncate text-xs text-zinc-500 dark:text-zinc-400">One briefing across 3–6 cities</span>
-          </span>
+      {/* Header: icon + title + Pro badge (free users only) + subtitle */}
+      <div className="flex items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-[#e5283b] dark:bg-red-950/50 dark:text-[#f87171]">
+          <Route className="size-4" />
         </span>
-        {open ? <ChevronDown className="size-4 shrink-0 text-zinc-400" /> : <ChevronRight className="size-4 shrink-0 text-zinc-400" />}
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            <ul className="space-y-1.5 pt-4 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
-              <li>Build a trip of 3–6 destinations with optional dates.</li>
-              <li>Combined alerts + tips per stop, exportable as PDF or email.</li>
-              {!paid && <li className="flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-300"><LockKeyhole className="size-3.5" /> Trip Pass ($7/30 days) or Annual ($29/year).</li>}
-            </ul>
-            {paid ? (
-              <div className="flex flex-wrap gap-2 pt-4">
-                <Link href="/dashboard/trips" className="inline-flex h-10 items-center rounded-full bg-black px-5 text-xs font-bold text-white dark:border dark:border-white/20">Open Trip Mode</Link>
-                <Link href="/dashboard/trips" className="inline-flex h-10 items-center rounded-full border border-zinc-200/90 px-5 text-xs font-bold dark:border-white/10">My trips</Link>
-              </div>
-            ) : (
-              <button type="button" onClick={onUpgrade} className="mt-4 flex h-11 w-full items-center justify-center rounded-full bg-black text-xs font-bold text-white dark:border dark:border-white/20">Upgrade to unlock Trip Mode</button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-black tracking-tight text-zinc-900 dark:text-white">
+              Trip Mode
+            </h3>
+            {!paid && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[9px] font-black uppercase text-amber-800 dark:bg-amber-950/70 dark:text-amber-400">
+                Pro
+              </span>
             )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            One trip across 3–6 cities
+          </p>
+        </div>
+      </div>
+
+      {/* Three-step summary. Matches the reference: numbered badge, label,
+          short description. Rendered as plain presentational markup. */}
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        {STEPS.map((s) => (
+          <div
+            key={s.n}
+            className="rounded-2xl border border-zinc-200/90 bg-white p-3 dark:border-white/10 dark:bg-[#1c1c22]"
+          >
+            <span className="flex size-5 items-center justify-center rounded-full bg-red-50 font-mono text-[10px] font-black text-[#e5283b] dark:bg-red-950/50 dark:text-[#f87171]">
+              {s.n}
+            </span>
+            <p className="mt-2 text-xs font-black text-zinc-900 dark:text-white">
+              {s.label}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+              {s.desc}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Single action button, matching the reference. Paid → link to
+          /dashboard/trips (same destination as before). Free → opens the
+          existing upgrade modal via onUpgrade (same handler as before). */}
+      {paid ? (
+        <Link
+          href="/dashboard/trips"
+          className="mt-4 flex h-10 w-full items-center justify-center rounded-full bg-[#e5283b] text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          Open trip mode
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={onUpgrade}
+          className="mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-full bg-[#e5283b] text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          <LockKeyhole className="size-3.5" />
+          <span>Unlock Trip Mode</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -9627,9 +10617,10 @@ export function WeatherCard({ brief }) {
 import { useState } from "react";
 import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ScamDataDisclaimer } from "@/components/ScamDataDisclaimer";
 
 // Combined view: each destination is a section with its alerts/tips.
-// Data already sliced per plan by /briefing route via sliceForPlan.
+// Data already sliced per plan by the trip briefing route via sliceForPlan.
 export function TripBriefing({ sections = [], plan = "free", loading = false, onUpgrade }) {
   const [open, setOpen] = useState(0);
   const paid = plan !== "free";
@@ -9637,6 +10628,11 @@ export function TripBriefing({ sections = [], plan = "free", loading = false, on
   if (!sections.length) return <p className="py-10 text-center text-xs text-zinc-400">No destinations yet.</p>;
   return (
     <div className="space-y-4">
+      {/* Inline disclaimer — visible above the first section so it appears
+          alongside the combined scam/tip content, matching the dashboard
+          IntelTabs placement and the /disclaimer boxed paragraph. */}
+      <ScamDataDisclaimer className="px-1" />
+
       {sections.map((s, i) => {
         const isOpen = open === i;
         const locked = (s.lockedAlerts || 0) + (s.lockedTips || 0);
@@ -9775,52 +10771,115 @@ export function TripBuilder({ initialName = "", initialDestinations = [], onSubm
 <file path="src/components/trips/TripExportButtons.js">
 "use client";
 import { useState } from "react";
-import { Mail, Printer, LoaderCircle } from "lucide-react";
+import { Mail, Printer, LoaderCircle, Check } from "lucide-react";
 
-// Export actions: PDF via print-ready HTML, email via mailto compose.
-// No new dependency. Gated server-side; 403 opens upgrade modal.
+// Export actions: PDF via print-ready HTML (opens in a new window and
+// triggers the browser print dialog), email via a real server-side send
+// through /api/trips/[id]/email (Resend). Gated server-side; 403 opens the
+// existing upgrade modal.
 export function TripExportButtons({ tripId, getToken, onUpgrade }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  async function token() { return getToken ? getToken() : null; }
-  async function doEmail() {
-    setBusy("email"); setError("");
-    try {
-      const t = await token();
-      const r = await fetch(`/api/trips/${tripId}/export?format=email`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 403 && j.upgradeRequired) { onUpgrade?.(); return; }
-      if (!r.ok) throw new Error(j.error || "Export failed.");
-      const href = `mailto:?subject=${encodeURIComponent(j.subject)}&body=${encodeURIComponent(j.body)}`;
-      window.location.assign(href);
-    } catch (e) { setError(e.message || "Export failed."); }
-    finally { setBusy(""); }
+  const [success, setSuccess] = useState("");
+
+  async function token() {
+    return getToken ? getToken() : null;
   }
-  async function doPrint() {
-    setBusy("print"); setError("");
+
+  async function doEmail() {
+    setBusy("email");
+    setError("");
+    setSuccess("");
     try {
       const t = await token();
-      const r = await fetch(`/api/trips/${tripId}/export?format=print`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
-      if (r.status === 403) { onUpgrade?.(); return; }
+      const r = await fetch(`/api/trips/${tripId}/email`, {
+        method: "POST",
+        headers: t ? { Authorization: `Bearer ${t}` } : {},
+      });
+      const j = await r.json().catch(() => ({}));
+
+      if (r.status === 403 && j.upgradeRequired) {
+        onUpgrade?.();
+        return;
+      }
+      if (!r.ok) {
+        throw new Error(j.error || "Email could not be sent.");
+      }
+      setSuccess(j.message || `Email sent to ${j.sentTo || "your inbox"}.`);
+    } catch (e) {
+      setError(e.message || "Email could not be sent.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function doPrint() {
+    setBusy("print");
+    setError("");
+    setSuccess("");
+    try {
+      const t = await token();
+      const r = await fetch(`/api/trips/${tripId}/export?format=print`, {
+        headers: t ? { Authorization: `Bearer ${t}` } : {},
+      });
+      if (r.status === 403) {
+        onUpgrade?.();
+        return;
+      }
       if (!r.ok) throw new Error("Export failed.");
       const html = await r.text();
       const w = window.open("", "_blank");
       if (!w) throw new Error("Allow popups to export PDF.");
-      w.document.write(html); w.document.close();
-    } catch (e) { setError(e.message || "Export failed."); }
-    finally { setBusy(""); }
+      w.document.write(html);
+      w.document.close();
+    } catch (e) {
+      setError(e.message || "Export failed.");
+    } finally {
+      setBusy("");
+    }
   }
+
   return (
     <div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={doPrint} disabled={!!busy} className="inline-flex h-10 items-center gap-2 rounded-full bg-black px-5 text-xs font-bold text-white disabled:opacity-60">
-          {busy === "print" ? <LoaderCircle className="size-4 animate-spin" /> : <Printer className="size-4" />} PDF (print)
+        <button
+          type="button"
+          onClick={doPrint}
+          disabled={!!busy}
+          className="inline-flex h-10 items-center gap-2 rounded-full bg-black px-5 text-xs font-bold text-white disabled:opacity-60"
+        >
+          {busy === "print" ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : (
+            <Printer className="size-4" />
+          )}{" "}
+          PDF (print)
         </button>
-        <button type="button" onClick={doEmail} disabled={!!busy} className="inline-flex h-10 items-center gap-2 rounded-full border px-5 text-xs font-bold disabled:opacity-60 border-zinc-200 dark:border-white/10">
-          {busy === "email" ? <LoaderCircle className="size-4 animate-spin" /> : <Mail className="size-4" />} Email
+        <button
+          type="button"
+          onClick={doEmail}
+          disabled={!!busy}
+          className="inline-flex h-10 items-center gap-2 rounded-full border px-5 text-xs font-bold disabled:opacity-60 border-zinc-200 dark:border-white/10"
+        >
+          {busy === "email" ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : (
+            <Mail className="size-4" />
+          )}{" "}
+          Email
         </button>
       </div>
-      {error && <p className="mt-2 text-xs font-semibold text-red-500">{error}</p>}
+
+      {error && (
+        <p className="mt-2 text-xs font-semibold text-red-500">{error}</p>
+      )}
+
+      {success && (
+        <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+          <Check className="size-3.5" strokeWidth={3} />
+          <span>{success}</span>
+        </p>
+      )}
     </div>
   );
 }
@@ -9831,10 +10890,14 @@ export function TripExportButtons({ tripId, getToken, onUpgrade }) {
 import { LockKeyhole } from "lucide-react";
 import Link from "next/link";
 
-// Locked upsell for Explorer users. Trip Mode (>1 destination, export)
-// is Trip Pass / Annual only. Reuses UpgradeModal pattern via ?upgrade=true.
+// Locked upsell for Explorer users. Trip Mode (>1 destination, export) is
+// Trip Pass / Annual only. Links back to the dashboard with the
+// `upgrade=trip_mode` param so the dashboard opens the upgrade modal with
+// the Trip Mode benefit line emphasised.
 export function TripLocked({ city = "" }) {
-  const href = city ? `/dashboard?city=${encodeURIComponent(city)}&upgrade=true` : "/dashboard?upgrade=true";
+  const href = city
+    ? `/dashboard?city=${encodeURIComponent(city)}&upgrade=trip_mode`
+    : "/dashboard?upgrade=trip_mode";
   return (
     <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/40 dark:bg-amber-950/30">
       <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50"><LockKeyhole className="size-5 text-amber-700 dark:text-amber-300" /></span>
@@ -10378,8 +11441,8 @@ const coverage = [
     icon: ShieldAlert,
     title: "See the expensive mistake before it happens.",
     body: "Fresh reports are distilled into clear warnings for taxis, tours, ATMs, tickets, and the small traps that do not make it into a guidebook.",
-    metric: "2,480+",
-    metricLabel: "PATTERNS TRACKED",
+    metric: "50+",
+    metricLabel: "destinations covered",
     note: "Reports are refreshed daily",
   },
   {
@@ -11224,9 +12287,14 @@ export default function Navbar() {
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, LoaderCircle, ShieldCheck } from "lucide-react";
+import { Check, LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+
+// Shared Trip Mode wording — kept identical to UpgradeModal.js's BENEFITS
+// entry. If one changes, both must change.
+const TRIP_MODE_FEATURE = "Trip Mode — plan multi-city trips with combined briefings";
+const TRIP_MODE_LOCKED = "Trip Mode — upgrade to unlock";
 
 const plans = [
   {
@@ -11236,11 +12304,12 @@ const plans = [
     period: "",
     description: "Preview essential tourist traps before you land.",
     features: [
-      "3 destination searches total",
-      "Preview top 2 high-risk alerts",
-      "Preview top 3 insider tips",
-      "Standard community consensus",
-      "No credit card required",
+      { text: "3 destination searches total" },
+      { text: "Preview top 2 high-risk alerts" },
+      { text: "Preview top 3 insider tips" },
+      { text: "Standard community consensus" },
+      { text: "No credit card required" },
+      { text: TRIP_MODE_LOCKED, locked: true },
     ],
     action: "Start free",
   },
@@ -11252,9 +12321,10 @@ const plans = [
     description:
       "Full travel intelligence for one trip, with access lasting 30 days from payment.",
     features: [
-      "Unlimited destinations for 30 days",
-      "All alerts and insider tips",
-      "No renewal or cancellation needed",
+      { text: "Unlimited destinations for 30 days" },
+      { text: "All alerts and insider tips" },
+      { text: TRIP_MODE_FEATURE },
+      { text: "No renewal or cancellation needed" },
     ],
     action: "Get 30-day access",
   },
@@ -11265,9 +12335,10 @@ const plans = [
     period: "/ year",
     description: "Year-round access to every destination, billed once per year.",
     features: [
-      "Unlimited destinations all year",
-      "All alerts, tips, weather, and currency",
-      "Manage or cancel renewal anytime",
+      { text: "Unlimited destinations all year" },
+      { text: "All alerts, tips, weather, and currency" },
+      { text: TRIP_MODE_FEATURE },
+      { text: "Manage or cancel renewal anytime" },
     ],
     action: "Choose Annual",
     featured: true,
@@ -11410,15 +12481,27 @@ export default function Pricing() {
                   </p>
 
                   <ul className="mt-6 space-y-2 border-t border-zinc-100 pt-4 dark:border-white/5">
-                    {plan.features.map((feature) => (
-                      <li
-                        key={feature}
-                        className="flex items-start gap-2 text-xs text-zinc-700 dark:text-zinc-300"
-                      >
-                        <Check className="size-3.5 text-[#e5283b] shrink-0 mt-0.5" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
+                    {plan.features.map((feature) => {
+                      const isLocked = Boolean(feature.locked);
+                      const text = feature.text;
+                      return (
+                        <li
+                          key={text}
+                          className={`flex items-start gap-2 text-xs ${
+                            isLocked
+                              ? "text-zinc-400 dark:text-zinc-500"
+                              : "text-zinc-700 dark:text-zinc-300"
+                          }`}
+                        >
+                          {isLocked ? (
+                            <LockKeyhole className="size-3.5 shrink-0 mt-0.5 text-zinc-400 dark:text-zinc-500" />
+                          ) : (
+                            <Check className="size-3.5 text-[#e5283b] shrink-0 mt-0.5" />
+                          )}
+                          <span>{text}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
 
@@ -11657,6 +12740,42 @@ export default function Scamcards() {
 }
 </file>
 
+<file path="src/components/ScamDataDisclaimer.js">
+"use client";
+
+import { Info } from "lucide-react";
+
+/**
+ * Short inline disclaimer shown next to scam/tip content in the app.
+ *
+ * The wording is intentionally identical to the boxed paragraph at the top
+ * of /disclaimer so users who follow the "Learn more" link land on the same
+ * sentence. Keep the two in sync if either is edited.
+ *
+ * This is a pure presentation component — no state, no fetching.
+ */
+export function ScamDataDisclaimer({ className = "" }) {
+  return (
+    <p
+      className={`flex items-start gap-1.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 ${className}`}
+    >
+      <Info className="mt-0.5 size-3.5 shrink-0 text-zinc-400 dark:text-zinc-500" />
+      <span>
+        Reports are sourced from public community discussion and
+        AI-summarized. Not independently verified.{" "}
+        <a
+          href="/disclaimer"
+          className="font-semibold underline hover:text-zinc-900 dark:hover:text-white"
+        >
+          Learn more
+        </a>
+        .
+      </span>
+    </p>
+  );
+}
+</file>
+
 <file path="src/components/Searchbar.js">
 "use client";
 
@@ -11745,9 +12864,9 @@ export default function SignalOverview() {
   return (
     <section className="py-20 sm:py-28 border-b border-zinc-200/80 dark:border-white/5">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        
+
         <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
-          
+
           {/* Left copy */}
           <div className="reveal lg:col-span-6">
             <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#e5283b]">
@@ -11757,8 +12876,8 @@ export default function SignalOverview() {
               A clearer read on <span className="text-[#e5283b]">what is changing.</span>
             </h2>
             <p className="mt-3 text-xs leading-relaxed text-zinc-500 sm:text-sm dark:text-zinc-400">
-              We watch the conversation around each destination, then turn
-              scattered traveler reports into signals you can act on.
+              We track traveler reports across Reddit for each destination, then use AI
+              to turn scattered posts into scam alerts and tips you can actually use.
             </p>
 
             <div className="mt-8 flex items-center gap-8 border-t border-zinc-100 pt-6 dark:border-white/5">
@@ -11768,10 +12887,10 @@ export default function SignalOverview() {
                 viewport={{ once: true }}
               >
                 <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
-                  2,480+
+                  50+
                 </p>
                 <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
-                  patterns tracked
+                  destinations covered
                 </p>
               </motion.div>
               <motion.div
@@ -11794,10 +12913,10 @@ export default function SignalOverview() {
                 transition={{ delay: 0.16 }}
               >
                 <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
-                  92%
+                  Zero
                 </p>
                 <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
-                  worth the brief
+                  fluff
                 </p>
               </motion.div>
             </div>
@@ -11814,7 +12933,7 @@ export default function SignalOverview() {
             <div className="flex items-center justify-between">
               <div>
                 <span className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
-                  LIVE INDEX
+                  THE LATEST INSIGHTS
                 </span>
                 <p className="text-sm font-bold text-zinc-900 dark:text-white">
                   Traveler reports this week
@@ -11847,7 +12966,7 @@ export default function SignalOverview() {
             </div>
 
             <p className="mt-3 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
-              Aggregated from 2,400+ report sources · Updated 12 min ago
+              Aggregated from across the web · Fresh insights added regularly
             </p>
           </motion.div>
 
@@ -11966,14 +13085,26 @@ const PLANS = [
   },
 ];
 
+// Wording for the Trip Mode benefit must match Pricing.js's TRIP_MODE_FEATURE
+// constant verbatim. The `key: "trip_mode"` marker lets the modal highlight
+// this exact line when `highlight="trip_mode"` is passed.
 const BENEFITS = [
-  "Every alert in the destination file",
-  "Every insider tip, refreshed daily",
-  "Weather, currency and money advice",
-  "Every city — no search limit",
+  { text: "Every alert in the destination file" },
+  { text: "Every insider tip, refreshed daily" },
+  { text: "Weather, currency and money advice" },
+  { text: "Every city — no search limit" },
+  {
+    text: "Trip Mode — plan multi-city trips with combined briefings",
+    key: "trip_mode",
+  },
 ];
 
-export default function UpgradeModal({ isOpen, onClose, city = "" }) {
+export default function UpgradeModal({
+  isOpen,
+  onClose,
+  city = "",
+  highlight = null,
+}) {
   const [selected, setSelected] = useState("annual");
   const [busyPlan, setBusyPlan] = useState("");
   const [error, setError] = useState("");
@@ -12115,15 +13246,29 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
             </p>
 
             <ul className="mt-5 space-y-2.5">
-              {BENEFITS.map((benefit) => (
-                <li
-                  key={benefit}
-                  className="flex items-center gap-2.5 text-xs font-medium text-zinc-700 sm:text-sm dark:text-zinc-200"
-                >
-                  <Check className="size-4 shrink-0 stroke-[2.5] text-[#10b981]" />
-                  <span>{benefit}</span>
-                </li>
-              ))}
+              {BENEFITS.map((benefit) => {
+                const isHighlighted =
+                  highlight && benefit.key === highlight;
+                return (
+                  <li
+                    key={benefit.text}
+                    className={`flex items-center gap-2.5 text-xs sm:text-sm ${
+                      isHighlighted
+                        ? "-mx-2.5 rounded-lg bg-[#fef3c7] px-2.5 py-1.5 font-bold text-zinc-900 dark:bg-[#332210]/70 dark:text-white"
+                        : "font-medium text-zinc-700 dark:text-zinc-200"
+                    }`}
+                  >
+                    <Check
+                      className={`size-4 shrink-0 stroke-[2.5] ${
+                        isHighlighted
+                          ? "text-[#d97706] dark:text-[#fbbf24]"
+                          : "text-[#10b981]"
+                      }`}
+                    />
+                    <span>{benefit.text}</span>
+                  </li>
+                );
+              })}
             </ul>
 
             <div
@@ -12576,6 +13721,41 @@ function setMemoryBounded(key, value) {
   memoryCache.set(key, value);
 }
 
+/**
+ * Reads a single destination row, at most one, deterministically the freshest.
+ *
+ * WHY NOT .maybeSingle():
+ * PostgREST's object-mode Accept header (.single() / .maybeSingle()) errors
+ * out if the query matches more than one row. The destinations table may
+ * legitimately contain more than one row per city — saveCache's upsert has no
+ * explicit conflict target, so a second script run against a schema whose PK
+ * is not `city` produces a duplicate row. When that happened, .maybeSingle()
+ * returned { data: null, error: "multiple rows" }, and the previous
+ * `if (error || !row) return null` swallowed the error silently — the
+ * dashboard rendered "no cached intel" while the row was right there in the
+ * table.
+ *
+ * The fix is to cap the result at the SQL level (limit=1) and pick the
+ * freshest row by updated_at, so the read is deterministic and cannot trip
+ * the multi-row guard. This is a read-side hardening; it does NOT change
+ * behavior in the common single-row case.
+ */
+async function readCityRow(key) {
+  const { data: rows, error } = await adminDb()
+    .from("destinations")
+    .select("data, updated_at")
+    .eq("city", key)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("cache read failed:", key, error.message);
+    return null;
+  }
+
+  return Array.isArray(rows) ? rows[0] || null : rows || null;
+}
+
 export async function getFreshCache(city) {
   const key = cityKey(city);
   if (!key) return null;
@@ -12588,13 +13768,8 @@ export async function getFreshCache(city) {
 
   // 2. Check Supabase Database (~30ms)
   try {
-    const { data: row, error } = await adminDb()
-      .from("destinations")
-      .select("data, updated_at")
-      .eq("city", key)
-      .maybeSingle();
-
-    if (error || !row) return null;
+    const row = await readCityRow(key);
+    if (!row) return null;
 
     const age = Date.now() - new Date(row.updated_at).getTime();
     if (Number.isNaN(age) || age > ONE_DAY_MS) return null;
@@ -12636,19 +13811,16 @@ export async function saveCache(city, payload) {
  * Google would 404 on URLs it has already indexed.
  *
  * Same table, same client, same row shape — only the age filter is skipped.
+ * Uses the same limit=1 + order-by-freshest read as getFreshCache so the
+ * duplicate-row failure mode cannot silently return null here either.
  */
 export async function getCachedCity(city) {
   const key = cityKey(city);
   if (!key) return null;
 
   try {
-    const { data: row, error } = await adminDb()
-      .from("destinations")
-      .select("data, updated_at")
-      .eq("city", key)
-      .maybeSingle();
-
-    if (error || !row) return null;
+    const row = await readCityRow(key);
+    if (!row) return null;
 
     return {
       data: row.data,
@@ -12664,6 +13836,10 @@ export async function getCachedCity(city) {
  * Lists every city currently in the destinations cache. Used by
  * generateStaticParams, sitemap, and the /scams index. Bounded to 500 rows to
  * keep the query cheap regardless of table growth.
+ *
+ * Note: this returns one entry per matching row. If duplicates exist (see
+ * readCityRow above), the list will contain duplicate city slugs; callers
+ * that care (sitemap, generateStaticParams) deduplicate downstream.
  */
 export async function listCachedCities() {
   try {
@@ -13197,11 +14373,13 @@ export const cities = [
  * Fetches genuine traveler complaints, URLs, and upvotes in ~250ms.
  */
 
+import { getSubredditForCity } from "./subreddits.js";
+
 // Helper to extract upvote counts often found in Google's Reddit snippets (e.g. "140 votes", "85 upvotes")
 function extractUpvotes(text) {
   const match = String(text || "").match(/(\d+[\d,]*)\s*(?:votes|upvotes|points)/i);
   if (match) return parseInt(match[1].replace(/,/g, ""), 10);
-  return null; 
+  return null;
 }
 
 export async function fetchLivePosts(city) {
@@ -13214,8 +14392,64 @@ export async function fetchLivePosts(city) {
 
   // Exact targeted Google query for Reddit traveler discussions
   const citySubreddit = getSubredditForCity(city); // e.g. "Thailand", "london", "IndiaTravel"
-const query = `site:reddit.com/r/travel OR site:reddit.com/r/solotravel OR site:reddit.com/r/backpacking OR site:reddit.com/r/shoestring OR site:reddit.com/r/scams OR site:reddit.com/r/${citySubreddit} "${city}" (scam OR "tourist trap" OR pickpocket OR overcharged OR taxi OR "ripped off" OR "fake" OR "avoid" OR warning)`;
+  // Expanded keyword set — catches posts that don't literally say "scam"
+  const SCAM_KEYWORDS = [
+    'scam', '"tourist trap"', 'pickpocket', 'overcharged', 'taxi',
+    '"ripped off"', 'fake', 'avoid', 'warning', 'fraud', 'swindle',
+    'cheated', '"con artist"', '"be careful"', 'sketchy', '"watch out"',
+    'dodgy', '"common scam"'
+  ];
 
+  // Expanded subreddit set — more ground-level scam reports than r/travel
+  const GENERAL_SUBS = [
+    'travel', 'solotravel', 'backpacking', 'shoestring', 'scams',
+    'IsItBullshit', 'digitalnomad', 'onebag'
+  ];
+
+  function buildSubredditQuery(citySubreddit) {
+    const subs = citySubreddit ? [...GENERAL_SUBS, citySubreddit] : GENERAL_SUBS;
+    return subs.map(s => `site:reddit.com/r/${s}`).join(' OR ');
+  }
+
+  function buildKeywordQuery() {
+    return `(${SCAM_KEYWORDS.join(' OR ')})`;
+  }
+
+  function buildScamQuery(city, citySubreddit) {
+    return `${buildSubredditQuery(citySubreddit)} "${city}" ${buildKeywordQuery()}`;
+  }
+
+  function dedupeByUrl(results) {
+    const seen = new Set();
+    return results.filter(r => {
+      if (seen.has(r.link)) return false;
+      seen.add(r.link);
+      return true;
+    });
+  }
+
+  // Widens the search automatically if the first pass comes back thin
+  async function searchCityScams(city, citySubreddit, serperSearchFn, minResults = 3) {
+    let results = await serperSearchFn(buildScamQuery(city, citySubreddit));
+
+    if (results.length < minResults) {
+      // Pass 2: drop the subreddit whitelist, keep keywords, search all of reddit.com
+      const broadQuery = `site:reddit.com "${city}" ${buildKeywordQuery()}`;
+      const broad = await serperSearchFn(broadQuery);
+      results = dedupeByUrl([...results, ...broad]);
+    }
+
+    if (results.length < minResults) {
+      // Pass 3: last resort — loosest possible query, still on-topic
+      const fallbackQuery = `site:reddit.com "${city}" travel (scam OR warning OR tip)`;
+      const fallback = await serperSearchFn(fallbackQuery);
+      results = dedupeByUrl([...results, ...fallback]);
+    }
+
+    return results;
+  }
+
+  module.exports = { buildScamQuery, searchCityScams };
   console.info(`[LiveReddit] Querying real Reddit threads for ${city}...`);
   const t0 = Date.now();
 
@@ -13292,10 +14526,18 @@ function cleanList(arr, n) {
     }));
 }
 
+// Live-model cascade.
+//
+// Retired models are intentionally absent:
+//   gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash
+// Those return HTTP 404 (retired, not rate-limited). Retrying them added
+// ~8 seconds and three guaranteed failed calls to every pipeline run before
+// the cascade reached a model that could actually answer.
+//
+// Do not add a model here without first probing it against the live
+// /v1beta/models endpoint (scripts/test-gemini.mjs does this) — a listed
+// model can still be retired for inference.
 const MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.0-flash",
   "gemini-flash-latest",
   "gemini-flash-lite-latest",
 ];
@@ -13486,6 +14728,44 @@ export async function ensureFreeProfile(supabase) {
     user_id: userId,
     plan: "free",
   });
+}
+</file>
+
+<file path="src/lib/quota.js">
+// src/lib/quota.js
+//
+// Single source of truth for the Explorer (free) search cap and the
+// month-boundary logic used by both /api/briefing and /api/city-brief.
+//
+// Kept intentionally tiny — the goal is that any route which needs to know
+// "is this user over their free-search quota?" imports from here, so the
+// constant and the month-key format can never drift between routes.
+
+export const FREE_SEARCH_LIMIT = 3;
+
+/**
+ * Month key in UTC, format "YYYY-MM". Matches what /api/briefing writes into
+ * profiles.search_month and what the quota reset compares against.
+ *
+ * @param {Date} [date]
+ * @returns {string}
+ */
+export function monthKey(date = new Date()) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Number of free searches consumed in the current month. Returns 0 when the
+ * stored month does not match the current month (quota resets on month roll).
+ *
+ * @param {{ search_count?: number|string, search_month?: string }} profile
+ * @returns {number}
+ */
+export function computeUsedSearches(profile) {
+  if (!profile) return 0;
+  const month = monthKey();
+  if (profile.search_month !== month) return 0;
+  return Number(profile.search_count) || 0;
 }
 </file>
 
@@ -13834,6 +15114,117 @@ export function fillIntel(city, alerts = [], tips = []) {
 }
 </file>
 
+<file path="src/lib/subreddits.js">
+// src/lib/subreddits.js
+//
+// Maps a normalized city name to the most relevant subreddit used in the
+// Serper query built by fetchLivePosts(). The value is substituted into
+// the OR clause alongside the generic travel subs (r/travel, r/solotravel,
+// r/backpacking, r/shoestring, r/scams).
+//
+// A wrong or missing value only narrows that one OR branch — the query
+// still runs against the generic travel subs, so a fallback of "travel"
+// is safe and never produces an empty result set on its own.
+
+const CITY_SUBREDDIT = {
+  // Southeast Asia
+  bangkok: "Thailand",
+  phuket: "Thailand",
+  "chiang mai": "Thailand",
+  bali: "bali",
+  hanoi: "Vietnam",
+  "ho chi minh city": "Vietnam",
+  "siem reap": "cambodia",
+  "kuala lumpur": "malaysia",
+  singapore: "singapore",
+
+  // East Asia
+  tokyo: "JapanTravel",
+  kyoto: "JapanTravel",
+  osaka: "JapanTravel",
+  seoul: "korea",
+  taipei: "taiwan",
+  "hong kong": "HongKong",
+  macau: "Macau",
+  shanghai: "shanghai",
+  beijing: "beijing",
+
+  // South Asia
+  delhi: "india",
+  mumbai: "mumbai",
+  jaipur: "india",
+  agra: "india",
+  kathmandu: "Nepal",
+  colombo: "srilanka",
+
+  // Europe — West
+  london: "london",
+  paris: "ParisTravelGuide",
+  amsterdam: "Amsterdam",
+  barcelona: "Barcelona",
+  madrid: "Madrid",
+  lisbon: "portugal",
+  dublin: "Dublin",
+
+  // Europe — Central / East
+  prague: "Prague",
+  vienna: "wien",
+  berlin: "berlin",
+  munich: "Munich",
+  zurich: "Switzerland",
+  brussels: "belgium",
+  copenhagen: "copenhagen",
+  stockholm: "stockholm",
+  oslo: "Norway",
+  helsinki: "Finland",
+  reykjavik: "Iceland",
+
+  // Europe — South
+  rome: "ItalyTravel",
+  milan: "ItalyTravel",
+  venice: "ItalyTravel",
+  florence: "ItalyTravel",
+  athens: "greece",
+  santorini: "greece",
+  istanbul: "istanbul",
+  antalya: "Turkey",
+
+  // Middle East / Africa
+  dubai: "dubai",
+  mecca: "islam",
+  cairo: "Egypt",
+  marrakech: "Morocco",
+  "cape town": "capetown",
+
+  // Americas
+  "new york": "AskNYC",
+  miami: "Miami",
+  "las vegas": "vegas",
+  "mexico city": "MexicoCity",
+  cancun: "cancun",
+  "rio de janeiro": "riodejaneiro",
+  "buenos aires": "BuenosAires",
+
+  // Oceania
+  sydney: "sydney",
+  melbourne: "melbourne",
+};
+
+/**
+ * Returns the best-matching subreddit name for a city, used to build the
+ * Serper site: query. Falls back to "travel" for unknown cities — the query
+ * still matches the generic travel subs in the OR clause.
+ *
+ * @param {string} city — a raw or normalized city name ("Bangkok", "bangkok").
+ * @returns {string} a subreddit name without the "r/" prefix.
+ */
+export function getSubredditForCity(city) {
+  const key = String(city || "").trim().toLowerCase();
+  if (!key) return "travel";
+  return CITY_SUBREDDIT[key] || "travel";
+}
+</file>
+
 <file path="src/lib/supabase-admin.js">
 import { createClient } from "@supabase/supabase-js";
 
@@ -13867,6 +15258,228 @@ export const supabase =
         },
       })
     : null;
+</file>
+
+<file path="src/lib/trip-briefing-format.js">
+// src/lib/trip-briefing-format.js
+//
+// Shared loading and formatting for trip-briefing exports.
+//
+// Used by:
+//   GET  /api/trips/[id]/export  → JSON / print HTML / pocket HTML
+//   POST /api/trips/[id]/email   → Resend payload
+//
+// Content source is identical in all cases: getCachedCity per destination
+// (cache-only; a saved trip is not a live search), sliced by plan. No live
+// pipeline runs from here — that only happens at add-time via
+// /api/trips/quick-add.
+
+import { getCachedCity } from "./cache.js";
+import { sliceForPlan } from "./auth-server.js";
+
+/**
+ * Loads a trip and its per-destination cached briefing, sliced by plan.
+ *
+ * @returns {{ trip, sections }} on success, or { error, status } on failure.
+ */
+export async function loadTripSections(admin, tripId, userId, plan) {
+  const { data: trip } = await admin
+    .from("trips")
+    .select("id, name")
+    .eq("id", tripId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!trip) return { error: "Trip not found", status: 404 };
+
+  const { data: dests } = await admin
+    .from("trip_destinations")
+    .select("city, visit_date")
+    .eq("trip_id", tripId)
+    .order("order_index");
+
+  const sections = [];
+  for (const stop of dests || []) {
+    const cached = await getCachedCity(stop.city);
+    const alerts = cached?.data?.alerts || [];
+    const tips = cached?.data?.tips || [];
+    const s = sliceForPlan(plan, alerts, tips);
+    sections.push({
+      city: stop.city,
+      visit_date: stop.visit_date,
+      alerts: s.alerts,
+      tips: s.tips,
+    });
+  }
+
+  return { trip, sections };
+}
+
+/** Plain-text body for the mailto draft and the Resend `text` field. */
+export function buildTextBody(trip, day, sections) {
+  const lines = [`${trip.name} — ${sections.length} stops (${day})`, ""];
+  sections.forEach((s, i) => {
+    lines.push(`${i + 1}. ${s.city}${s.visit_date ? " — " + s.visit_date : ""}`);
+    lines.push(`   ALERTS (${s.alerts.length}):`);
+    if (!s.alerts.length) lines.push("   - No cached intel yet.");
+    for (const a of s.alerts) {
+      lines.push(
+        `   - ${a.name} [${a.severity || "medium"}]: ${a.description || ""}`,
+      );
+    }
+    lines.push(`   TIPS (${s.tips.length}):`);
+    if (!s.tips.length) lines.push("   - No cached tips yet.");
+    for (const t of s.tips) {
+      lines.push(`   - ${t.name}: ${t.description || ""}`);
+    }
+    lines.push("");
+  });
+  lines.push("— TravelRadar. Verify locally.");
+  return lines.join("\n");
+}
+
+function esc(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Print-ready HTML for the "Save as PDF" path. Includes auto-print. */
+export function buildPrintHtml(subject, day, sections) {
+  const secs = sections
+    .map((s, i) => {
+      const a = s.alerts.length
+        ? `<ol>${s.alerts
+            .map(
+              (x) =>
+                `<li><b>${esc(x.name)}</b> [${esc(x.severity || "m")}]<br/>${esc(
+                  x.description || "",
+                )}</li>`,
+            )
+            .join("")}</ol>`
+        : "<p>No cached intel yet.</p>";
+      const t = s.tips.length
+        ? `<ol>${s.tips
+            .map(
+              (x) =>
+                `<li><b>${esc(x.name)}</b><br/>${esc(x.description || "")}</li>`,
+            )
+            .join("")}</ol>`
+        : "<p>No cached tips yet.</p>";
+      return `<section><h2>${i + 1}. ${esc(s.city)}</h2><h3>Alerts (${s.alerts.length})</h3>${a}<h3>Tips (${s.tips.length})</h3>${t}</section>`;
+    })
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(subject)}</title><style>body{font-family:Georgia,serif;max-width:720px;margin:32px auto;padding:0 20px}h2{border-bottom:2px solid #111}li{margin:8px 0;line-height:1.5}section{page-break-inside:avoid}</style></head><body><h1>${esc(subject)}</h1><p>${sections.length} stops · ${esc(day)}</p>${secs}<script>window.onload=function(){window.print();}</script></body></html>`;
+}
+
+/** Single-page airport card. Print-ready. */
+export function buildPocketHtml(trip, day, sections, id) {
+  const items = sections
+    .map((s, i) => {
+      const top = (s.alerts || [])[0];
+      return `<li><b>${i + 1}. ${esc(s.city)}</b>${
+        s.visit_date ? ` <span>${esc(s.visit_date)}</span>` : ""
+      }${top ? `<br/><span class="a">${esc(top.name)}</span>` : ""}</li>`;
+    })
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(
+    trip.name,
+  )} — pocket card</title><style>body{font-family:-apple-system,system-ui,sans-serif;margin:20px;color:#111}ol{line-height:1.55}span{color:#666;font-size:12px}.a{color:#c3182a}</style></head><body><h1>${esc(
+    trip.name,
+  )}</h1><p>${esc(day)}</p><ol>${items}</ol><script>window.onload=function(){window.print();}</script></body></html>`;
+}
+
+/**
+ * Email-client-safe HTML. Table-based layout, inline styles, no flex/grid,
+ * no script tags. This is what actually goes to Resend.
+ *
+ * Kept deliberately plain: most email clients strip <style> blocks and
+ * ignore modern CSS, so every rule is inlined on the element.
+ */
+export function buildEmailHtml(trip, day, sections) {
+  const accent = "#e5283b";
+  const textColor = "#18181b";
+  const mutedColor = "#71717a";
+  const borderColor = "#e8e6df";
+
+  const sectionsHtml = sections
+    .map((s, i) => {
+      const alertsHtml = s.alerts.length
+        ? s.alerts
+            .map(
+              (a) => `
+              <tr>
+                <td style="padding:8px 0;border-top:1px solid ${borderColor};vertical-align:top;">
+                  <div style="font-weight:700;color:${textColor};font-size:13px;">${esc(a.name)}</div>
+                  <div style="font-size:11px;color:${accent};font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-top:2px;">${esc(a.severity || "medium")}</div>
+                  <div style="font-size:12px;color:${mutedColor};line-height:1.5;margin-top:4px;">${esc(a.description || "")}</div>
+                </td>
+              </tr>`,
+            )
+            .join("")
+        : `<tr><td style="padding:8px 0;border-top:1px solid ${borderColor};font-size:12px;color:${mutedColor};">No cached intel yet.</td></tr>`;
+
+      const tipsHtml = s.tips.length
+        ? s.tips
+            .map(
+              (t) => `
+              <tr>
+                <td style="padding:8px 0;border-top:1px solid ${borderColor};vertical-align:top;">
+                  <div style="font-weight:700;color:${textColor};font-size:13px;">${esc(t.name)}</div>
+                  <div style="font-size:12px;color:${mutedColor};line-height:1.5;margin-top:4px;">${esc(t.description || "")}</div>
+                </td>
+              </tr>`,
+            )
+            .join("")
+        : `<tr><td style="padding:8px 0;border-top:1px solid ${borderColor};font-size:12px;color:${mutedColor};">No cached tips yet.</td></tr>`;
+
+      return `
+        <tr><td style="padding:24px 0 0 0;">
+          <div style="font-size:11px;font-weight:700;color:${mutedColor};text-transform:uppercase;letter-spacing:0.08em;">Stop ${String(i + 1).padStart(2, "0")}</div>
+          <div style="font-size:20px;font-weight:900;color:${textColor};letter-spacing:-0.01em;margin-top:2px;">${esc(s.city)}</div>
+          ${s.visit_date ? `<div style="font-size:12px;color:${mutedColor};margin-top:2px;">${esc(s.visit_date)}</div>` : ""}
+        </td></tr>
+        <tr><td style="padding-top:14px;">
+          <div style="font-size:11px;font-weight:800;color:${accent};text-transform:uppercase;letter-spacing:0.08em;">Alerts (${s.alerts.length})</div>
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="border-collapse:collapse;">${alertsHtml}</table>
+        </td></tr>
+        <tr><td style="padding-top:14px;">
+          <div style="font-size:11px;font-weight:800;color:#d97706;text-transform:uppercase;letter-spacing:0.08em;">Tips (${s.tips.length})</div>
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="border-collapse:collapse;">${tipsHtml}</table>
+        </td></tr>`;
+    })
+    .join("");
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${esc(trip.name)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f7f6f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${textColor};">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f7f6f2;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border:1px solid ${borderColor};border-radius:20px;padding:32px;">
+          <tr><td>
+            <div style="font-size:11px;font-weight:800;color:${accent};text-transform:uppercase;letter-spacing:0.12em;">TravelRadar Trip Briefing</div>
+            <h1 style="margin:8px 0 4px 0;font-size:26px;font-weight:900;color:${textColor};letter-spacing:-0.02em;">${esc(trip.name)}</h1>
+            <div style="font-size:12px;color:${mutedColor};">${sections.length} stop${sections.length === 1 ? "" : "s"} · ${esc(day)}</div>
+          </td></tr>
+          ${sectionsHtml}
+          <tr><td style="padding-top:28px;border-top:1px solid ${borderColor};margin-top:24px;font-size:11px;color:${mutedColor};line-height:1.6;">
+            Reports are sourced from public community discussion and AI-summarized. Not independently verified. Use your own judgment.
+            <br/><br/>
+            <a href="https://travelradar.live/disclaimer" style="color:${accent};text-decoration:none;font-weight:700;">Read the full disclaimer →</a>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
 </file>
 
 <file path="src/lib/trips.js">
@@ -14326,6 +15939,7 @@ export default nextConfig;
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.10.1",
+    "resend": "^4.0.0",
     "standardwebhooks": "^1.1.1",
     "tailwind-merge": "^3.6.0",
     "tw-animate-css": "^1.4.0"

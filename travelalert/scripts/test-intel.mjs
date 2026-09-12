@@ -44,11 +44,14 @@ await tryReddit("old+script-ua", `https://old.reddit.com/search.json?q=${q}&sort
 
 // 2. Gemini: probe which models actually work with this key (with retries for 503)
 const key = env.GEMINI_API_KEY;
+// Keep this list in sync with MODELS in src/lib/organize.js. Do not add
+// retired model IDs (e.g. gemini-2.5-flash, gemini-2.0-flash, the
+// gemini-3.x-flash phantom IDs) — they 404 immediately and waste 8+ seconds
+// per probe.
 const MODELS_TO_TRY = [
   env.GEMINI_MODEL,
-  "gemini-3.8-flash",
-  "gemini-3.6-flash",
-  "gemini-2.5-flash",
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
 ].filter(Boolean);
 
 let posts = [];

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Check, LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { PRICES } from "@/lib/pricing";
 
 // Shared Trip Mode wording — kept identical to UpgradeModal.js's BENEFITS
 // entry. If one changes, both must change.
@@ -30,9 +31,9 @@ const plans = [
   },
   {
     key: "trip_pass",
-    name: "Trip Pass",
-    price: "$7",
-    period: "/ 30 days",
+    name: PRICES.trip_pass.label,
+    price: PRICES.trip_pass.amount,
+    period: PRICES.trip_pass.period,
     description:
       "Full travel intelligence for one trip, with access lasting 30 days from payment.",
     features: [
@@ -45,9 +46,9 @@ const plans = [
   },
   {
     key: "annual",
-    name: "Annual",
-    price: "$29",
-    period: "/ year",
+    name: PRICES.annual.label,
+    price: PRICES.annual.amount,
+    period: PRICES.annual.period,
     description: "Year-round access to every destination, billed once per year.",
     features: [
       { text: "Unlimited destinations all year" },

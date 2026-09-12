@@ -4,16 +4,12 @@ import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
-import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
+import { estimateSafety } from "@/lib/dashboard-data";
 
 export const maxDuration = 180;
 
 const FREE_SEARCH_LIMIT = 3;
 
-// Targets the pipeline itself aims for (see cleanList in organize.js).
-// Used as the fill ceiling when merging sparse live results with cached
-// filler — NOT as an "is this a valid result" gate. A result with 1 alert
-// is valid; the merge just tops it up.
 const EXPECTED_ALERTS = 12;
 const EXPECTED_TIPS = 10;
 
@@ -62,9 +58,6 @@ function cachePayload(city, cached) {
   };
 }
 
-// Honest empty state. Returned only when BOTH live and cached data are
-// completely empty for a city. The dashboard's IntelTabs already renders
-// this as a "no cached intel yet" message with a refresh prompt.
 function emptyPayload(city, extras = {}) {
   return {
     city,
@@ -78,34 +71,17 @@ function emptyPayload(city, extras = {}) {
   };
 }
 
-/**
- * Whether a pipeline result contains ANY usable live data.
- *
- * The previous gate was `alerts.length >= 4 && tips.length >= 3`, which
- * rejected legitimate sparse pipelines (1–3 results) as "no data" and made
- * the UI show "no cached intel" even though the live fetch had succeeded.
- * The merge step below now handles sparse results by topping them up with
- * cache; the gate here only needs to decide "is there live output at all".
- */
 function hasLiveData(org) {
   if (!org) return false;
   if (org.source !== "reddit+gemini") return false;
   return (org.alerts || []).length > 0 || (org.tips || []).length > 0;
 }
 
-/**
- * Whether a cache row contains ANY usable data (not the stricter
- * `>= 4 && >= 3` "high-quality" threshold used to skip the pipeline).
- */
 function cacheHasAny(cached) {
   if (!cached) return false;
   return (cached.alerts || []).length > 0 || (cached.tips || []).length > 0;
 }
 
-/**
- * Whether a cache row is rich enough that we can skip running the pipeline
- * for a fresh visit. Unchanged from the original threshold.
- */
 function cacheIsFull(cached) {
   if (!cached) return false;
   return (
@@ -113,7 +89,6 @@ function cacheIsFull(cached) {
   );
 }
 
-/** Fisher–Yates, in-place. Returns the same array. */
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -122,18 +97,6 @@ function shuffle(arr) {
   return arr;
 }
 
-/**
- * Merge live results (kept first, in order — they are the freshest) with
- * cached results used as filler for the remaining display slots.
- *
- * Dedup by lowercased name so the same pattern never appears twice.
- * Filler is shuffled per call so two consecutive refreshes of the same
- * sparse city do not show the identical filler set.
- *
- * Live items are NEVER dropped by this function — even a single live alert
- * always survives the merge. Only the filler slots are bounded by the
- * EXPECTED_* targets, matching the pipeline's own output ceiling.
- */
 function mergeLiveWithCache(
   liveAlerts,
   liveTips,
@@ -148,7 +111,6 @@ function mergeLiveWithCache(
   const seenT = new Set();
   const norm = (x) => String(x?.name || "").trim().toLowerCase();
 
-  // 1. Live first, order preserved.
   for (const a of liveAlerts || []) {
     const k = norm(a);
     if (!k || seenA.has(k)) continue;
@@ -162,7 +124,6 @@ function mergeLiveWithCache(
     outTips.push(t);
   }
 
-  // 2. Fill remaining slots from cache, shuffled, deduped against live.
   const fillA = shuffle(
     (cachedAlerts || []).filter((a) => {
       const k = norm(a);
@@ -190,15 +151,6 @@ function mergeLiveWithCache(
   return { alerts: outAlerts, tips: outTips };
 }
 
-/**
- * Runs the pipeline once, merges its output with the existing cache, and
- * returns a payload in the shape the response builder expects.
- *
- * Saves the MERGED result back to cache so subsequent visits and refreshes
- * benefit from the fill even when a single pipeline run is sparse. The
- * source field stays "reddit+gemini" because a live fetch did occur; the
- * item-level origin (live vs cached filler) is not tracked downstream.
- */
 async function runPipelineMerged(city, cached) {
   let org;
   try {
@@ -209,8 +161,6 @@ async function runPipelineMerged(city, cached) {
   }
 
   if (!hasLiveData(org)) {
-    // Live produced nothing at all. Fall back to cache if it has anything,
-    // otherwise an honest empty state.
     if (cacheHasAny(cached)) {
       return { payload: cachePayload(city, cached), blockReason: null, consumed: true };
     }
@@ -239,9 +189,6 @@ async function runPipelineMerged(city, cached) {
     error: null,
   };
 
-  // Persist the merged result — cache grows richer over time and future
-  // merges have more filler to draw on. Save failures are logged by
-  // saveCache itself and do not block the response.
   await saveCache(city, payload);
 
   return { payload, blockReason: null, consumed: true };
@@ -256,8 +203,6 @@ export async function GET(request) {
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
   const isRefresh = url.searchParams.get("refresh") === "1";
-  // cached_only=1 → never run the pipeline. Chips and the search bar use
-  // this flag to browse without consuming quota or hitting the live API.
   const cachedOnly = url.searchParams.get("cached_only") === "1";
 
   let city = resolveCity(rawCity);
@@ -315,8 +260,6 @@ export async function GET(request) {
   let quotaConsumed = false;
 
   if (cachedOnly) {
-    // Pure browse — never runs the pipeline, never touches quota, never
-    // returns 403. Cache-or-empty only. Any cached data counts.
     if (cacheAny) {
       console.info("briefing.source", { city, source: "cache-chip" });
       payload = cachePayload(city, cached);
@@ -325,12 +268,9 @@ export async function GET(request) {
       payload = emptyPayload(city);
     }
   } else if (cacheFull && !isRefresh) {
-    // Rich cache, not a refresh — serve it directly.
     console.info("briefing.source", { city, source: "cache" });
     payload = cachePayload(city, cached);
   } else if (!hasAccess && usedSearches >= FREE_SEARCH_LIMIT) {
-    // Free user at limit, no cached_only. Either a refresh or a genuinely
-    // new search — both blocked. But if the city has ANY cache, show it.
     if (isRefresh) {
       console.info("briefing.source", {
         city,
@@ -340,20 +280,15 @@ export async function GET(request) {
       blockReason =
         "You've used all 3 free searches. Upgrade to Trip Pass or Annual for unlimited refreshes.";
     } else if (alreadyVisited) {
-      // Revisiting a city the user already searched.
       console.info("briefing.source", {
         city,
         source: cacheAny ? "cache-revisit" : "empty-revisit",
       });
       payload = cacheAny ? cachePayload(city, cached) : emptyPayload(city);
     } else if (cacheAny) {
-      // New city to this user, but someone else (or the pre-cache script)
-      // already has data for it. Show that data — do not 403 a city we can
-      // legitimately serve from cache.
       console.info("briefing.source", { city, source: "cache-limit-hit" });
       payload = cachePayload(city, cached);
     } else {
-      // No live data available to this user and no cache anywhere.
       console.info("briefing.limit_reached", { city, usedSearches });
       return Response.json(
         {
@@ -372,20 +307,12 @@ export async function GET(request) {
       );
     }
   } else {
-    // Either:
-    //   - cold visit by a free user (a "search" action), or
-    //   - cache is sparse and it's not a refresh, or
-    //   - any refresh (free or paid).
-    // All three run the pipeline and merge with cache when short.
     const rateKey = `${profile.user.id}_${cityId}`;
     const lastRefresh = refreshCooldowns.get(rateKey) || 0;
     const now = Date.now();
     const cooldownActive = now - lastRefresh < COOLDOWN_MS;
 
     if (cooldownActive && !(isRefresh === false && !alreadyVisited && !cacheFull)) {
-      // Inside cooldown. For refresh actions, honour the block and serve
-      // cache-or-empty. Cold-visit searches are allowed through once, which
-      // is why the condition above excludes them.
       console.info("briefing.cooldown", { city, userId: profile.user.id });
       payload = cacheAny ? cachePayload(city, cached) : emptyPayload(city);
       blockReason = "Just refreshed. Please wait a few minutes before refreshing again.";
@@ -425,10 +352,11 @@ export async function GET(request) {
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
 
-  const curated = findKnownCity(payload.city) || findKnownCity(city);
-  const safety = curated
-    ? curated.safety
-    : (estimateSafety(payload.alerts) ?? "7.0");
+  // Safety is derived from THIS response's alert mix — never from a curated
+  // static value. estimateSafety returns a number when there are alerts to
+  // score, and null when the briefing is empty. The client hides the score
+  // circle in the null case rather than showing a placeholder.
+  const safety = estimateSafety(payload.alerts);
 
   return Response.json({
     city: payload.city,

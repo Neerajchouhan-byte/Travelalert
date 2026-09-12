@@ -1,14 +1,14 @@
 // Pre-cache pipeline for the top 50 destinations.
 //
-// Reuses the exact production pipeline (organizeCity → Serper → Gemini) and
-// the exact production cache writer (saveCache → Supabase "destinations").
-// Nothing here is new logic — it's a batch wrapper around functions already
-// used by /api/briefing.
+// Reuses the exact production pipeline (organizeCity → Serper → Gemini),
+// the exact production acceptance predicate, and the exact production
+// merge helper (all imported from src/lib/briefing-merge.js). Nothing here
+// is new logic.
 //
 // Usage:
 //   node scripts/precache-top-cities.mjs                     # run all 50
 //   node scripts/precache-top-cities.mjs "Paris" "Tokyo"     # only these
-//   node scripts/precache-top-cities.mjs --skip-existing     # skip already-cached cities
+//   node scripts/precache-top-cities.mjs --skip-existing     # skip rich cache rows
 //   node scripts/precache-top-cities.mjs --dry-run           # list only, no API calls
 //
 // Requires .env.local with:
@@ -26,8 +26,6 @@ for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
   if (m) process.env[m[1]] = m[2];
 }
 
-// Canonical names — must be resolvable by normalizeCity() in src/lib/city.js.
-// Parenthetical or comma-qualified inputs are collapsed to a bare city name.
 const CITIES = [
   "Bangkok",        // 1
   "Hong Kong",      // 2
@@ -61,7 +59,7 @@ const CITIES = [
   "Santorini",      // 30
   "Marrakech",      // 31
   "Cairo",          // 32
-  "Bali",           // 33  (input "Bali (Denpasar)" → collapsed)
+  "Bali",           // 33
   "Phuket",         // 34
   "Delhi",          // 35
   "Mumbai",         // 36
@@ -92,16 +90,7 @@ const targets = SPECIFIC.length
     )
   : CITIES;
 
-// Delay between cities. Serper and Gemini free tiers are both rate-limited;
-// 3s gives them room to breathe without dragging the run out.
 const DELAY_MS = 3000;
-
-// Minimum counts the READER requires before it treats a cached row as
-// usable. These MUST match src/app/api/briefing/route.js (isLiveResult and
-// cacheUsable) — a lower write-side threshold causes the dashboard to keep
-// showing "no cached intel" for cities the script reports as successful.
-const MIN_ALERTS = 4;
-const MIN_TIPS = 3;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -111,6 +100,12 @@ function sleep(ms) {
 const { organizeCity } = await import("../src/lib/organize.js");
 const { saveCache, getFreshCache } = await import("../src/lib/cache.js");
 const { normalizeCity } = await import("../src/lib/city.js");
+const {
+  hasLiveData,
+  cacheIsFull,
+  cacheHasAny,
+  mergeLiveWithCache,
+} = await import("../src/lib/briefing-merge.js");
 
 async function runOne(rawCity) {
   const city = normalizeCity(rawCity);
@@ -120,13 +115,15 @@ async function runOne(rawCity) {
 
   const t0 = Date.now();
 
+  // --skip-existing: skip cities whose cache is already rich enough that
+  // the reader would not run the pipeline on a fresh visit.
   if (SKIP_EXISTING) {
     const existing = await getFreshCache(city);
-    if (existing && (existing.alerts || []).length >= MIN_ALERTS) {
+    if (cacheIsFull(existing)) {
       return {
         city,
         status: "skipped",
-        reason: `already cached (${existing.alerts.length} alerts)`,
+        reason: `already cached (${existing.alerts.length} alerts, ${existing.tips.length} tips)`,
         ms: Date.now() - t0,
       };
     }
@@ -144,22 +141,9 @@ async function runOne(rawCity) {
     };
   }
 
-  // Single unified gate — must be IDENTICAL to isLiveResult() in
-  // src/app/api/briefing/route.js. Any result that the reader would reject
-  // is treated as a failed pre-cache run, not written to the table.
-  //
-  // Reasons this rejects:
-  //   1. source !== "reddit+gemini"  → pipeline fell back to seed template
-  //   2. alerts.length < 4           → reader would treat cache as unusable
-  //   3. tips.length   < 3           → same
-  const alertCount = (org?.alerts || []).length;
-  const tipCount = (org?.tips || []).length;
-  const hasLiveData =
-    org?.source === "reddit+gemini" &&
-    alertCount >= MIN_ALERTS &&
-    tipCount >= MIN_TIPS;
-
-  if (!hasLiveData) {
+  // Same acceptance predicate as /api/briefing. Any live output at all is
+  // accepted; sparse results are topped up by the merge below.
+  if (!hasLiveData(org)) {
     let reason;
     if (!org) {
       reason = "organizeCity returned no result";
@@ -168,17 +152,27 @@ async function runOne(rawCity) {
     } else if (org.source !== "reddit+gemini") {
       reason = `unexpected pipeline source "${org.source}"`;
     } else {
-      reason =
-        `insufficient items (${alertCount} alerts, ${tipCount} tips) — ` +
-        `reader requires ${MIN_ALERTS}+ alerts and ${MIN_TIPS}+ tips`;
+      reason = `no live items returned (0 alerts, 0 tips)`;
     }
     return { city, status: "failed", reason, ms: Date.now() - t0 };
   }
 
+  // Fetch any existing cache so the merge has filler to draw on. On a cold
+  // city this returns null and the merge is a no-op. On a re-run it tops up
+  // the new result with whatever was already cached.
+  const cached = await getFreshCache(city);
+
+  const merged = mergeLiveWithCache(
+    org.alerts || [],
+    org.tips || [],
+    cached?.alerts || [],
+    cached?.tips || [],
+  );
+
   const payload = {
     city,
-    alerts: org.alerts,
-    tips: org.tips,
+    alerts: merged.alerts,
+    tips: merged.tips,
     source: org.source,
     fetchedAt: new Date().toISOString(),
     error: null,
@@ -194,12 +188,20 @@ async function runOne(rawCity) {
     };
   }
 
+  const liveCount = (org.alerts || []).length + (org.tips || []).length;
+  const mergedCount = payload.alerts.length + payload.tips.length;
+  const note =
+    mergedCount > liveCount
+      ? ` (merged with ${mergedCount - liveCount} cached filler)`
+      : "";
+
   return {
     city,
     status: "success",
     alerts: payload.alerts.length,
     tips: payload.tips.length,
     source: payload.source,
+    note,
     ms: Date.now() - t0,
   };
 }
@@ -233,7 +235,7 @@ async function main() {
       r.status === "success" ? "OK  " : r.status === "skipped" ? "SKIP" : "FAIL";
     const detail =
       r.status === "success"
-        ? `${r.alerts} alerts / ${r.tips} tips (${r.source})`
+        ? `${r.alerts} alerts / ${r.tips} tips (${r.source})${r.note || ""}`
         : r.reason;
     console.log(
       `[${String(i + 1).padStart(2, "0")}/${targets.length}] ${badge} ${city}  —  ${detail}  (${(

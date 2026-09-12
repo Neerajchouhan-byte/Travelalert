@@ -7,16 +7,24 @@ import { supabase } from "@/lib/supabase";
 /**
  * Compact action pill for the dashboard. On click it calls
  * POST /api/trips/quick-add, which:
- *   - creates a "My Trip" if the user has none, or appends to the most
- *     recent one;
- *   - lazily caches intel for the city if missing (same organizeCity
- *     pipeline the pre-cache script uses);
+ *   - creates a "<City> Trip" if the user has none, or appends to the
+ *     most recent one;
+ *   - lazily caches intel for the city if missing;
  *   - returns a status we render as specific feedback.
  *
- * Plan gating happens server-side (403 upgradeRequired). The client just
- * routes that to the existing upgrade modal.
+ * Plan gating happens server-side (403 upgradeRequired). The client routes
+ * that to the existing upgrade modal.
+ *
+ * `compact` — renders a small pill suitable for placement in a header row.
+ *             In compact mode the state colour is the feedback (no message
+ *             line below the button, since that would push the header).
  */
-export function AddToTripButton({ city, plan = "free", onUpgrade }) {
+export function AddToTripButton({
+  city,
+  plan = "free",
+  onUpgrade,
+  compact = false,
+}) {
   const [state, setState] = useState("idle");
   const [message, setMessage] = useState("");
   const timeoutRef = useRef(null);
@@ -29,7 +37,6 @@ export function AddToTripButton({ city, plan = "free", onUpgrade }) {
     };
   }, []);
 
-  // Reset feedback when the user switches city.
   useEffect(() => {
     setState("idle");
     setMessage("");
@@ -49,10 +56,6 @@ export function AddToTripButton({ city, plan = "free", onUpgrade }) {
     setState("adding");
     setMessage("Adding to trip…");
 
-    // After 800ms of waiting, upgrade the message to signal that the
-    // on-demand intel fetch is running. The server response arrives when
-    // the pipeline (Reddit → Gemini → cache write) finishes, which is a
-    // few seconds on a cold city.
     timeoutRef.current = setTimeout(() => {
       setMessage(`Fetching intel for ${city}…`);
     }, 800);
@@ -110,7 +113,6 @@ export function AddToTripButton({ city, plan = "free", onUpgrade }) {
         setState("success");
         setMessage(`Added to ${tripName}.`);
       }
-      // Auto-reset so the button is usable again for the same city.
       resetRef.current = setTimeout(() => {
         setState("idle");
         setMessage("");
@@ -138,25 +140,39 @@ export function AddToTripButton({ city, plan = "free", onUpgrade }) {
             : "border-zinc-200/90 bg-white text-zinc-800 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-200";
 
   const Icon =
-    busy ? LoaderCircle
-    : state === "success" ? Check
-    : state === "duplicate" || state === "limit" ? Info
-    : state === "failed" ? AlertTriangle
-    : Route;
+    busy
+      ? LoaderCircle
+      : state === "success"
+        ? Check
+        : state === "duplicate" || state === "limit"
+          ? Info
+          : state === "failed"
+            ? AlertTriangle
+            : Route;
+
+  const label = busy
+    ? "Adding…"
+    : paid
+      ? "Add to trip"
+      : "Add to trip (Pro)";
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={compact ? "flex items-center" : "flex flex-col gap-1.5"}>
       <button
         type="button"
         onClick={handleClick}
         disabled={busy}
         aria-busy={busy}
-        className={`inline-flex w-full items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-xs font-bold transition-colors disabled:opacity-70 ${tone}`}
+        className={`inline-flex ${
+          compact ? "" : "w-full"
+        } items-center justify-center gap-2 rounded-full border ${
+          compact ? "px-3.5 py-1.5" : "px-5 py-2.5"
+        } text-xs font-bold transition-colors disabled:opacity-70 ${tone}`}
       >
         <Icon className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
-        <span>{busy ? (message || "Adding…") : paid ? "Add to trip" : "Add to trip (Pro)"}</span>
+        <span>{label}</span>
       </button>
-      {!busy && message && state !== "idle" && (
+      {!compact && !busy && message && state !== "idle" && (
         <p className="text-center text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
           {message}
         </p>

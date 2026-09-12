@@ -1,17 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import { cities } from "@/lib/dashboard-data";
 
+// Destination chips are a navigation shortcut. They previously displayed a
+// static safety score (e.g. "6.8") and a trend arrow next to each city that
+// were hardcoded per-city values — not derived from cached intel. That score
+// display has been removed. The live safety score is shown once, on the
+// active city's DestinationHeader, where it is computed from real cached
+// alert data by /api/briefing.
 export function DestinationChips({ active }) {
   const router = useRouter();
-
-  const renderArrow = (direction) => {
-    if (direction === "up") return <ArrowUpRight className="size-3.5" />;
-    if (direction === "down") return <ArrowDownRight className="size-3.5" />;
-    return <ArrowRight className="size-3.5" />;
-  };
 
   return (
     <div className="w-full">
@@ -27,13 +26,6 @@ export function DestinationChips({ active }) {
         {cities.map((c) => {
           const isActive =
             c.name.toLowerCase() === String(active || "").toLowerCase();
-          const arrowDir =
-            c.arrow ||
-            (parseFloat(c.score) >= 7.5
-              ? "up"
-              : parseFloat(c.score) >= 6.5
-                ? "right"
-                : "down");
 
           return (
             <button
@@ -56,8 +48,6 @@ export function DestinationChips({ active }) {
                 {c.flag}
               </span>
               <span>{c.name}</span>
-              <span className="font-mono text-xs font-semibold">{c.score}</span>
-              <span className="opacity-80">{renderArrow(arrowDir)}</span>
             </button>
           );
         })}

@@ -1,15 +1,12 @@
 import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile } from "@/lib/auth-server";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getFreshCache } from "@/lib/cache";
-import { FREE_SEARCH_LIMIT, computeUsedSearches } from "@/lib/quota";
+import { getCachedBrief, saveCachedBrief } from "@/lib/cache";
 
 export const maxDuration = 15;
-
-// Minimums the reader (/api/briefing) requires before it treats a cached row
-// as usable. Must match src/app/api/briefing/route.js.
-const MIN_CACHED_ALERTS = 4;
-const MIN_CACHED_TIPS = 3;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const currencyByCountry = {
   KH: ["KHR", "Cambodian Riel"],
@@ -24,8 +21,6 @@ const currencyByCountry = {
   TH: ["THB", "Thai Baht"],
   VN: ["VND", "Vietnamese Dong"],
   US: ["USD", "US Dollar"],
-  // Broader coverage so a fresh search for any major destination resolves
-  // its currency instead of falling back to "Local Currency".
   AD: ["EUR", "Euro"], AT: ["EUR", "Euro"], BE: ["EUR", "Euro"],
   DE: ["EUR", "Euro"], EE: ["EUR", "Euro"], ES: ["EUR", "Euro"],
   FI: ["EUR", "Euro"], FR: ["EUR", "Euro"], GR: ["EUR", "Euro"],
@@ -79,7 +74,6 @@ const currencyByCountry = {
   RU: ["RUB", "Russian Ruble"],
 };
 
-/** Human label for a WMO weather code. */
 function conditionLabel(code) {
   if (code == null) return null;
   if (code === 0) return "Clear";
@@ -95,7 +89,6 @@ function conditionLabel(code) {
   return "Thunderstorm";
 }
 
-/** Map a WMO code to one of the WeatherCard icon types. */
 function forecastType(code) {
   if (code == null) return "partly-cloudy";
   if (code <= 1) return "sun";
@@ -105,7 +98,6 @@ function forecastType(code) {
   return "partly-cloudy";
 }
 
-/** "2026-09-07T06:12" → "6:12 am" (input is location-local). */
 function formatClock(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(iso || ""));
   if (!m) return null;
@@ -116,14 +108,12 @@ function formatClock(iso) {
   return `${h}:${min} ${ampm}`;
 }
 
-/** Seconds → "15 h 32 m". */
 function formatDaylight(seconds) {
   if (seconds == null || Number.isNaN(Number(seconds))) return null;
   const total = Math.round(Number(seconds) / 60);
   return `${Math.floor(total / 60)} h ${total % 60} m`;
 }
 
-/** Convert an IANA timezone (e.g. "Asia/Kolkata") into a "GMT+5:30" string. */
 function gmtOffset(timeZone) {
   if (!timeZone) return null;
   try {
@@ -131,8 +121,7 @@ function gmtOffset(timeZone) {
       timeZone,
       timeZoneName: "longOffset",
     }).formatToParts(new Date());
-    const raw =
-      parts.find((p) => p.type === "timeZoneName")?.value || "";
+    const raw = parts.find((p) => p.type === "timeZoneName")?.value || "";
     const m = /^GMT([+-])(\d{1,2})(?::(\d{2}))?$/.exec(raw);
     if (!m) return null;
     const sign = m[1] === "-" ? "-" : "+";
@@ -142,6 +131,17 @@ function gmtOffset(timeZone) {
   } catch {
     return null;
   }
+}
+
+/** True when a payload has enough data for the four dashboard cards to render. */
+function isCompleteBrief(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  if (payload.skipped) return false;
+  const weatherOk =
+    payload.weather && typeof payload.weather.temp === "number";
+  const forecastOk =
+    Array.isArray(payload.forecast) && payload.forecast.length > 0;
+  return Boolean(weatherOk && forecastOk);
 }
 
 export async function GET(request) {
@@ -156,15 +156,8 @@ export async function GET(request) {
   }
 
   const rawCity = request.nextUrl.searchParams.get("city") || "";
-
-  // Try to resolve city using fuzzy matching first
   let city = resolveCity(rawCity);
-
-  // Fallback to simple normalization
-  if (!city) {
-    city = normalizeCity(rawCity);
-  }
-
+  if (!city) city = normalizeCity(rawCity);
   if (!city) {
     return Response.json(
       { error: `Could not recognize "${rawCity}" as a valid city name` },
@@ -172,47 +165,19 @@ export async function GET(request) {
     );
   }
 
-  // ── Server-side quota + cache gate ─────────────────────────────────────
-  //
-  // The dashboard fires /api/briefing and /api/city-brief in parallel on
-  // every city change. When the user is a free-plan user who has used all
-  // FREE_SEARCH_LIMIT searches for the current month AND the destination has
-  // no usable cache row, /api/briefing returns 403 (limitReached) and the UI
-  // shows the upgrade modal — the user will never see this city's intel.
-  //
-  // Without this gate, /api/city-brief would still make three external HTTP
-  // calls (geocoding, weather, FX) for a destination whose data the user
-  // cannot view. This check runs before any fetch, so the client cannot
-  // bypass it: even a hand-crafted request from a quota-exhausted session
-  // gets { skipped: true } and zero external traffic.
-  //
-  // Paid users (plan !== "free") are never gated here.
-  const usedSearches = computeUsedSearches(profile);
-  const hasAccess = profile.plan !== "free";
-  const overQuota = !hasAccess && usedSearches >= FREE_SEARCH_LIMIT;
-
-  if (overQuota) {
-    const cached = await getFreshCache(city);
-    const cacheUsable =
-      cached &&
-      (cached.alerts || []).length >= MIN_CACHED_ALERTS &&
-      (cached.tips || []).length >= MIN_CACHED_TIPS;
-
-    if (!cacheUsable) {
-      console.info("city-brief.skipped", {
-        city,
-        reason: "quota-exhausted-uncached",
-        usedSearches,
-      });
-      return Response.json({
-        skipped: true,
-        reason: "quota-exhausted-uncached",
-        city,
-      });
-    }
+  // ── Cache lookup (1-hour TTL). Only return a cached payload if it has the
+  //    full weather + forecast data the cards need. A partially-broken entry
+  //    (e.g. cached before the "only cache complete payloads" guard landed)
+  //    is discarded and replaced by a fresh fetch below.
+  const cachedBrief = getCachedBrief(city);
+  if (isCompleteBrief(cachedBrief)) {
+    console.info("city-brief.source", { city, source: "cache" });
+    return Response.json(cachedBrief);
   }
-  // ───────────────────────────────────────────────────────────────────────
 
+  console.info("city-brief.fetch", { city, source: "live" });
+
+  // ── Geocoding
   let hit = null;
   try {
     const geoRes = await fetch(
@@ -221,7 +186,8 @@ export async function GET(request) {
     );
     const geo = await geoRes.json();
     hit = geo?.results?.[0] || null;
-  } catch {
+  } catch (err) {
+    console.error("city-brief geocoding failed:", err?.message || err);
     hit = null;
   }
 
@@ -234,17 +200,19 @@ export async function GET(request) {
   const currency = currencyByCountry[hit.country_code];
   if (currency) [code, currencyName] = currency;
 
-  // Run weather and currency API calls in parallel for faster response
+  // ── Weather + FX in parallel
   const [wxData, rateData] = await Promise.allSettled([
-    // Fetch weather data
     fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}` +
         `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,uv_index,wind_speed_10m` +
         `&daily=weather_code,temperature_2m_max,precipitation_probability_max,sunrise,sunset,daylight_duration` +
         `&forecast_days=7&timezone=auto`
-    ).then(r => r.ok ? r.json() : null),
-    // Fetch exchange rates
-    code ? fetch("https://open.er-api.com/v6/latest/USD").then(r => r.ok ? r.json() : null) : null
+    ).then((r) => (r.ok ? r.json() : null)),
+    code
+      ? fetch("https://open.er-api.com/v6/latest/USD").then((r) =>
+          r.ok ? r.json() : null
+        )
+      : null,
   ]);
 
   const wx = wxData.status === "fulfilled" ? wxData.value : null;
@@ -282,7 +250,6 @@ export async function GET(request) {
         : null,
   };
 
-  // 7-day forecast pills for the WeatherCard (Today first).
   const forecast = (daily?.time || [])
     .slice(0, 7)
     .map((day, i) => {
@@ -300,15 +267,15 @@ export async function GET(request) {
     })
     .filter((f) => f.temp != null);
 
-  // Static responses for money and weather advice (no AI call needed)
   const money_avoid = "Skip airport desks — worst spread.";
   const money_best = "Bank ATM. Decline DCC.";
   const weather_headline = weather.condition || "Live conditions";
-  const weather_note = weather.temp != null
-    ? `${weather.temp}°C in ${hit.name} right now.`
-    : "Live weather is temporarily unavailable.";
+  const weather_note =
+    weather.temp != null
+      ? `${weather.temp}°C in ${hit.name} right now.`
+      : "Live weather is temporarily unavailable.";
 
-  return Response.json({
+  const payload = {
     city: hit.name,
     country: hit.country,
     country_code: hit.country_code || null,
@@ -324,5 +291,22 @@ export async function GET(request) {
     weather_headline,
     weather_note,
     currencyName,
-  });
+  };
+
+  // Only persist payloads that will render correctly on the next request.
+  // A payload with a missing weather block (Open-Meteo down) or an empty
+  // forecast array would poison every subsequent request for the next hour.
+  if (isCompleteBrief(payload)) {
+    saveCachedBrief(city, payload);
+    console.info("city-brief.cached", { city, forecastDays: forecast.length });
+  } else {
+    console.info("city-brief.not_cached", {
+      city,
+      reason: "incomplete payload",
+      weatherTemp: weather.temp,
+      forecastDays: forecast.length,
+    });
+  }
+
+  return Response.json(payload);
 }

@@ -28,22 +28,42 @@ function useLocalTime(tz) {
   return time;
 }
 
-export function DestinationHeader({ city, brief, alerts = [], safety }) {
+export function DestinationHeader({
+  city,
+  brief,
+  alerts = [],
+  safety,
+  actionSlot = null,
+}) {
   const d = buildDestinationMeta(city, brief);
   const localTime = useLocalTime(d.tz);
 
-  const effectiveSafety = safety ?? d.safety ?? "7.1";
-  const safetyNum = parseFloat(String(effectiveSafety)) || 7.1;
+  // A numeric score only comes from /api/briefing when the destination has
+  // alerts to derive it from. When it's absent, the header omits both the
+  // score circle and its descriptive subtitle — no placeholder text, no
+  // "no data" messaging. The IntelTabs panel below is the single place that
+  // communicates the empty state.
+  const numericSafety =
+    safety != null && !Number.isNaN(parseFloat(String(safety)))
+      ? parseFloat(String(safety))
+      : null;
 
-  const safetyLevel =
-    safetyNum >= 8.5 ? "HIGH" : safetyNum >= 6.5 ? "MODERATE" : "ELEVATED";
+  const hasSafety = numericSafety != null;
 
-  const safetySubtitle =
-    safetyNum >= 8.5
-      ? "High safety • Safe for solo travelers"
-      : safetyNum >= 6.5
-        ? "Moderate safety • Use normal precautions"
-        : "Elevated risk • Stay aware of your surroundings";
+  let safetyLevel = null;
+  let safetySubtitle = null;
+  if (hasSafety) {
+    if (numericSafety >= 8.5) {
+      safetyLevel = "HIGH";
+      safetySubtitle = "High safety • Safe for solo travelers";
+    } else if (numericSafety >= 6.5) {
+      safetyLevel = "MODERATE";
+      safetySubtitle = "Moderate safety • Use normal precautions";
+    } else {
+      safetyLevel = "ELEVATED";
+      safetySubtitle = "Elevated risk • Stay aware of your surroundings";
+    }
+  }
 
   const costLabel = d.cost || "Medium";
 
@@ -53,7 +73,7 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
         minute: "2-digit",
         hour12: true,
       })
-    : "06:37 PM";
+    : "—";
 
   const urgentCount = alerts.filter(
     (a) => (a.severity || "").toLowerCase() === "high"
@@ -72,24 +92,28 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
             <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
               {brief?.city
                 ? `${brief.city}${brief.country ? `, ${brief.country}` : ""}`
-                : d.name || `${city}, Indonesia`}
+                : d.name || city}
             </h2>
           </div>
-          <p className="text-xs font-medium text-white/90 sm:text-sm dark:text-rose-100/90">
-            {safetySubtitle}
-          </p>
+          {safetySubtitle && (
+            <p className="text-xs font-medium text-white/90 sm:text-sm dark:text-rose-100/90">
+              {safetySubtitle}
+            </p>
+          )}
         </div>
 
-        <div className="flex flex-col items-center">
-          <div className="relative flex size-20 items-center justify-center rounded-full border-4 border-white/30 dark:border-white/20 sm:size-24">
-            <span className="font-mono text-3xl font-black tracking-tight sm:text-4xl">
-              {effectiveSafety}
+        {hasSafety && (
+          <div className="flex flex-col items-center">
+            <div className="relative flex size-20 items-center justify-center rounded-full border-4 border-white/30 dark:border-white/20 sm:size-24">
+              <span className="font-mono text-3xl font-black tracking-tight sm:text-4xl">
+                {numericSafety.toFixed(1)}
+              </span>
+            </div>
+            <span className="mt-1.5 rounded-full bg-white/20 px-3 py-0.5 font-mono text-[10px] font-black uppercase tracking-wider text-white dark:bg-[#5f1e29]">
+              {safetyLevel}
             </span>
           </div>
-          <span className="mt-1.5 rounded-full bg-white/20 px-3 py-0.5 font-mono text-[10px] font-black uppercase tracking-wider text-white dark:bg-[#5f1e29]">
-            {safetyLevel}
-          </span>
-        </div>
+        )}
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -106,6 +130,10 @@ export function DestinationHeader({ city, brief, alerts = [], safety }) {
           <span>Local Time: {timeFormatted}</span>
         </div>
       </div>
+
+      {actionSlot && (
+        <div className="mt-5 border-t border-white/15 pt-4">{actionSlot}</div>
+      )}
     </div>
   );
 }

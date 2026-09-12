@@ -69,11 +69,6 @@ export function Weather7DayCard({ brief }) {
                 <span className="font-mono text-xs uppercase">{f.day}</span>
                 {renderIcon(f.type, true)}
                 <span className="font-mono text-xs">{tempLabel(f)}</span>
-                {f.rain && (
-                  <span className="text-[10px] font-medium text-white/90">
-                    {f.rain}
-                  </span>
-                )}
               </div>
             );
           }
@@ -88,11 +83,6 @@ export function Weather7DayCard({ brief }) {
               </span>
               {renderIcon(f.type)}
               <span className="font-mono">{tempLabel(f)}</span>
-              {f.rain && (
-                <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
-                  {f.rain}
-                </span>
-              )}
             </div>
           );
         })}
@@ -127,11 +117,6 @@ export function Weather7DayCard({ brief }) {
                 <p className="font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200">
                   {tempLabel(f)}
                 </p>
-                {isToday && f.rain && (
-                  <p className="mt-0.5 text-[10px] font-bold text-[#e5283b] dark:text-[#f87171]">
-                    {f.rain}
-                  </p>
-                )}
               </div>
             </div>
           );

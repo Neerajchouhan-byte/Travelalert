@@ -82,7 +82,6 @@ export function CommandMenu() {
             onValueChange={setQuery}
             className="overflow-hidden rounded-2xl [&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.14em] [&_[cmdk-group-heading]]:text-[#68686f]"
           >
-            {/* Search input */}
             <div className="flex items-center gap-3 border-b border-white/10 px-4">
               <Search className="size-4 shrink-0 text-[#68686f]" />
               <CommandPrimitive.Input
@@ -109,13 +108,6 @@ export function CommandMenu() {
                   >
                     <span className="text-base leading-none">{c.flag}</span>
                     <span className="flex-1 truncate text-sm">{c.name}</span>
-                    <span
-                      className={`font-mono text-[11px] ${
-                        c.tone === "good" ? "text-[#3ecf8e]" : "text-[#f0a63d]"
-                      }`}
-                    >
-                      {c.score}
-                    </span>
                     <ArrowRight className="size-3.5 text-[#68686f] opacity-0 transition-opacity group-data-[selected=true]/item:opacity-100" />
                   </Item>
                 ))}
@@ -138,7 +130,7 @@ export function CommandMenu() {
                 </Item>
                 <Item
                   value="upgrade pro pricing"
-                    onSelect={() => run(() => go("/dashboard?upgrade=true"))}
+                  onSelect={() => run(() => go("/dashboard?upgrade=true"))}
                 >
                   <Crown className="size-3.5 text-[#f0a63d]" />
                   <span className="flex-1 text-sm">Upgrade to Pro</span>
@@ -153,9 +145,6 @@ export function CommandMenu() {
                 </Item>
               </CommandPrimitive.Group>
 
-              {/* Search any destination — always the last match so a typed
-                  city that isn't in the curated list can still be navigated
-                  to with Enter (ranked below every existing item). */}
               {query.trim().length >= 2 && (
                 <CommandPrimitive.Group heading="Search any destination">
                   <Item
@@ -174,7 +163,6 @@ export function CommandMenu() {
               )}
             </CommandPrimitive.List>
 
-            {/* Footer */}
             <div className="flex items-center gap-4 border-t border-white/10 bg-white/[0.02] px-4 py-2.5">
               <span className="flex items-center gap-1.5 text-[10px] text-[#68686f]">
                 <Kbd>↑</Kbd>
