@@ -61,13 +61,16 @@ export function ExchangeRateCard({ brief }) {
     );
   }
 
-  // Every rate below comes from the live /api/city-brief response:
-  //   usd = local per 1 USD,  eur = local per 1 EUR,  inr = local per 1 INR.
-  // No fabricated history, no invented percentages.
-  const format = (v) =>
-    v == null
-      ? null
-      : v.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  // Magnitude-aware formatting. High-value currencies (IDR, VND, KRW) round
+  // to whole units; mid-range currencies (JPY, THB) keep two decimals; small
+  // values (EUR, GBP, USD) keep four. This keeps every cell to a fixed,
+  // readable width regardless of the destination's currency scale.
+  const format = (v) => {
+    if (v == null) return null;
+    const abs = Math.abs(v);
+    const digits = abs >= 1000 ? 0 : abs >= 1 ? 2 : 4;
+    return v.toLocaleString("en-US", { maximumFractionDigits: digits });
+  };
 
   const rows = [
     { base: "USD", value: usd },
@@ -121,7 +124,7 @@ export function ExchangeRateCard({ brief }) {
             <p className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
               ${amount}
             </p>
-            <p className="mt-0.5 font-mono text-[11px] font-bold text-zinc-900 dark:text-white">
+            <p className="mt-0.5 truncate font-mono text-[11px] font-bold text-zinc-900 dark:text-white">
               {format(amount * usd)}
             </p>
           </div>

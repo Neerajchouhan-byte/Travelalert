@@ -204,36 +204,30 @@ export function WeatherNowCard({ brief }) {
       </p>
 
       {hasExtraStats && (
-        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-zinc-100 pt-3 dark:border-white/5">
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-zinc-100 pt-2 dark:border-white/5">
           {uv != null && (
-            <div>
-              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                UV
-              </p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200">
+            <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+              UV{" "}
+              <span className="font-bold text-zinc-800 dark:text-zinc-200">
                 {uv}
-              </p>
-            </div>
+              </span>
+            </span>
           )}
           {wind != null && (
-            <div>
-              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Wind
-              </p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200">
+            <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+              WIND{" "}
+              <span className="font-bold text-zinc-800 dark:text-zinc-200">
                 {wind} kph
-              </p>
-            </div>
+              </span>
+            </span>
           )}
           {daylight && (
-            <div>
-              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Daylight
-              </p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200">
+            <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+              DAY{" "}
+              <span className="font-bold text-zinc-800 dark:text-zinc-200">
                 {daylight}
-              </p>
-            </div>
+              </span>
+            </span>
           )}
         </div>
       )}
