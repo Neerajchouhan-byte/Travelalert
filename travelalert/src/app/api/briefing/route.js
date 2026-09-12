@@ -5,18 +5,15 @@ import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
 import { estimateSafety } from "@/lib/dashboard-data";
+import { FREE_SEARCH_LIMIT, monthKey } from "@/lib/quota";
+import {
+  hasLiveData,
+  cacheHasAny,
+  cacheIsFull,
+  mergeLiveWithCache,
+} from "@/lib/briefing-merge";
 
 export const maxDuration = 180;
-
-const FREE_SEARCH_LIMIT = 3;
-
-const EXPECTED_ALERTS = 12;
-const EXPECTED_TIPS = 10;
-
-function monthKey() {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 const refreshCooldowns = new Map();
 const COOLDOWN_MS = 3 * 60 * 1000;
@@ -69,86 +66,6 @@ function emptyPayload(city, extras = {}) {
     noData: true,
     ...extras,
   };
-}
-
-function hasLiveData(org) {
-  if (!org) return false;
-  if (org.source !== "reddit+gemini") return false;
-  return (org.alerts || []).length > 0 || (org.tips || []).length > 0;
-}
-
-function cacheHasAny(cached) {
-  if (!cached) return false;
-  return (cached.alerts || []).length > 0 || (cached.tips || []).length > 0;
-}
-
-function cacheIsFull(cached) {
-  if (!cached) return false;
-  return (
-    (cached.alerts || []).length >= 4 && (cached.tips || []).length >= 3
-  );
-}
-
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-function mergeLiveWithCache(
-  liveAlerts,
-  liveTips,
-  cachedAlerts,
-  cachedTips,
-  targetAlerts = EXPECTED_ALERTS,
-  targetTips = EXPECTED_TIPS,
-) {
-  const outAlerts = [];
-  const outTips = [];
-  const seenA = new Set();
-  const seenT = new Set();
-  const norm = (x) => String(x?.name || "").trim().toLowerCase();
-
-  for (const a of liveAlerts || []) {
-    const k = norm(a);
-    if (!k || seenA.has(k)) continue;
-    seenA.add(k);
-    outAlerts.push(a);
-  }
-  for (const t of liveTips || []) {
-    const k = norm(t);
-    if (!k || seenT.has(k)) continue;
-    seenT.add(k);
-    outTips.push(t);
-  }
-
-  const fillA = shuffle(
-    (cachedAlerts || []).filter((a) => {
-      const k = norm(a);
-      return k && !seenA.has(k);
-    }),
-  );
-  const fillT = shuffle(
-    (cachedTips || []).filter((t) => {
-      const k = norm(t);
-      return k && !seenT.has(k);
-    }),
-  );
-
-  for (const a of fillA) {
-    if (outAlerts.length >= targetAlerts) break;
-    seenA.add(norm(a));
-    outAlerts.push(a);
-  }
-  for (const t of fillT) {
-    if (outTips.length >= targetTips) break;
-    seenT.add(norm(t));
-    outTips.push(t);
-  }
-
-  return { alerts: outAlerts, tips: outTips };
 }
 
 async function runPipelineMerged(city, cached) {
@@ -351,11 +268,6 @@ export async function GET(request) {
   }
 
   const sliced = sliceForPlan(effectivePlan, payload.alerts, payload.tips);
-
-  // Safety is derived from THIS response's alert mix — never from a curated
-  // static value. estimateSafety returns a number when there are alerts to
-  // score, and null when the briefing is empty. The client hides the score
-  // circle in the null case rather than showing a placeholder.
   const safety = estimateSafety(payload.alerts);
 
   return Response.json({

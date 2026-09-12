@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, ChevronRight, LockKeyhole, Search } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ScamDataDisclaimer } from "@/components/ScamDataDisclaimer";
 
@@ -13,9 +14,6 @@ export function TripBriefing({ sections = [], plan = "free", loading = false, on
   if (!sections.length) return <p className="py-10 text-center text-xs text-zinc-400">No destinations yet.</p>;
   return (
     <div className="space-y-4">
-      {/* Inline disclaimer — visible above the first section so it appears
-          alongside the combined scam/tip content, matching the dashboard
-          IntelTabs placement and the /disclaimer boxed paragraph. */}
       <ScamDataDisclaimer className="px-1" />
 
       {sections.map((s, i) => {
@@ -33,7 +31,18 @@ export function TripBriefing({ sections = [], plan = "free", loading = false, on
               {isOpen && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                   {s.noData ? (
-                    <p className="pt-3 text-xs text-zinc-500">No cached intel for {s.city} yet. Search it on the dashboard first.</p>
+                    <div className="pt-3">
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        No cached intel for {s.city} yet.
+                      </p>
+                      <Link
+                        href={`/dashboard?city=${encodeURIComponent(s.city)}`}
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-black px-4 py-2 text-[11px] font-bold text-white transition-opacity hover:opacity-90 dark:border dark:border-white/20"
+                      >
+                        <Search className="size-3" />
+                        Search {s.city} on the dashboard
+                      </Link>
+                    </div>
                   ) : (
                     <div className="grid gap-4 pt-4 md:grid-cols-2">
                       <div><p className="text-[11px] font-bold uppercase text-red-600">Alerts</p>

@@ -9,19 +9,14 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { notFound } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { getScamCity, listScamCities, getRelatedCities } from "@/lib/scam-data";
 import { findKnownCity } from "@/lib/dashboard-data";
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL || "https://travelradar.live";
 
-// Destination pages are rebuilt hourly. The underlying cache row may be
-// updated more often than that by live user searches, but a 1-hour ISR window
-// balances freshness with build efficiency.
 export const revalidate = 3600;
-
-// Any slug not present in generateStaticParams is still rendered on demand.
-// Needed because users can add new cities to the cache after the last build.
 export const dynamicParams = true;
 
 export async function generateStaticParams() {
@@ -77,8 +72,8 @@ export async function generateMetadata({ params }) {
 
 function severityClass(severity) {
   return severity === "High Financial Risk"
-    ? "border-rose-200 bg-rose-50 text-rose-700"
-    : "border-amber-200 bg-amber-50 text-amber-700";
+    ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300"
+    : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300";
 }
 
 export default async function CityScamPage({ params }) {
@@ -94,8 +89,6 @@ export default async function CityScamPage({ params }) {
   const year = new Date().getFullYear();
   const signupHref = `/signup?city=${encodeURIComponent(city.name)}&redirect=/dashboard`;
 
-  // Related cities are pulled from the same destinations cache the page is
-  // already reading from — no hardcoded list, no extra data source.
   const relatedCities = await getRelatedCities(slug, 5);
 
   const faqSchema = {
@@ -114,7 +107,9 @@ export default async function CityScamPage({ params }) {
     headline: `${city.name} Tourist Scams (${year} Guide)`,
     description: city.intro,
     url: `${SITE_URL}/scams/${slug}`,
-    datePublished: "2026-01-01",
+    datePublished: city.updatedAt
+      ? new Date(city.updatedAt).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10),
     dateModified: city.updatedAt
       ? new Date(city.updatedAt).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10),
@@ -151,7 +146,7 @@ export default async function CityScamPage({ params }) {
   };
 
   return (
-    <main className="min-h-svh bg-[#f7f8f8] text-zinc-950">
+    <main className="min-h-svh bg-[#f7f8f8] text-zinc-950 transition-colors dark:bg-[#0c0c0e] dark:text-zinc-100">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
@@ -165,31 +160,31 @@ export default async function CityScamPage({ params }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
       />
 
-      <div className="border-b border-zinc-200/80 bg-white/90 backdrop-blur">
+      <div className="border-b border-zinc-200/80 bg-white/90 backdrop-blur dark:border-white/10 dark:bg-[#0c0c0e]/90">
         <nav
           className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 sm:px-6 lg:px-8"
           aria-label="Primary navigation"
         >
           <Link
             href="/"
-            className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-zinc-950"
+            className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight"
           >
             <span className="grid size-8 place-items-center rounded-xl bg-zinc-950 text-white">
               <Radar className="size-4" />
             </span>
             <span className="hidden sm:inline">TravelRadar</span>
           </Link>
-          <div className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-500 sm:text-sm">
-            <Link href="/" className="hover:text-zinc-950">Home</Link>
-            <span className="mx-2 text-zinc-300">›</span>
-            <Link href="/scams" className="hover:text-zinc-950">Scams</Link>
-            <span className="mx-2 text-zinc-300">›</span>
-            <span className="text-zinc-950">{city.name}</span>
+          <div className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-500 sm:text-sm dark:text-zinc-400">
+            <Link href="/" className="hover:text-zinc-950 dark:hover:text-white">Home</Link>
+            <span className="mx-2 text-zinc-300 dark:text-zinc-600">›</span>
+            <Link href="/scams" className="hover:text-zinc-950 dark:hover:text-white">Scams</Link>
+            <span className="mx-2 text-zinc-300 dark:text-zinc-600">›</span>
+            <span className="text-zinc-950 dark:text-zinc-100">{city.name}</span>
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <Link
               href="/login"
-              className="hidden text-sm font-semibold text-zinc-600 hover:text-zinc-950 sm:inline"
+              className="hidden text-sm font-semibold text-zinc-600 hover:text-zinc-950 sm:inline dark:text-zinc-400 dark:hover:text-white"
             >
               Log in
             </Link>
@@ -199,36 +194,37 @@ export default async function CityScamPage({ params }) {
             >
               Get Free Alerts
             </Link>
+            <ThemeToggle />
           </div>
         </nav>
       </div>
 
-      <header className="border-b border-zinc-200 bg-white">
+      <header className="border-b border-zinc-200 bg-white dark:border-white/10 dark:bg-[#0c0c0e]">
         <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-20 lg:px-8">
           <div className="max-w-4xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold tracking-[0.14em] text-emerald-700">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold tracking-[0.14em] text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
               <span className="size-1.5 rounded-full bg-emerald-500" />
-              LIVE ADVISORY • VERIFIED FOR {year}
+              TRAVELER-REPORTED · UPDATED {year}
             </div>
-            <h1 className="mt-6 max-w-4xl text-4xl font-black tracking-[-0.04em] text-zinc-950 sm:text-6xl lg:text-7xl">
+            <h1 className="mt-6 max-w-4xl text-4xl font-black tracking-[-0.04em] text-zinc-950 sm:text-6xl lg:text-7xl dark:text-zinc-50">
               {city.name} Tourist Scams{" "}
-              <span className="text-zinc-400">&amp; Transit Traps</span>
+              <span className="text-zinc-400 dark:text-zinc-500">&amp; Transit Traps</span>
             </h1>
-            <p className="mt-6 max-w-2xl text-base leading-8 text-zinc-600 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-8 text-zinc-600 sm:text-lg dark:text-zinc-400">
               {city.intro}
             </p>
-            <div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 border-t border-zinc-200 pt-5 text-xs font-semibold text-zinc-500 sm:text-sm">
+            <div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 border-t border-zinc-200 pt-5 text-xs font-semibold text-zinc-500 sm:text-sm dark:border-white/10 dark:text-zinc-400">
               <span className="inline-flex items-center gap-2">
-                <MapPin className="size-4 text-zinc-400" />
+                <MapPin className="size-4 text-zinc-400 dark:text-zinc-500" />
                 {city.name}
                 {country ? `, ${country}` : ""}
               </span>
               <span className="inline-flex items-center gap-2">
-                <Clock3 className="size-4 text-zinc-400" />
+                <Clock3 className="size-4 text-zinc-400 dark:text-zinc-500" />
                 Updated: {year}
               </span>
               <span className="inline-flex items-center gap-2">
-                <ShieldCheck className="size-4 text-emerald-600" />
+                <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
                 {city.alerts.length} active warnings
               </span>
             </div>
@@ -240,7 +236,7 @@ export default async function CityScamPage({ params }) {
         <section aria-labelledby="free-alerts-heading">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-400">
                 Field notes / open access
               </p>
               <h2
@@ -250,7 +246,7 @@ export default async function CityScamPage({ params }) {
                 The alerts to know first
               </h2>
             </div>
-            <span className="hidden text-sm font-semibold text-zinc-400 sm:block">
+            <span className="hidden text-sm font-semibold text-zinc-400 sm:block dark:text-zinc-500">
               01—{String(visibleAlerts.length).padStart(2, "0")} / {city.alerts.length}
             </span>
           </div>
@@ -258,14 +254,14 @@ export default async function CityScamPage({ params }) {
             {visibleAlerts.map((alert, index) => (
               <article
                 key={alert.title + index}
-                className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_35px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(24,24,27,0.08)] sm:p-8"
+                className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_35px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(24,24,27,0.08)] sm:p-8 dark:border-white/10 dark:bg-[#16161b]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[10px] font-bold tracking-[0.14em] text-zinc-500">
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[10px] font-bold tracking-[0.14em] text-zinc-500 dark:border-white/10 dark:bg-white/5 dark:text-zinc-400">
                     {alert.category}
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-zinc-400">
+                    <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500">
                       {String(index + 1).padStart(2, "0")}
                     </span>
                     <span
@@ -275,25 +271,25 @@ export default async function CityScamPage({ params }) {
                     </span>
                   </div>
                 </div>
-                <h3 className="mt-6 text-xl font-extrabold leading-tight tracking-tight text-zinc-950 sm:text-2xl">
+                <h3 className="mt-6 text-xl font-extrabold leading-tight tracking-tight text-zinc-950 sm:text-2xl dark:text-zinc-50">
                   {alert.title}
                 </h3>
                 <div className="mt-6">
-                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-400">
+                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">
                     The Trap
                   </p>
-                  <p className="mt-2 text-sm leading-7 text-zinc-600">
+                  <p className="mt-2 text-sm leading-7 text-zinc-600 dark:text-zinc-400">
                     {alert.description}
                   </p>
                 </div>
-                <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                  <p className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700">
+                <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                  <p className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-400">
                     <span className="grid size-5 place-items-center rounded-full bg-emerald-600 text-white">
                       <Check className="size-3" strokeWidth={3} />
                     </span>
                     How to Avoid
                   </p>
-                  <p className="mt-2 text-sm leading-7 text-emerald-950/75">
+                  <p className="mt-2 text-sm leading-7 text-emerald-950/75 dark:text-emerald-100/80">
                     {alert.prevention}
                   </p>
                 </div>
@@ -307,10 +303,10 @@ export default async function CityScamPage({ params }) {
             className="relative mt-16"
             aria-labelledby="locked-alerts-heading"
           >
-            <div className="rounded-[2rem] border border-zinc-200 bg-zinc-100/80 p-5 sm:p-8">
+            <div className="rounded-[2rem] border border-zinc-200 bg-zinc-100/80 p-5 sm:p-8 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-end justify-between gap-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
                     Restricted intelligence
                   </p>
                   <h2
@@ -320,7 +316,7 @@ export default async function CityScamPage({ params }) {
                     {gatedAlerts.length} more active warnings
                   </h2>
                 </div>
-                <span className="rounded-full bg-zinc-200 px-3 py-1 text-xs font-bold text-zinc-500">
+                <span className="rounded-full bg-zinc-200 px-3 py-1 text-xs font-bold text-zinc-500 dark:bg-white/10 dark:text-zinc-400">
                   {gatedAlerts.length} locked
                 </span>
               </div>
@@ -328,23 +324,23 @@ export default async function CityScamPage({ params }) {
                 {gatedAlerts.map((alert, index) => (
                   <article
                     key={alert.title + index}
-                    className="overflow-hidden rounded-2xl border border-zinc-200 bg-white/70 p-5"
+                    className="overflow-hidden rounded-2xl border border-zinc-200 bg-white/70 p-5 dark:border-white/10 dark:bg-white/[0.02]"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-zinc-100 text-zinc-500">
+                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
                         <LockKeyhole className="size-4" />
                       </span>
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-400">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
                           Alert {String(index + visibleAlerts.length + 1).padStart(2, "0")} / {alert.category}
                         </p>
-                        <h3 className="mt-1 text-sm font-bold text-zinc-800">
+                        <h3 className="mt-1 text-sm font-bold text-zinc-800 dark:text-zinc-200">
                           {alert.title}
                         </h3>
                       </div>
                     </div>
                     <p
-                      className="pointer-events-none mt-4 select-none text-sm leading-6 text-zinc-500"
+                      className="pointer-events-none mt-4 select-none text-sm leading-6 text-zinc-500 dark:text-zinc-400"
                       style={{ filter: "blur(6px)" }}
                       aria-hidden="true"
                     >
@@ -361,7 +357,7 @@ export default async function CityScamPage({ params }) {
                   <ShieldCheck className="size-6" />
                 </div>
                 <h2 className="mt-5 text-2xl font-black tracking-tight sm:text-3xl">
-                  Unlock All {city.alerts.length} Verified {city.name} Alerts
+                  Unlock All {city.alerts.length} {city.name} Alerts
                 </h2>
                 <p className="mt-3 text-sm leading-7 text-zinc-400">
                   Create a free account to read all active scam warnings and get
@@ -384,7 +380,7 @@ export default async function CityScamPage({ params }) {
 
         {relatedCities.length > 0 && (
           <section
-            className="mt-16 border-t border-zinc-200 pt-10"
+            className="mt-16 border-t border-zinc-200 pt-10 dark:border-white/10"
             aria-labelledby="related-heading"
           >
             <div className="flex items-end justify-between gap-4">
@@ -398,7 +394,7 @@ export default async function CityScamPage({ params }) {
                 >
                   Related destinations
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-7 text-zinc-600">
+                <p className="mt-2 max-w-2xl text-sm leading-7 text-zinc-600 dark:text-zinc-400">
                   Other cities travelers are scanning before they land.
                 </p>
               </div>
@@ -408,7 +404,7 @@ export default async function CityScamPage({ params }) {
                 <li key={c.slug}>
                   <Link
                     href={`/scams/${c.slug}`}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-base font-bold text-zinc-950 shadow-[0_6px_20px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-base font-bold text-zinc-950 shadow-[0_6px_20px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)] dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-100"
                   >
                     <span className="min-w-0 truncate">
                       {c.name} tourist scams
@@ -424,7 +420,7 @@ export default async function CityScamPage({ params }) {
         )}
 
         <section
-          className="mx-auto mt-16 max-w-3xl border-t border-zinc-200 pt-10"
+          className="mx-auto mt-16 max-w-3xl border-t border-zinc-200 pt-10 dark:border-white/10"
           aria-labelledby="faq-heading"
         >
           <h2 id="faq-heading" className="text-2xl font-black tracking-tight">
@@ -433,8 +429,8 @@ export default async function CityScamPage({ params }) {
           <div className="mt-6 space-y-6">
             {city.faqs.map((faq) => (
               <div key={faq.question}>
-                <h3 className="font-bold text-zinc-900">{faq.question}</h3>
-                <p className="mt-2 text-sm leading-7 text-zinc-600">
+                <h3 className="font-bold text-zinc-900 dark:text-zinc-100">{faq.question}</h3>
+                <p className="mt-2 text-sm leading-7 text-zinc-600 dark:text-zinc-400">
                   {faq.answer}
                 </p>
               </div>

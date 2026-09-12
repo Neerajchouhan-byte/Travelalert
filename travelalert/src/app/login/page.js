@@ -64,7 +64,6 @@ function LoginContent() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(true);
-  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -121,34 +120,20 @@ function LoginContent() {
         provider: "x",
         options: {
           redirectTo: callback.toString(),
-          // X's OAuth 2.0 requires these scopes to fetch the user's email and
-          // profile. Supabase requests them by default, but listing them here
-          // makes the intent explicit and matches X's developer portal config.
           scopes: "users.read tweet.read",
         },
       });
 
       if (error) {
-        // Most common errors from Supabase for this provider:
-        //   - "Unsupported provider: provider is not enabled"
-        //     → Twitter provider isn't turned on in Supabase Auth settings.
-        //   - "Invalid redirect URL" / "Redirect URL not allowed"
-        //     → the app's /auth/callback URL isn't in Supabase's Redirect URLs list.
         console.error("[Auth] X sign-in failed:", error);
         throw error;
       }
 
-      // The browser client auto-redirects on success, so this only fires if
-      // Supabase returned a URL without redirecting (e.g., a fetch/SSR client
-      // was used by mistake). Falling back to manual navigation keeps the flow
-      // working instead of leaving the button stuck on "Working...".
       if (data?.url && typeof window !== "undefined") {
         window.location.assign(data.url);
         return;
       }
 
-      // If neither the SDK redirect nor a manual fallback happened, reset and
-      // surface a clear message so the user is not stuck on a disabled button.
       setBusy(false);
       setError("X sign-in could not be started. Please try again.");
     } catch (err) {
@@ -224,10 +209,7 @@ function LoginContent() {
   return (
     <main className="min-h-screen bg-[#f7f6f2] text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col lg:grid lg:grid-cols-12">
-
-        {/* Left Hero Column (Desktop/Tablet) */}
         <div className="hidden flex-col justify-between p-8 sm:p-12 lg:col-span-6 lg:flex lg:p-16">
-          {/* Logo */}
           <Link href="/" className="inline-flex items-center gap-2">
             <span className="flex size-7 items-center justify-center rounded-lg bg-[#e5283b] text-white">
               <Radar className="size-4" />
@@ -237,7 +219,6 @@ function LoginContent() {
             </span>
           </Link>
 
-          {/* Large Hero Statement */}
           <div className="my-auto pt-16">
             <h2 className="text-5xl font-black tracking-tight text-zinc-900 leading-[1.06] sm:text-6xl lg:text-[68px] dark:text-white">
               Know before <br />
@@ -251,11 +232,8 @@ function LoginContent() {
           <div />
         </div>
 
-        {/* Right Auth Column (Desktop & Mobile) */}
         <div className="flex flex-1 items-center justify-center p-6 sm:p-10 lg:col-span-6 lg:p-16">
           <div className="w-full max-w-[420px]">
-
-            {/* Header copy */}
             <div>
               <span className="font-mono text-xs font-bold uppercase tracking-widest text-[#e5283b] dark:text-[#f87171]">
                 {isSignup ? "GET STARTED" : "WELCOME BACK"}
@@ -268,7 +246,6 @@ function LoginContent() {
               </p>
             </div>
 
-            {/* Social Buttons */}
             <div className="mt-8 space-y-3">
               <button
                 type="button"
@@ -291,7 +268,6 @@ function LoginContent() {
               </button>
             </div>
 
-            {/* Divider */}
             <div className="my-6 flex items-center gap-3 text-center">
               <div className="h-px flex-1 bg-zinc-200 dark:bg-white/10" />
               <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
@@ -300,7 +276,6 @@ function LoginContent() {
               <div className="h-px flex-1 bg-zinc-200 dark:bg-white/10" />
             </div>
 
-            {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-3">
               {isSignup && (
                 <div>
@@ -353,17 +328,7 @@ function LoginContent() {
               </div>
 
               {!isSignup && (
-                <div className="flex items-center justify-between px-2 pt-0.5 text-xs">
-                  <label className="flex cursor-pointer items-center gap-2 select-none text-zinc-500 dark:text-zinc-400">
-                    <input
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="size-3.5 rounded accent-[#e5283b]"
-                    />
-                    <span className="text-xs">Remember me</span>
-                  </label>
-
+                <div className="flex items-center justify-end px-2 pt-0.5 text-xs">
                   <button
                     type="button"
                     onClick={handleReset}
@@ -386,7 +351,6 @@ function LoginContent() {
                 </div>
               )}
 
-              {/* Submit button */}
               <button
                 type="submit"
                 disabled={busy}
@@ -405,7 +369,6 @@ function LoginContent() {
               </button>
             </form>
 
-            {/* Mode Switcher */}
             <div className="mt-5 text-center text-xs text-zinc-500 sm:text-sm dark:text-zinc-400">
               <span>{isSignup ? "Already have an account? " : "New here? "}</span>
               <button
@@ -420,10 +383,8 @@ function LoginContent() {
                 {isSignup ? "Sign in" : "Create an account"}
               </button>
             </div>
-
           </div>
         </div>
-
       </div>
     </main>
   );

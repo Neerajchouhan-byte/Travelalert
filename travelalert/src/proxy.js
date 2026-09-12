@@ -65,7 +65,16 @@ export default async function proxy(request) {
 }
 
 export const config = {
-  // /scams is intentionally public; listing it here makes the public route
-  // explicit while keeping auth checks limited to protected areas below.
-  matcher: ["/", "/scams/:path*", "/dashboard/:path*", "/profile/:path*"],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - sitemap.xml (sitemap file)
+     * - robots.txt (robots file)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
+  ],
 };

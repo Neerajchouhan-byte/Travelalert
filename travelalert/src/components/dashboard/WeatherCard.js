@@ -2,11 +2,27 @@
 
 import {
   Calendar,
-  CloudRain,
-  Sun,
-  CloudSun,
+  CloudFog,
   CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  Sun,
 } from "lucide-react";
+
+/** Pick the right icon for the current conditions (WMO code). */
+function nowIcon(code) {
+  const cls = "size-10 text-[#e5283b] dark:text-[#f87171]";
+  if (code == null) return <CloudRain className={cls} />;
+  if (code <= 1) return <Sun className="size-10 text-amber-500" />;
+  if (code <= 3) return <CloudSun className="size-10 text-amber-500" />;
+  if (code <= 48) return <CloudFog className={cls} />;
+  if (code <= 67 || (code >= 80 && code <= 82))
+    return <CloudRain className={cls} />;
+  if (code <= 77 || (code >= 85 && code <= 86))
+    return <CloudSnow className={cls} />;
+  return <CloudLightning className={cls} />;
+}
 
 export function Weather7DayCard({ brief }) {
   const forecast = Array.isArray(brief?.forecast) ? brief.forecast : [];
@@ -44,7 +60,7 @@ export function Weather7DayCard({ brief }) {
 
   function tempLabel(f) {
     if (f.temp == null) return "—";
-    return f.low != null ? `${f.temp}° / ${f.low}°` : `${f.temp}°`;
+    return `${f.temp}°`;
   }
 
   return (
@@ -148,10 +164,15 @@ export function WeatherNowCard({ brief }) {
   const feels = typeof w.feels === "number" ? w.feels : null;
   const humidity = typeof w.humidity === "number" ? w.humidity : null;
   const condition = w.condition || null;
+  const uv = typeof w.uv === "number" ? w.uv : null;
+  const wind = typeof w.wind_kph === "number" ? w.wind_kph : null;
+  const daylight = w.daylight || null;
 
   const detailParts = [];
   if (feels != null) detailParts.push(`Feels like ${feels}°C`);
   if (humidity != null) detailParts.push(`Humidity ${humidity}%`);
+
+  const hasExtraStats = uv != null || wind != null || Boolean(daylight);
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
@@ -163,7 +184,7 @@ export function WeatherNowCard({ brief }) {
         <span className="font-mono text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl dark:text-white">
           {w.temp}°C
         </span>
-        <CloudRain className="size-10 text-[#e5283b] dark:text-[#f87171]" />
+        {nowIcon(w.code)}
       </div>
 
       {condition && (
@@ -181,6 +202,41 @@ export function WeatherNowCard({ brief }) {
       <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
         {detailParts.length ? detailParts.join(" · ") : "—"}
       </p>
+
+      {hasExtraStats && (
+        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-zinc-100 pt-3 dark:border-white/5">
+          {uv != null && (
+            <div>
+              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                UV
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                {uv}
+              </p>
+            </div>
+          )}
+          {wind != null && (
+            <div>
+              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                Wind
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                {wind} kph
+              </p>
+            </div>
+          )}
+          {daylight && (
+            <div>
+              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                Daylight
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                {daylight}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

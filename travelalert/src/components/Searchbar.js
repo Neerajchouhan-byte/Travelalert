@@ -52,14 +52,6 @@ export default function SearchBar() {
           <ChevronRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
       </form>
-
-      {/* Suggested cities pills row */}
-      <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        CHECKED TODAY:{" "}
-        <span className="text-zinc-600 dark:text-zinc-400">
-          Bangkok · Bali · Rome · Tokyo · Poland
-        </span>
-      </p>
     </div>
   );
 }

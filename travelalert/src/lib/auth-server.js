@@ -41,8 +41,6 @@ export async function getRequestProfile(request) {
   const profile = profileResult?.data || null;
   const published = publicSubscription(billing);
 
-  // Billing is authoritative. Fall back to the legacy profile column only if
-  // the billing tables were unreachable AND the profile says annual.
   let plan = published.plan;
   if (plan === "free" && profile?.plan === "annual" && !billing.subscription) {
     plan = "annual";
@@ -68,13 +66,15 @@ export function sliceForPlan(plan, alerts = [], tips = []) {
       lockedTips: 0,
     };
   }
-  // Explorer (free): preview top 2 alerts and top 3 tips, lock the rest
+  // Explorer (free): preview top 2 alerts and top 3 tips, lock the rest.
+  // The slice amounts are capped at the array length, so an under-length
+  // array is returned in full and its locked count is zero.
   const visibleAlerts = Math.min(2, alerts.length);
   const visibleTips = Math.min(3, tips.length);
   return {
-    alerts: alerts.slice(0, Math.max(2, visibleAlerts)),
-    tips: tips.slice(0, Math.max(3, visibleTips)),
-    lockedAlerts: Math.max(0, alerts.length - Math.max(2, visibleAlerts)),
-    lockedTips: Math.max(0, tips.length - Math.max(3, visibleTips)),
+    alerts: alerts.slice(0, visibleAlerts),
+    tips: tips.slice(0, visibleTips),
+    lockedAlerts: alerts.length - visibleAlerts,
+    lockedTips: tips.length - visibleTips,
   };
 }

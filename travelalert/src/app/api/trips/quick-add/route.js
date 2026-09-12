@@ -11,6 +11,11 @@ import {
 } from "@/lib/trips";
 import { getFreshCache, saveCache } from "@/lib/cache";
 import { organizeCity } from "@/lib/organize";
+import {
+  hasLiveData,
+  cacheHasAny,
+  mergeLiveWithCache,
+} from "@/lib/briefing-merge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,20 +29,18 @@ function isPaidPlan(plan) {
 //
 // One-call "Add to trip" used by the dashboard button. If the user has no
 // trip yet, creates a trip named "<City> Trip" and adds the city as its
-// FIRST destination — no 3-destination minimum is enforced here, because a
-// trip can legitimately start with one city and grow later. The 3-6 rule
-// applies when the user later edits the full trip via TripBuilder.
+// FIRST destination — no 3-destination minimum is enforced here.
 //
 // Otherwise appends to the most recent trip. After the row is saved, lazily
 // fetches intel for the city if the cache is missing — using the SAME
-// organizeCity pipeline the pre-cache script uses.
+// organizeCity pipeline the pre-cache script uses, and merging sparse live
+// results with existing cache (same logic as /api/briefing).
 export async function POST(request) {
   const profile = await getRequestProfile(request);
   if (!profile.user) {
     return Response.json({ error: "sign in required" }, { status: 401 });
   }
 
-  // Plan gate — identical to POST /api/trips.
   let billingState = { subscription: null, tripPass: null };
   try {
     billingState = await getBillingState(profile.user.id);
@@ -80,7 +83,6 @@ export async function POST(request) {
     );
   }
 
-  // 1. Resolve the target trip (most recent), or create one.
   const { data: recentTrip, error: recentErr } = await admin
     .from("trips")
     .select("id, name")
@@ -104,10 +106,6 @@ export async function POST(request) {
   let savedOrderIndex;
 
   if (!recentTrip) {
-    // ---- Path A: no trip yet — create one with this city as the first entry.
-    //
-    // Uses normalizeSingleDestination (not normalizeTripDestinations) so the
-    // 3-destination minimum does not block a first-add.
     const destination = normalizeSingleDestination(rawCity, visitDate);
     if (!destination) {
       return Response.json({ error: "Invalid city name." }, { status: 400 });
@@ -145,7 +143,6 @@ export async function POST(request) {
     savedDestinationKey = destination.destination_key;
     savedOrderIndex = 0;
   } else {
-    // ---- Path B: existing trip — append.
     const result = await appendTripDestination(
       profile.user.id,
       recentTrip.id,
@@ -165,37 +162,43 @@ export async function POST(request) {
     savedOrderIndex = result.destination.order_index;
   }
 
-  // 2. Lazy-cache: only fetch intel if the destination has no usable cache.
+  // ── Lazy cache: fetch + merge if the cache does not already cover this city.
+  //
+  // Unlike the previous version, sparse live results are merged with existing
+  // cache instead of being discarded. A single live alert from a fresh
+  // pipeline run is real data the trip viewer should be able to show.
   let intel;
   const cached = await getFreshCache(savedCity);
-  const usable =
-    cached &&
-    (cached.alerts || []).length >= 4 &&
-    (cached.tips || []).length >= 3;
 
-  if (usable) {
+  if (cacheHasAny(cached)) {
     intel = {
       status: "cached",
-      alerts: cached.alerts.length,
-      tips: cached.tips.length,
+      alerts: (cached.alerts || []).length,
+      tips: (cached.tips || []).length,
     };
   } else {
     try {
       const org = await organizeCity(savedCity);
-      const hasLiveData =
-        org?.source === "reddit+gemini" &&
-        (org.alerts || []).length >= 4 &&
-        (org.tips || []).length >= 3;
 
-      if (hasLiveData) {
+      if (!hasLiveData(org)) {
+        intel = { status: "empty" };
+      } else {
+        const merged = mergeLiveWithCache(
+          org.alerts || [],
+          org.tips || [],
+          cached?.alerts || [],
+          cached?.tips || [],
+        );
+
         const payload = {
           city: savedCity,
-          alerts: org.alerts,
-          tips: org.tips,
+          alerts: merged.alerts,
+          tips: merged.tips,
           source: org.source,
           fetchedAt: new Date().toISOString(),
           error: null,
         };
+
         const write = await saveCache(savedCity, payload);
         if (write?.ok) {
           intel = {
@@ -209,8 +212,6 @@ export async function POST(request) {
             error: write?.error || "cache write failed",
           };
         }
-      } else {
-        intel = { status: "empty" };
       }
     } catch (err) {
       logTripError("lazy-cache pipeline failed", err);

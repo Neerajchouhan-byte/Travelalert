@@ -87,15 +87,6 @@ export function Topbar({ city, brief, searchLocked = false }) {
     return () => clearTimeout(timeout);
   }, [searchCity, searchLocked]);
 
-  // Explicit search — user typed a city name and pressed Enter. This is a
-  // deliberate action, so it must NOT carry `cached_only=1`: that flag tells
-  // /api/briefing to skip the pipeline entirely and return cache-or-empty.
-  // Without the flag, /api/briefing runs the live Reddit+Gemini pipeline for
-  // a cold city (consuming one free search credit for Explorer users), writes
-  // the result to the destinations cache, and returns real alerts/tips.
-  //
-  // Chips (DestinationChips) still pass `cached_only=1` because they are a
-  // passive browse shortcut, not an explicit search.
   function handleSearch(e) {
     e?.preventDefault();
     if (searchLocked) return;
@@ -106,8 +97,6 @@ export function Topbar({ city, brief, searchLocked = false }) {
     router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
   }
 
-  // Same reasoning as handleSearch: picking a specific city from the
-  // autocomplete list is an explicit search and must reach the pipeline.
   function handleCitySelect(cityItem) {
     if (searchLocked) return;
     setShowSuggestions(false);
@@ -132,7 +121,7 @@ export function Topbar({ city, brief, searchLocked = false }) {
     if (user?.email) {
       return user.email.slice(0, 2).toUpperCase();
     }
-    return "AR";
+    return "";
   }
 
   const meta = findKnownCity(city);
@@ -150,10 +139,11 @@ export function Topbar({ city, brief, searchLocked = false }) {
     ? "Free searches used — upgrade for more"
     : "Search destinations...";
 
+  const initials = getInitials();
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 bg-[#f7f6f2]/95 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#0c0c0e]/95">
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-        {/* Mobile top status bar (<md) */}
         <div className="flex items-center justify-between md:hidden">
           <div className="flex items-center gap-3">
             <Link
@@ -199,7 +189,7 @@ export function Topbar({ city, brief, searchLocked = false }) {
               <Avatar size="sm" className="size-8">
                 <AvatarImage src={avatarUrl} alt="Avatar" />
                 <AvatarFallback className="bg-[#e5283b] text-xs font-bold text-white">
-                  {getInitials()}
+                  {initials}
                 </AvatarFallback>
               </Avatar>
             </button>
@@ -244,7 +234,6 @@ export function Topbar({ city, brief, searchLocked = false }) {
           </div>
         )}
 
-        {/* Sub-row for mobile-only: destination heading */}
         <div className="mt-2 flex items-center gap-2.5 md:hidden">
           <h1 className="text-2xl font-black tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
             {displayName}
@@ -256,7 +245,6 @@ export function Topbar({ city, brief, searchLocked = false }) {
           )}
         </div>
 
-        {/* Desktop & tablet single-row layout (md+) */}
         <div className="hidden items-center justify-between gap-4 md:flex">
           <div className="flex shrink-0 items-center gap-2.5">
             <Link
@@ -348,9 +336,6 @@ export function Topbar({ city, brief, searchLocked = false }) {
               <span className="font-mono text-xs font-bold tracking-wider text-[#e5283b] dark:text-[#f87171]">
                 LIVE RADAR
               </span>
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                2m ago
-              </span>
             </div>
 
             <ThemeToggle />
@@ -364,7 +349,7 @@ export function Topbar({ city, brief, searchLocked = false }) {
               <Avatar size="sm" className="size-9">
                 <AvatarImage src={avatarUrl} alt="Avatar" />
                 <AvatarFallback className="bg-[#e5283b] text-xs font-bold text-white">
-                  {getInitials()}
+                  {initials}
                 </AvatarFallback>
               </Avatar>
             </button>

@@ -64,6 +64,17 @@ export function CommandMenu() {
     fn();
   }, []);
 
+  // Triggers a real live refresh: preserves the current path and query, sets
+  // refresh=1, and drops cached_only if it was set. The dashboard's
+  // briefing effect reads those params and runs the pipeline.
+  const refreshBriefing = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("refresh", "1");
+    url.searchParams.delete("cached_only");
+    router.push(url.pathname + url.search);
+  }, [router]);
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Portal>
@@ -116,7 +127,7 @@ export function CommandMenu() {
               <CommandPrimitive.Group heading="Actions">
                 <Item
                   value="refresh briefing reload"
-                  onSelect={() => run(() => router.refresh())}
+                  onSelect={() => run(refreshBriefing)}
                 >
                   <RefreshCw className="size-3.5 text-[#a6a6ad]" />
                   <span className="flex-1 text-sm">Refresh live briefing</span>

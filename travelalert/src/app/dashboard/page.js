@@ -48,7 +48,16 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const city = searchParams.get("city") || "Bali";
   const refresh = searchParams.get("refresh") === "1";
-  const cachedOnly = searchParams.get("cached_only") === "1";
+
+  // A bare /dashboard (no city param) is treated as a passive visit — the
+  // initial load should not run the pipeline or consume Explorer quota.
+  // Explicit searches (search bar, autocomplete) push `?city=X` with no
+  // cached_only flag; chips push `?city=X&cached_only=1`; both behave as
+  // before. Only the default entry point changes.
+  const hasExplicitCity = searchParams.has("city");
+  const cachedOnly =
+    searchParams.get("cached_only") === "1" || !hasExplicitCity;
+
   const router = useRouter();
 
   const [alerts, setAlerts] = useState([]);
@@ -92,7 +101,10 @@ function DashboardContent() {
     async function activatePro() {
       const { data } = await supabase?.auth.getSession();
       const token = data?.session?.access_token;
-      if (!token) return;
+      if (!token) {
+        router.replace(`/dashboard?city=${encodeURIComponent(city)}`);
+        return;
+      }
 
       async function syncOnce() {
         return fetch("/api/billing/sync", {
@@ -103,24 +115,32 @@ function DashboardContent() {
 
       try {
         let res = await syncOnce();
-        if (res.status === 202) {
+
+        if (!res.ok) {
           await new Promise((r) => setTimeout(r, 2000));
           res = await syncOnce();
         }
+
         if (res.ok) {
           const body = await res.json().catch(() => ({}));
           if (body.plan) {
             setPlan(body.plan);
             setLockedAlerts(0);
             setLockedTips(0);
+            router.replace(
+              `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
+            );
+            return;
           }
         }
+
+        setRefreshNotice(
+          "Payment received. Your plan is being confirmed — refresh in a moment if features are still locked.",
+        );
+        router.replace(`/dashboard?city=${encodeURIComponent(city)}`);
       } catch (err) {
         console.error("[Dashboard] Activation error:", err);
-      } finally {
-        router.replace(
-          `/dashboard?city=${encodeURIComponent(city)}&refresh=1`,
-        );
+        router.replace(`/dashboard?city=${encodeURIComponent(city)}`);
       }
     }
 
@@ -362,6 +382,7 @@ function DashboardContent() {
       city={city}
       plan={plan}
       onUpgrade={() => openUpgrade("trip_mode")}
+      compact
     />
   );
 
@@ -402,7 +423,6 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* DESKTOP (xl+) */}
           <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr] items-start">
             <div className="space-y-5">
               <DestinationHeader
@@ -410,7 +430,6 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={renderAlerts}
                 safety={renderSafety}
-                actionSlot={addToTripSlot}
               />
               <TripModeCard
                 plan={plan}
@@ -443,11 +462,11 @@ function DashboardContent() {
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
                 refreshLocked={refreshLocked}
+                actionSlot={addToTripSlot}
               />
             </div>
           </div>
 
-          {/* TABLET 2-COLUMN */}
           <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden items-start">
             <div className="space-y-5">
               <DestinationHeader
@@ -455,7 +474,6 @@ function DashboardContent() {
                 brief={activeBrief}
                 alerts={renderAlerts}
                 safety={renderSafety}
-                actionSlot={addToTripSlot}
               />
               <TripModeCard
                 plan={plan}
@@ -475,6 +493,7 @@ function DashboardContent() {
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
                 refreshLocked={refreshLocked}
+                actionSlot={addToTripSlot}
               />
             </div>
 
@@ -486,14 +505,12 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* MOBILE STACKED */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
               brief={activeBrief}
               alerts={renderAlerts}
               safety={renderSafety}
-              actionSlot={addToTripSlot}
             />
 
             <TripModeCard
@@ -515,6 +532,7 @@ function DashboardContent() {
               onRefresh={handleRefresh}
               refreshing={refreshing}
               refreshLocked={refreshLocked}
+              actionSlot={addToTripSlot}
             />
 
             <Weather7DayCard brief={activeBrief} />

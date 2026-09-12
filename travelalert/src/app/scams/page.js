@@ -7,20 +7,20 @@ const SITE_URL =
 export const metadata = {
   title: "Tourist Scam Guides by City",
   description:
-    "Verified tourist scam alerts and transit traps for popular destinations. Browse city-by-city guides built from real traveler reports.",
+    "Traveler-reported tourist scam alerts and transit traps for popular destinations. Browse city-by-city guides built from real traveler reports.",
   alternates: { canonical: "/scams" },
   openGraph: {
     url: "/scams",
     title: "Tourist Scam Guides by City — TravelRadar",
     description:
-      "Verified tourist scam alerts and transit traps for popular destinations.",
+      "Traveler-reported tourist scam alerts and transit traps for popular destinations.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "Tourist Scam Guides by City — TravelRadar",
     description:
-      "Verified tourist scam alerts and transit traps for popular destinations.",
+      "Traveler-reported tourist scam alerts and transit traps for popular destinations.",
   },
 };
 
@@ -34,7 +34,7 @@ export default async function ScamsIndexPage() {
     "@type": "CollectionPage",
     name: "Tourist Scam Guides by City",
     description:
-      "Verified tourist scam alerts and transit traps for popular destinations.",
+      "Traveler-reported tourist scam alerts and transit traps for popular destinations.",
     url: `${SITE_URL}/scams`,
     hasPart: cities.map((c) => ({
       "@type": "Article",
@@ -57,7 +57,8 @@ export default async function ScamsIndexPage() {
           Tourist scam guides by city.
         </h1>
         <p className="mt-5 max-w-2xl text-lg text-zinc-600">
-          Verified warnings and practical prevention advice before you land.
+          Traveler-reported warnings and practical prevention advice before
+          you land.
         </p>
 
         {cities.length > 0 ? (
