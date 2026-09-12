@@ -84,6 +84,8 @@ src/
           export/
             route.js
           route.js
+        quick-add/
+          route.js
         route.js
     auth/
       callback/
@@ -119,6 +121,7 @@ src/
     sitemap.js
   components/
     dashboard/
+      AddToTripButton.js
       CurrencyCard.js
       DestinationChips.js
       DestinationHeader.js
@@ -1522,7 +1525,6 @@ import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
 import { adminDb } from "@/lib/supabase-admin";
-import { fillIntel } from "@/lib/seed-intel";
 import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
 
 export const maxDuration = 180;
@@ -1574,20 +1576,10 @@ function cachePayload(city, cached) {
   };
 }
 
-function seedPayload(city, extras = {}) {
-  const filled = fillIntel(city, [], []);
-  return {
-    city,
-    alerts: filled.alerts,
-    tips: filled.tips,
-    source: "seed",
-    fetchedAt: null,
-    error: null,
-    ...extras,
-  };
-}
-
-function emptyPayload(city) {
+// Honest empty state. Returned whenever no live or cached intel exists for a
+// city. The dashboard's IntelTabs already renders this as a "no cached intel
+// yet" message with a refresh prompt — no mock content is ever shown.
+function emptyPayload(city, extras = {}) {
   return {
     city,
     alerts: [],
@@ -1596,7 +1588,22 @@ function emptyPayload(city) {
     fetchedAt: null,
     error: null,
     noData: true,
+    ...extras,
   };
+}
+
+/**
+ * Whether a pipeline result is acceptable to surface and cache.
+ *
+ * The ONLY accepted source is `reddit+gemini`, the marker organizeCity
+ * returns on a live Serper → Gemini → JSON run. Any other marker — "seed"
+ * (template fallback), "error" (thrown), undefined — is treated as no data.
+ * This mirrors the refusal condition in scripts/precache-top-cities.mjs.
+ */
+function isLiveResult(org) {
+  if (!org) return false;
+  if (org.source !== "reddit+gemini") return false;
+  return (org.alerts || []).length >= 4 && (org.tips || []).length >= 3;
 }
 
 export async function GET(request) {
@@ -1608,8 +1615,8 @@ export async function GET(request) {
   const url = new URL(request.url);
   const rawCity = url.searchParams.get("city") || "";
   const isRefresh = url.searchParams.get("refresh") === "1";
-  // cached_only=1 → never run the pipeline. Chips use this flag to browse
-  // any destination without consuming quota or hitting the live API.
+  // cached_only=1 → never run the pipeline. Chips and the search bar use
+  // this flag to browse without consuming quota or hitting the live API.
   const cachedOnly = url.searchParams.get("cached_only") === "1";
 
   let city = resolveCity(rawCity);
@@ -1669,10 +1676,8 @@ export async function GET(request) {
   let quotaConsumed = false;
 
   if (cachedOnly) {
-    // Pure browse — never runs the pipeline, never touches the quota, never
-    // returns 403. Cache-or-empty ONLY. Seed templates are intentionally NOT
-    // served here: a chip click must never show fabricated content for a city
-    // the user hasn't actually searched.
+    // Pure browse — never runs the pipeline, never touches quota, never
+    // returns 403. Cache-or-empty only.
     if (cacheUsable) {
       console.info("briefing.source", { city, source: "cache-chip" });
       payload = cachePayload(city, cached);
@@ -1684,21 +1689,23 @@ export async function GET(request) {
     console.info("briefing.source", { city, source: "cache" });
     payload = cachePayload(city, cached);
   } else if (!hasAccess && usedSearches >= FREE_SEARCH_LIMIT) {
-    // Free user at limit, no cached_only → this is either a refresh or a
-    // genuinely new search. Both are blocked.
+    // Free user at limit, no cached_only → either a refresh or a genuinely
+    // new search. Both are blocked.
     if (isRefresh) {
       console.info("briefing.source", {
         city,
-        source: cacheUsable ? "cache-refresh-blocked" : "seed-refresh-blocked",
+        source: cacheUsable ? "cache-refresh-blocked" : "empty-refresh-blocked",
       });
-      payload = cacheUsable
-        ? cachePayload(city, cached)
-        : seedPayload(city);
+      payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
       blockReason =
         "You've used all 3 free searches. Upgrade to Trip Pass or Annual for unlimited refreshes.";
     } else if (alreadyVisited) {
-      console.info("briefing.source", { city, source: "seed-revisit" });
-      payload = seedPayload(city);
+      // Revisiting a city the user already searched. Cache or nothing.
+      console.info("briefing.source", {
+        city,
+        source: cacheUsable ? "cache-revisit" : "empty-revisit",
+      });
+      payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
     } else {
       console.info("briefing.limit_reached", { city, usedSearches });
       return Response.json(
@@ -1723,7 +1730,13 @@ export async function GET(request) {
     const lastRefresh = refreshCooldowns.get(rateKey) || 0;
     const now = Date.now();
     if (now - lastRefresh < COOLDOWN_MS && !alreadyVisited) {
-      payload = seedPayload(city);
+      // Search cooldown — do not run the pipeline and do not show seed data.
+      payload = emptyPayload(city, {
+        error:
+          "Just searched. Please wait a few minutes before searching again.",
+      });
+      blockReason =
+        "Just searched. Please wait a few minutes before searching again.";
     } else {
       refreshCooldowns.set(rateKey, now);
       if (refreshCooldowns.size > 2000) evictOldest(refreshCooldowns, 400);
@@ -1733,31 +1746,24 @@ export async function GET(request) {
         org = await runPipelineOnce(city);
       } catch (err) {
         console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-        org = { alerts: [], tips: [], source: "seed", error: err.message };
+        org = { alerts: [], tips: [], source: "error", error: err.message };
       }
 
-      if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+      if (isLiveResult(org)) {
         payload = {
           city,
           alerts: org.alerts,
           tips: org.tips,
-          source: org.source || "live",
+          source: org.source,
           fetchedAt: new Date().toISOString(),
-          error: org.error,
+          error: null,
         };
-        if (payload.source !== "seed") {
-          await saveCache(city, payload);
-        }
+        await saveCache(city, payload);
       } else {
-        const filled = fillIntel(city, org.alerts || [], org.tips || []);
-        payload = {
-          city,
-          alerts: filled.alerts,
-          tips: filled.tips,
-          source: "seed",
-          fetchedAt: new Date().toISOString(),
-          error: org.error || null,
-        };
+        // No live data — return an honest empty state. The seed template is
+        // never surfaced; the IntelTabs component renders the empty message
+        // with a refresh prompt.
+        payload = emptyPayload(city, { error: org?.error || null });
       }
 
       usedSearches += 1;
@@ -1774,9 +1780,7 @@ export async function GET(request) {
         console.warn(
           `[AntiSpam] Cooldown active for ${profile.user.id} on ${city}.`,
         );
-        payload = cacheUsable
-          ? cachePayload(city, cached)
-          : seedPayload(city);
+        payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
         blockReason =
           "Just refreshed. Please wait a few minutes before refreshing again.";
       } else {
@@ -1788,31 +1792,21 @@ export async function GET(request) {
           org = await runPipelineOnce(city);
         } catch (err) {
           console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-          org = { alerts: [], tips: [], source: "seed", error: err.message };
+          org = { alerts: [], tips: [], source: "error", error: err.message };
         }
 
-        if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+        if (isLiveResult(org)) {
           payload = {
             city,
             alerts: org.alerts,
             tips: org.tips,
-            source: org.source || "live",
+            source: org.source,
             fetchedAt: new Date().toISOString(),
-            error: org.error,
+            error: null,
           };
-          if (payload.source !== "seed") {
-            await saveCache(city, payload);
-          }
+          await saveCache(city, payload);
         } else {
-          const filled = fillIntel(city, org.alerts || [], org.tips || []);
-          payload = {
-            city,
-            alerts: filled.alerts,
-            tips: filled.tips,
-            source: "seed",
-            fetchedAt: new Date().toISOString(),
-            error: org.error || null,
-          };
+          payload = emptyPayload(city, { error: org?.error || null });
         }
 
         usedSearches += 1;
@@ -1825,9 +1819,7 @@ export async function GET(request) {
       const lastRefresh = refreshCooldowns.get(rateKey) || 0;
       const now = Date.now();
       if (now - lastRefresh < COOLDOWN_MS) {
-        payload = cacheUsable
-          ? cachePayload(city, cached)
-          : seedPayload(city);
+        payload = cacheUsable ? cachePayload(city, cached) : emptyPayload(city);
         blockReason =
           "Just refreshed. Please wait a few minutes before refreshing again.";
       } else {
@@ -1839,31 +1831,21 @@ export async function GET(request) {
           org = await runPipelineOnce(city);
         } catch (err) {
           console.error(`[Briefing] Pipeline failed for ${city}:`, err);
-          org = { alerts: [], tips: [], source: "seed", error: err.message };
+          org = { alerts: [], tips: [], source: "error", error: err.message };
         }
 
-        if ((org.alerts || []).length >= 4 && (org.tips || []).length >= 3) {
+        if (isLiveResult(org)) {
           payload = {
             city,
             alerts: org.alerts,
             tips: org.tips,
-            source: org.source || "live",
+            source: org.source,
             fetchedAt: new Date().toISOString(),
-            error: org.error,
+            error: null,
           };
-          if (payload.source !== "seed") {
-            await saveCache(city, payload);
-          }
+          await saveCache(city, payload);
         } else {
-          const filled = fillIntel(city, org.alerts || [], org.tips || []);
-          payload = {
-            city,
-            alerts: filled.alerts,
-            tips: filled.tips,
-            source: "seed",
-            fetchedAt: new Date().toISOString(),
-            error: org.error || null,
-          };
+          payload = emptyPayload(city, { error: org?.error || null });
         }
       }
     }
@@ -2605,6 +2587,243 @@ export async function DELETE(request, { params }) {
 }
 </file>
 
+<file path="src/app/api/trips/quick-add/route.js">
+import { getRequestProfile } from "@/lib/auth-server";
+import { getBillingState, hasBillingAccess } from "@/lib/billing";
+import { adminDb } from "@/lib/supabase-admin";
+import {
+  normalizeTripDestinations,
+  normalizeTripName,
+  insertTripDestinations,
+  appendTripDestination,
+  describeTripSaveError,
+  logTripError,
+} from "@/lib/trips";
+import { getFreshCache, saveCache } from "@/lib/cache";
+import { organizeCity } from "@/lib/organize";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 180;
+
+function isPaidPlan(plan) {
+  return plan === "annual" || plan === "trip_pass";
+}
+
+// POST /api/trips/quick-add { city, visit_date? }
+// One-call "Add to trip" used by the dashboard button. If the user has no
+// trip yet, creates a "My Trip" and adds the city. Otherwise appends to the
+// most recent trip. After the row is saved, lazily fetches intel for the city
+// if the cache is missing — using the SAME organizeCity pipeline the
+// pre-cache script uses, no new fetch/summarize logic.
+export async function POST(request) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) {
+    return Response.json({ error: "sign in required" }, { status: 401 });
+  }
+
+  // Plan gate — identical to POST /api/trips.
+  let billingState = { subscription: null, tripPass: null };
+  try {
+    billingState = await getBillingState(profile.user.id);
+  } catch (err) {
+    console.error("[quick-add] billing state failed:", err?.message || err);
+  }
+  const plan = hasBillingAccess(billingState)
+    ? billingState.subscription?.plan_key === "annual"
+      ? "annual"
+      : "trip_pass"
+    : profile.plan;
+  if (!isPaidPlan(plan)) {
+    return Response.json(
+      {
+        error: "Trip Mode is a Trip Pass / Annual feature.",
+        upgradeRequired: true,
+        plan: "free",
+      },
+      { status: 403 },
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const rawCity = body?.city;
+  const visitDate = body?.visit_date || null;
+
+  let admin;
+  try {
+    admin = adminDb();
+  } catch (err) {
+    logTripError("adminDb init failed", err);
+    return Response.json(
+      { error: "Trip database is not configured." },
+      { status: 500 },
+    );
+  }
+
+  // 1. Resolve the target trip (most recent), or create one.
+  const { data: recentTrip, error: recentErr } = await admin
+    .from("trips")
+    .select("id, name")
+    .eq("user_id", profile.user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (recentErr) {
+    logTripError("recent trip lookup failed", recentErr);
+    const mapped = describeTripSaveError(recentErr);
+    return Response.json(
+      { error: mapped.message, code: mapped.code },
+      { status: mapped.status },
+    );
+  }
+
+  let tripId;
+  let tripName;
+  let savedCity;
+  let savedDestinationKey;
+  let savedOrderIndex;
+
+  if (!recentTrip) {
+    // ---- Path A: no trip yet — create one with this city as the first entry.
+    const { destinations, error: validationError } = normalizeTripDestinations([
+      { city: rawCity, visit_date: visitDate },
+    ]);
+    if (validationError) {
+      return Response.json({ error: validationError }, { status: 400 });
+    }
+    const cityLabel = destinations[0].city;
+    const name = normalizeTripName(`${cityLabel} Trip`);
+
+    const { data: newTrip, error: tripErr } = await admin
+      .from("trips")
+      .insert({ user_id: profile.user.id, name })
+      .select("id, name")
+      .single();
+    if (tripErr || !newTrip) {
+      logTripError("create trip failed", tripErr);
+      const mapped = describeTripSaveError(tripErr);
+      return Response.json(
+        { error: mapped.message, code: mapped.code },
+        { status: mapped.status },
+      );
+    }
+
+    const write = await insertTripDestinations(admin, newTrip.id, destinations);
+    if (!write.ok) {
+      await admin.from("trips").delete().eq("id", newTrip.id);
+      const mapped = describeTripSaveError(write.error);
+      return Response.json(
+        { error: mapped.message, code: mapped.code },
+        { status: mapped.status },
+      );
+    }
+
+    tripId = newTrip.id;
+    tripName = newTrip.name;
+    savedCity = destinations[0].city;
+    savedDestinationKey = destinations[0].destination_key;
+    savedOrderIndex = 0;
+  } else {
+    // ---- Path B: existing trip — append (same helper as the trip detail page).
+    const result = await appendTripDestination(
+      profile.user.id,
+      recentTrip.id,
+      rawCity,
+      visitDate,
+    );
+    if (!result.ok) {
+      return Response.json(
+        { error: result.error, code: result.code },
+        { status: result.status },
+      );
+    }
+    tripId = recentTrip.id;
+    tripName = recentTrip.name;
+    savedCity = result.destination.city;
+    savedDestinationKey = result.destination.destination_key;
+    savedOrderIndex = result.destination.order_index;
+  }
+
+  // 2. Lazy-cache: only fetch intel if the destination has no usable cache.
+  //    Same cache-read function the rest of the app uses.
+  let intel;
+  const cached = await getFreshCache(savedCity);
+  const usable =
+    cached &&
+    (cached.alerts || []).length >= 4 &&
+    (cached.tips || []).length >= 3;
+
+  if (usable) {
+    intel = {
+      status: "cached",
+      alerts: cached.alerts.length,
+      tips: cached.tips.length,
+    };
+  } else {
+    // No usable cache — run the SAME production pipeline the pre-cache
+    // script runs, for this one city. organizeCity() is the exact function
+    // the /api/briefing route and scripts/precache-top-cities.mjs call.
+    try {
+      const org = await organizeCity(savedCity);
+      const hasLiveData =
+        org?.source === "reddit+gemini" &&
+        (org.alerts || []).length >= 4 &&
+        (org.tips || []).length >= 3;
+
+      if (hasLiveData) {
+        const payload = {
+          city: savedCity,
+          alerts: org.alerts,
+          tips: org.tips,
+          source: org.source,
+          fetchedAt: new Date().toISOString(),
+          error: null,
+        };
+        const write = await saveCache(savedCity, payload);
+        if (write?.ok) {
+          intel = {
+            status: "fetched",
+            alerts: payload.alerts.length,
+            tips: payload.tips.length,
+          };
+        } else {
+          intel = {
+            status: "failed",
+            error: write?.error || "cache write failed",
+          };
+        }
+      } else {
+        // Pipeline ran but produced no live Reddit/Gemini output. Do NOT
+        // write seed data to the cache — the pre-cache script refuses for
+        // the same reason (it would poison future lookups).
+        intel = { status: "empty" };
+      }
+    } catch (err) {
+      logTripError("lazy-cache pipeline failed", err);
+      intel = { status: "failed", error: err?.message || "pipeline failed" };
+    }
+  }
+
+  return Response.json({
+    ok: true,
+    tripId,
+    tripName,
+    destination: {
+      city: savedCity,
+      destination_key: savedDestinationKey,
+      order_index: savedOrderIndex,
+      visit_date: visitDate,
+    },
+    intel,
+  });
+}
+</file>
+
 <file path="src/app/api/trips/route.js">
 import { getRequestProfile } from "@/lib/auth-server";
 import { getBillingState, hasBillingAccess } from "@/lib/billing";
@@ -2998,7 +3217,7 @@ export default function DashboardLayout({ children }) {
 "use client";
 
 import { supabase } from "@/lib/supabase";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
@@ -3057,6 +3276,9 @@ function DashboardContent() {
   const [source, setSource] = useState("");
   const [brief, setBrief] = useState(null);
   const [briefCity, setBriefCity] = useState("");
+  // Owner-city marker for the briefing payload. Until it matches `city`,
+  // the render shows loading instead of the previous city's data.
+  const [briefingCity, setBriefingCity] = useState("");
   const [plan, setPlan] = useState("free");
   const [lockedAlerts, setLockedAlerts] = useState(0);
   const [lockedTips, setLockedTips] = useState(0);
@@ -3070,6 +3292,10 @@ function DashboardContent() {
   const [searchesLeft, setSearchesLeft] = useState(null);
   const [searchLimit, setSearchLimit] = useState(null);
   const [noData, setNoData] = useState(false);
+
+  // Monotonic request counter. A response whose id no longer matches is
+  // discarded before it can touch state.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (searchParams.get("billing") !== "success") return;
@@ -3117,12 +3343,16 @@ function DashboardContent() {
     setRefreshing(true);
     setRefreshNotice("");
 
+    const reqId = ++requestIdRef.current;
+
     try {
       const headers = await getAuthHeaders();
       const res = await fetch(
         `/api/briefing?city=${encodeURIComponent(city)}&refresh=1`,
         { headers, cache: "no-store" },
       );
+
+      if (reqId !== requestIdRef.current) return;
 
       if (res.status === 403) {
         const data = await res.json().catch(() => ({}));
@@ -3156,6 +3386,7 @@ function DashboardContent() {
         if (bData.safety) setSafety(String(bData.safety));
         if (bData.searchesLeft !== undefined) setSearchesLeft(bData.searchesLeft);
         if (bData.searchLimit !== undefined) setSearchLimit(bData.searchLimit);
+        setBriefingCity(city);
 
         if (bData.refreshBlocked) {
           setRefreshNotice(bData.refreshBlockedReason || "Refresh blocked.");
@@ -3181,11 +3412,12 @@ function DashboardContent() {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    const reqId = ++requestIdRef.current;
 
     async function loadBriefing() {
-      // Reset ALL per-city state up front. Without this, the previous city's
-      // data remains visible while the new request is in flight — and forever
-      // if the new request fails, is aborted, or times out.
+      // Reset per-city state up front. `briefingCity` is intentionally NOT
+      // reset here so the render gate continues to hide the previous
+      // payload until this fetch resolves.
       setLoading(true);
       setError("");
       setRefreshNotice("");
@@ -3208,18 +3440,24 @@ function DashboardContent() {
           signal: controller.signal,
         });
 
+        if (cancelled) return;
+        if (reqId !== requestIdRef.current) return;
+
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
           return;
         }
 
         const data = await res.json();
-        if (cancelled) return;
+
+        if (cancelled || reqId !== requestIdRef.current) return;
 
         if (res.status === 403 && data.limitReached) {
           setSearchesLeft(0);
           setShowUpgradeModal(true);
           setError("");
+          setNoData(true);
+          setBriefingCity(city);
           return;
         }
 
@@ -3244,6 +3482,7 @@ function DashboardContent() {
         setNoData(Boolean(data.noData));
         if (data.searchesLeft !== undefined) setSearchesLeft(data.searchesLeft);
         if (data.searchLimit !== undefined) setSearchLimit(data.searchLimit);
+        setBriefingCity(city);
 
         if (data.limitReached) {
           setShowUpgradeModal(true);
@@ -3283,8 +3522,6 @@ function DashboardContent() {
     const controller = new AbortController();
 
     async function loadCityBrief() {
-      // Reset the previous brief up front so the header never displays the
-      // previous city's weather/locale while the new request is loading.
       setBrief(null);
       setBriefCity("");
       setBriefLoading(true);
@@ -3324,6 +3561,18 @@ function DashboardContent() {
     plan === "free" && searchesLeft !== null && searchesLeft <= 0;
   const refreshLocked = searchLocked;
 
+  // Render gate: the briefing payload is only shown when its owner city
+  // matches the selected city.
+  const showBriefing = briefingCity === city;
+  const renderAlerts = showBriefing ? alerts : [];
+  const renderTips = showBriefing ? tips : [];
+  const renderSource = showBriefing ? source : "";
+  const renderSafety = showBriefing ? safety : null;
+  const renderNoData = showBriefing ? noData : false;
+  const renderLockedAlerts = showBriefing ? lockedAlerts : 0;
+  const renderLockedTips = showBriefing ? lockedTips : 0;
+  const renderLoading = !showBriefing && !error;
+
   return (
     <RequireAuth>
       <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
@@ -3337,13 +3586,13 @@ function DashboardContent() {
         <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
           <DestinationChips active={city} />
 
-          {source && (
+          {renderSource && (
             <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-              {source === "cache"
+              {renderSource === "cache"
                 ? "Cached briefing"
-                : source === "empty"
+                : renderSource === "empty"
                   ? "No intel yet for this destination"
-                  : source === "seed"
+                  : renderSource === "seed"
                     ? "Pre-loaded preview"
                     : "Live intelligence"}
             </p>
@@ -3361,14 +3610,17 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* DESKTOP 3-COLUMN */}
-          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
+          {/* DESKTOP 3-COLUMN. `items-start` prevents grid items from
+              stretching to the tallest row cell. Each column sizes to its
+              own content; weather/currency cards keep their natural height
+              instead of growing to match IntelTabs. */}
+          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr] items-start">
             <div className="space-y-5">
               <DestinationHeader
                 city={city}
                 brief={activeBrief}
-                alerts={alerts}
-                safety={safety}
+                alerts={renderAlerts}
+                safety={renderSafety}
               />
               <TripModeCard
                 plan={plan}
@@ -3377,13 +3629,13 @@ function DashboardContent() {
               <IntelTabs
                 key={city}
                 city={city}
-                alerts={alerts}
-                tips={tips}
-                loading={loading}
+                alerts={renderAlerts}
+                tips={renderTips}
+                loading={renderLoading}
                 plan={plan}
-                lockedAlerts={lockedAlerts}
-                lockedTips={lockedTips}
-                noData={noData}
+                lockedAlerts={renderLockedAlerts}
+                lockedTips={renderLockedTips}
+                noData={renderNoData}
                 onUpgrade={() => setShowUpgradeModal(true)}
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
@@ -3402,14 +3654,14 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* TABLET 2-COLUMN */}
-          <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
+          {/* TABLET 2-COLUMN. Same `items-start`. */}
+          <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden items-start">
             <div className="space-y-5">
               <DestinationHeader
                 city={city}
                 brief={activeBrief}
-                alerts={alerts}
-                safety={safety}
+                alerts={renderAlerts}
+                safety={renderSafety}
               />
               <TripModeCard
                 plan={plan}
@@ -3418,13 +3670,13 @@ function DashboardContent() {
               <IntelTabs
                 key={city}
                 city={city}
-                alerts={alerts}
-                tips={tips}
-                loading={loading}
+                alerts={renderAlerts}
+                tips={renderTips}
+                loading={renderLoading}
                 plan={plan}
-                lockedAlerts={lockedAlerts}
-                lockedTips={lockedTips}
-                noData={noData}
+                lockedAlerts={renderLockedAlerts}
+                lockedTips={renderLockedTips}
+                noData={renderNoData}
                 onUpgrade={() => setShowUpgradeModal(true)}
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
@@ -3440,13 +3692,13 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* MOBILE STACKED */}
+          {/* MOBILE STACKED. Untouched — single column, no grid, no stretch. */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
               brief={activeBrief}
-              alerts={alerts}
-              safety={safety}
+              alerts={renderAlerts}
+              safety={renderSafety}
             />
 
             <TripModeCard
@@ -3457,13 +3709,13 @@ function DashboardContent() {
             <IntelTabs
               key={city}
               city={city}
-              alerts={alerts}
-              tips={tips}
-              loading={loading}
+              alerts={renderAlerts}
+              tips={renderTips}
+              loading={renderLoading}
               plan={plan}
-              lockedAlerts={lockedAlerts}
-              lockedTips={lockedTips}
-              noData={noData}
+              lockedAlerts={renderLockedAlerts}
+              lockedTips={renderLockedTips}
+              noData={renderNoData}
               onUpgrade={() => setShowUpgradeModal(true)}
               onRefresh={handleRefresh}
               refreshing={refreshing}
@@ -4434,7 +4686,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { notFound } from "next/navigation";
-import { getScamCity, listScamCities } from "@/lib/scam-data";
+import { getScamCity, listScamCities, getRelatedCities } from "@/lib/scam-data";
 import { findKnownCity } from "@/lib/dashboard-data";
 
 const SITE_URL =
@@ -4518,6 +4770,10 @@ export default async function CityScamPage({ params }) {
   const country = known?.name?.split(", ").slice(1).join(", ") || "";
   const year = new Date().getFullYear();
   const signupHref = `/signup?city=${encodeURIComponent(city.name)}&redirect=/dashboard`;
+
+  // Related cities are pulled from the same destinations cache the page is
+  // already reading from — no hardcoded list, no extra data source.
+  const relatedCities = await getRelatedCities(slug, 5);
 
   const faqSchema = {
     "@context": "https://schema.org",
@@ -4800,6 +5056,47 @@ export default async function CityScamPage({ params }) {
                 </p>
               </div>
             </div>
+          </section>
+        )}
+
+        {relatedCities.length > 0 && (
+          <section
+            className="mt-16 border-t border-zinc-200 pt-10"
+            aria-labelledby="related-heading"
+          >
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#e5484a]">
+                  Keep checking
+                </p>
+                <h2
+                  id="related-heading"
+                  className="mt-2 text-2xl font-black tracking-tight sm:text-3xl"
+                >
+                  Related destinations
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-7 text-zinc-600">
+                  Other cities travelers are scanning before they land.
+                </p>
+              </div>
+            </div>
+            <ul className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {relatedCities.map((c) => (
+                <li key={c.slug}>
+                  <Link
+                    href={`/scams/${c.slug}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-base font-bold text-zinc-950 shadow-[0_6px_20px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
+                  >
+                    <span className="min-w-0 truncate">
+                      {c.name} tourist scams
+                    </span>
+                    <span className="shrink-0 font-mono text-xs font-semibold text-[#e5484a]">
+                      View guide →
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 
@@ -7642,6 +7939,7 @@ footer {
 
 <file path="src/app/layout.js">
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -7690,6 +7988,12 @@ const themeInitScript = `
 })();
 `;
 
+// GA4 measurement ID. NEXT_PUBLIC_* values are inlined at build time and are
+// public by design (they ship in the client bundle), so this is not a secret.
+// When the env var is absent — local dev, CI, preview without the flag — the
+// Script blocks below are simply not rendered.
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
+
 export default function RootLayout({ children }) {
   return (
     <html
@@ -7700,6 +8004,21 @@ export default function RootLayout({ children }) {
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+
+        {GA_ID && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga-init" strategy="afterInteractive">
+              {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_ID}');`}
+            </Script>
+          </>
+        )}
       </head>
       <body className="flex min-h-full flex-col">{children}</body>
     </html>
@@ -7853,6 +8172,175 @@ export default async function sitemap() {
   }
 
   return [...staticRoutes, ...cityRoutes];
+}
+</file>
+
+<file path="src/components/dashboard/AddToTripButton.js">
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Route, LoaderCircle, Check, AlertTriangle, Info } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+
+/**
+ * Compact action pill for the dashboard. On click it calls
+ * POST /api/trips/quick-add, which:
+ *   - creates a "My Trip" if the user has none, or appends to the most
+ *     recent one;
+ *   - lazily caches intel for the city if missing (same organizeCity
+ *     pipeline the pre-cache script uses);
+ *   - returns a status we render as specific feedback.
+ *
+ * Plan gating happens server-side (403 upgradeRequired). The client just
+ * routes that to the existing upgrade modal.
+ */
+export function AddToTripButton({ city, plan = "free", onUpgrade }) {
+  const [state, setState] = useState("idle");
+  const [message, setMessage] = useState("");
+  const timeoutRef = useRef(null);
+  const resetRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (resetRef.current) clearTimeout(resetRef.current);
+    };
+  }, []);
+
+  // Reset feedback when the user switches city.
+  useEffect(() => {
+    setState("idle");
+    setMessage("");
+  }, [city]);
+
+  const paid = plan !== "free";
+  const busy = state === "adding";
+
+  async function handleClick() {
+    if (busy) return;
+
+    if (!paid) {
+      onUpgrade?.();
+      return;
+    }
+
+    setState("adding");
+    setMessage("Adding to trip…");
+
+    // After 800ms of waiting, upgrade the message to signal that the
+    // on-demand intel fetch is running. The server response arrives when
+    // the pipeline (Reddit → Gemini → cache write) finishes, which is a
+    // few seconds on a cold city.
+    timeoutRef.current = setTimeout(() => {
+      setMessage(`Fetching intel for ${city}…`);
+    }, 800);
+
+    try {
+      const { data } = await supabase?.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) {
+        setState("failed");
+        setMessage("Please sign in again.");
+        return;
+      }
+
+      const res = await fetch("/api/trips/quick-add", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ city }),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (res.status === 403 && body.upgradeRequired) {
+        setState("idle");
+        setMessage("");
+        onUpgrade?.();
+        return;
+      }
+
+      if (!res.ok) {
+        const code = body.code;
+        if (code === "DUPLICATE_DESTINATION") {
+          setState("duplicate");
+          setMessage(body.error || "Already in this trip.");
+        } else if (code === "TRIP_FULL") {
+          setState("limit");
+          setMessage(body.error || "Trip is already full.");
+        } else {
+          setState("failed");
+          setMessage(body.error || "Could not add to trip.");
+        }
+        return;
+      }
+
+      const status = body.intel?.status;
+      const tripName = body.tripName || "your trip";
+      if (status === "empty") {
+        setState("success");
+        setMessage(`Added to ${tripName}. No scam reports found for ${city} yet.`);
+      } else if (status === "failed") {
+        setState("success");
+        setMessage(`Added to ${tripName}. Intel fetch failed — check back later.`);
+      } else {
+        setState("success");
+        setMessage(`Added to ${tripName}.`);
+      }
+      // Auto-reset so the button is usable again for the same city.
+      resetRef.current = setTimeout(() => {
+        setState("idle");
+        setMessage("");
+      }, 4500);
+    } catch (err) {
+      setState("failed");
+      setMessage(err?.message || "Could not add to trip.");
+    } finally {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    }
+  }
+
+  const tone =
+    state === "duplicate"
+      ? "border-amber-300/70 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+      : state === "limit"
+        ? "border-amber-300/70 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+        : state === "failed"
+          ? "border-red-300/70 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+          : state === "success"
+            ? "border-emerald-300/70 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+            : "border-zinc-200/90 bg-white text-zinc-800 dark:border-white/10 dark:bg-[#16161b] dark:text-zinc-200";
+
+  const Icon =
+    busy ? LoaderCircle
+    : state === "success" ? Check
+    : state === "duplicate" || state === "limit" ? Info
+    : state === "failed" ? AlertTriangle
+    : Route;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        aria-busy={busy}
+        className={`inline-flex w-full items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-xs font-bold transition-colors disabled:opacity-70 ${tone}`}
+      >
+        <Icon className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
+        <span>{busy ? (message || "Adding…") : paid ? "Add to trip" : "Add to trip (Pro)"}</span>
+      </button>
+      {!busy && message && state !== "idle" && (
+        <p className="text-center text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          {message}
+        </p>
+      )}
+    </div>
+  );
 }
 </file>
 
@@ -8575,6 +9063,10 @@ export function Topbar({ city, brief, searchLocked = false }) {
     return () => clearTimeout(timeout);
   }, [searchCity, searchLocked]);
 
+  // Uses the SAME URL contract as DestinationChips (`cached_only=1`), so the
+  // server takes the cache-only branch — identical to a chip click. Free users
+  // therefore see cached data (or the empty-browse state), never the
+  // quota/pipeline/seed path that chips already bypass.
   function handleSearch(e) {
     e?.preventDefault();
     if (searchLocked) return;
@@ -8582,16 +9074,19 @@ export function Topbar({ city, brief, searchLocked = false }) {
     if (!trimmed) return;
     setShowSuggestions(false);
     setMobileSearchOpen(false);
-    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
+    router.push(
+      `/dashboard?city=${encodeURIComponent(trimmed)}&cached_only=1`
+    );
   }
 
+  // Same contract as handleSearch and as DestinationChips.
   function handleCitySelect(cityItem) {
     if (searchLocked) return;
     setShowSuggestions(false);
     setSearchCity("");
     setMobileSearchOpen(false);
     router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}`
+      `/dashboard?city=${encodeURIComponent(cityItem.name)}&cached_only=1`
     );
   }
 
@@ -13033,6 +13528,7 @@ export function checkRateLimit(key, maxPerWindow = 30) {
 
 import { getCachedCity, listCachedCities } from "./cache.js";
 import { normalizeCity } from "./city.js";
+import { findKnownCity } from "./dashboard-data.js";
 
 const VISIBLE_ALERT_COUNT = 5;
 
@@ -13153,6 +13649,54 @@ export async function listScamCities() {
       name: normalizeCity(row.city) || row.city,
       updatedAt: row.updated_at,
     }));
+}
+
+// Country extraction. Only the 12 curated cities in dashboard-data.js have a
+// known country; every other cached city returns null. That's the correct
+// behavior for this feature — same-country matching is preferred but never
+// required, and the fallback fills from any other cached destination.
+function countryOf(cityName) {
+  const known = findKnownCity(cityName);
+  if (!known) return null;
+  const parts = String(known.name || "").split(", ");
+  return parts.length > 1 ? parts.slice(1).join(", ") : null;
+}
+
+/**
+ * Returns up to `limit` related cached destinations for the given slug.
+ *
+ * Ordering:
+ *   1. Same country as the current city (only resolvable for curated cities).
+ *   2. Any other cached destination, in insertion order.
+ *
+ * Never includes the current city. Never returns more than `limit`. Returns
+ * [] when the destination table has no other cities.
+ */
+export async function getRelatedCities(currentSlug, limit = 5) {
+  const all = await listScamCities();
+  const current = all.find((c) => c.slug === currentSlug);
+  if (!current) return [];
+
+  const currentCountry = countryOf(current.name);
+  const others = all.filter((c) => c.slug !== currentSlug);
+
+  const sameCountry = [];
+  const rest = [];
+  for (const c of others) {
+    const country = countryOf(c.name);
+    if (currentCountry && country === currentCountry) sameCountry.push(c);
+    else rest.push(c);
+  }
+
+  const seen = new Set();
+  const result = [];
+  for (const c of [...sameCountry, ...rest]) {
+    if (seen.has(c.slug)) continue;
+    seen.add(c.slug);
+    result.push(c);
+    if (result.length >= limit) break;
+  }
+  return result;
 }
 </file>
 

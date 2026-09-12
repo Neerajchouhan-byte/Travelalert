@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, LockKeyhole, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ScamDataDisclaimer } from "@/components/ScamDataDisclaimer";
 
 export function IntelTabs({
   city,
@@ -73,6 +74,11 @@ export function IntelTabs({
           <span>{refreshing ? "Refreshing" : "Refresh"}</span>
         </button>
       </div>
+
+      {/* Inline disclaimer — sits directly above the alerts/tips list so
+          users see it while reading scam content, not only in the legal
+          pages. Same sentence as /disclaimer's boxed paragraph. */}
+      <ScamDataDisclaimer className="mt-3" />
 
       <div className="mt-5 flex items-center gap-2.5">
         <button

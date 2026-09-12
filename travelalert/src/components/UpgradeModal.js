@@ -27,14 +27,26 @@ const PLANS = [
   },
 ];
 
+// Wording for the Trip Mode benefit must match Pricing.js's TRIP_MODE_FEATURE
+// constant verbatim. The `key: "trip_mode"` marker lets the modal highlight
+// this exact line when `highlight="trip_mode"` is passed.
 const BENEFITS = [
-  "Every alert in the destination file",
-  "Every insider tip, refreshed daily",
-  "Weather, currency and money advice",
-  "Every city — no search limit",
+  { text: "Every alert in the destination file" },
+  { text: "Every insider tip, refreshed daily" },
+  { text: "Weather, currency and money advice" },
+  { text: "Every city — no search limit" },
+  {
+    text: "Trip Mode — plan multi-city trips with combined briefings",
+    key: "trip_mode",
+  },
 ];
 
-export default function UpgradeModal({ isOpen, onClose, city = "" }) {
+export default function UpgradeModal({
+  isOpen,
+  onClose,
+  city = "",
+  highlight = null,
+}) {
   const [selected, setSelected] = useState("annual");
   const [busyPlan, setBusyPlan] = useState("");
   const [error, setError] = useState("");
@@ -176,15 +188,29 @@ export default function UpgradeModal({ isOpen, onClose, city = "" }) {
             </p>
 
             <ul className="mt-5 space-y-2.5">
-              {BENEFITS.map((benefit) => (
-                <li
-                  key={benefit}
-                  className="flex items-center gap-2.5 text-xs font-medium text-zinc-700 sm:text-sm dark:text-zinc-200"
-                >
-                  <Check className="size-4 shrink-0 stroke-[2.5] text-[#10b981]" />
-                  <span>{benefit}</span>
-                </li>
-              ))}
+              {BENEFITS.map((benefit) => {
+                const isHighlighted =
+                  highlight && benefit.key === highlight;
+                return (
+                  <li
+                    key={benefit.text}
+                    className={`flex items-center gap-2.5 text-xs sm:text-sm ${
+                      isHighlighted
+                        ? "-mx-2.5 rounded-lg bg-[#fef3c7] px-2.5 py-1.5 font-bold text-zinc-900 dark:bg-[#332210]/70 dark:text-white"
+                        : "font-medium text-zinc-700 dark:text-zinc-200"
+                    }`}
+                  >
+                    <Check
+                      className={`size-4 shrink-0 stroke-[2.5] ${
+                        isHighlighted
+                          ? "text-[#d97706] dark:text-[#fbbf24]"
+                          : "text-[#10b981]"
+                      }`}
+                    />
+                    <span>{benefit.text}</span>
+                  </li>
+                );
+              })}
             </ul>
 
             <div

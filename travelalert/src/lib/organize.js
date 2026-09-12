@@ -18,10 +18,18 @@ function cleanList(arr, n) {
     }));
 }
 
+// Live-model cascade.
+//
+// Retired models are intentionally absent:
+//   gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash
+// Those return HTTP 404 (retired, not rate-limited). Retrying them added
+// ~8 seconds and three guaranteed failed calls to every pipeline run before
+// the cascade reached a model that could actually answer.
+//
+// Do not add a model here without first probing it against the live
+// /v1beta/models endpoint (scripts/test-gemini.mjs does this) — a listed
+// model can still be retired for inference.
 const MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.0-flash",
   "gemini-flash-latest",
   "gemini-flash-lite-latest",
 ];

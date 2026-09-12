@@ -2,10 +2,14 @@
 import { LockKeyhole } from "lucide-react";
 import Link from "next/link";
 
-// Locked upsell for Explorer users. Trip Mode (>1 destination, export)
-// is Trip Pass / Annual only. Reuses UpgradeModal pattern via ?upgrade=true.
+// Locked upsell for Explorer users. Trip Mode (>1 destination, export) is
+// Trip Pass / Annual only. Links back to the dashboard with the
+// `upgrade=trip_mode` param so the dashboard opens the upgrade modal with
+// the Trip Mode benefit line emphasised.
 export function TripLocked({ city = "" }) {
-  const href = city ? `/dashboard?city=${encodeURIComponent(city)}&upgrade=true` : "/dashboard?upgrade=true";
+  const href = city
+    ? `/dashboard?city=${encodeURIComponent(city)}&upgrade=trip_mode`
+    : "/dashboard?upgrade=trip_mode";
   return (
     <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/40 dark:bg-amber-950/30">
       <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50"><LockKeyhole className="size-5 text-amber-700 dark:text-amber-300" /></span>

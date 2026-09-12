@@ -99,7 +99,11 @@ function TripsContent() {
             </div>
           </div>
         )}
-        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+        <UpgradeModal
+          isOpen={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          highlight="trip_mode"
+        />
       </div>
     </div>
   );

@@ -2,9 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, LoaderCircle, ShieldCheck } from "lucide-react";
+import { Check, LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+
+// Shared Trip Mode wording — kept identical to UpgradeModal.js's BENEFITS
+// entry. If one changes, both must change.
+const TRIP_MODE_FEATURE = "Trip Mode — plan multi-city trips with combined briefings";
+const TRIP_MODE_LOCKED = "Trip Mode — upgrade to unlock";
 
 const plans = [
   {
@@ -14,11 +19,12 @@ const plans = [
     period: "",
     description: "Preview essential tourist traps before you land.",
     features: [
-      "3 destination searches total",
-      "Preview top 2 high-risk alerts",
-      "Preview top 3 insider tips",
-      "Standard community consensus",
-      "No credit card required",
+      { text: "3 destination searches total" },
+      { text: "Preview top 2 high-risk alerts" },
+      { text: "Preview top 3 insider tips" },
+      { text: "Standard community consensus" },
+      { text: "No credit card required" },
+      { text: TRIP_MODE_LOCKED, locked: true },
     ],
     action: "Start free",
   },
@@ -30,9 +36,10 @@ const plans = [
     description:
       "Full travel intelligence for one trip, with access lasting 30 days from payment.",
     features: [
-      "Unlimited destinations for 30 days",
-      "All alerts and insider tips",
-      "No renewal or cancellation needed",
+      { text: "Unlimited destinations for 30 days" },
+      { text: "All alerts and insider tips" },
+      { text: TRIP_MODE_FEATURE },
+      { text: "No renewal or cancellation needed" },
     ],
     action: "Get 30-day access",
   },
@@ -43,9 +50,10 @@ const plans = [
     period: "/ year",
     description: "Year-round access to every destination, billed once per year.",
     features: [
-      "Unlimited destinations all year",
-      "All alerts, tips, weather, and currency",
-      "Manage or cancel renewal anytime",
+      { text: "Unlimited destinations all year" },
+      { text: "All alerts, tips, weather, and currency" },
+      { text: TRIP_MODE_FEATURE },
+      { text: "Manage or cancel renewal anytime" },
     ],
     action: "Choose Annual",
     featured: true,
@@ -188,15 +196,27 @@ export default function Pricing() {
                   </p>
 
                   <ul className="mt-6 space-y-2 border-t border-zinc-100 pt-4 dark:border-white/5">
-                    {plan.features.map((feature) => (
-                      <li
-                        key={feature}
-                        className="flex items-start gap-2 text-xs text-zinc-700 dark:text-zinc-300"
-                      >
-                        <Check className="size-3.5 text-[#e5283b] shrink-0 mt-0.5" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
+                    {plan.features.map((feature) => {
+                      const isLocked = Boolean(feature.locked);
+                      const text = feature.text;
+                      return (
+                        <li
+                          key={text}
+                          className={`flex items-start gap-2 text-xs ${
+                            isLocked
+                              ? "text-zinc-400 dark:text-zinc-500"
+                              : "text-zinc-700 dark:text-zinc-300"
+                          }`}
+                        >
+                          {isLocked ? (
+                            <LockKeyhole className="size-3.5 shrink-0 mt-0.5 text-zinc-400 dark:text-zinc-500" />
+                          ) : (
+                            <Check className="size-3.5 text-[#e5283b] shrink-0 mt-0.5" />
+                          )}
+                          <span>{text}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
 

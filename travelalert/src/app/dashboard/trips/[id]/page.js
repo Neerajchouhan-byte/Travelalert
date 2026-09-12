@@ -83,7 +83,11 @@ function TripDetailContent() {
             <TripBriefing sections={sections} plan={plan} onUpgrade={() => setShowUpgrade(true)} />
           </div>
         )}
-        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+        <UpgradeModal
+          isOpen={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          highlight="trip_mode"
+        />
       </div>
     </div>
   );

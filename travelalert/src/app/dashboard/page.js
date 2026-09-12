@@ -1,7 +1,7 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
@@ -60,24 +60,40 @@ function DashboardContent() {
   const [source, setSource] = useState("");
   const [brief, setBrief] = useState(null);
   const [briefCity, setBriefCity] = useState("");
-  // Which city the current `alerts`/`tips`/`source`/`safety`/`noData` payload
-  // belongs to. Mirrors `briefCity` for the weather/currency brief. Until this
-  // matches `city`, the render shows loading — never the previous city's data
-  // under the new city's name.
+  // Owner-city marker for the briefing payload. Until it matches `city`,
+  // the render shows loading instead of the previous city's data.
   const [briefingCity, setBriefingCity] = useState("");
   const [plan, setPlan] = useState("free");
   const [lockedAlerts, setLockedAlerts] = useState(0);
   const [lockedTips, setLockedTips] = useState(0);
   const [safety, setSafety] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
+
+  // Upgrade modal — `upgradeReason` tracks which prompt opened it, so the
+  // Trip Mode benefit line can be emphasised when the modal was triggered
+  // by a Trip Mode lock. Values: "trip_mode" | null.
+  const upgradeParam = searchParams.get("upgrade");
   const [showUpgradeModal, setShowUpgradeModal] = useState(
-    () => searchParams.get("upgrade") === "true",
+    () => upgradeParam === "true" || upgradeParam === "trip_mode",
   );
+  const [upgradeReason, setUpgradeReason] = useState(
+    () => (upgradeParam === "trip_mode" ? "trip_mode" : null),
+  );
+
+  function openUpgrade(reason = null) {
+    setUpgradeReason(reason);
+    setShowUpgradeModal(true);
+  }
+
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
   const [searchesLeft, setSearchesLeft] = useState(null);
   const [searchLimit, setSearchLimit] = useState(null);
   const [noData, setNoData] = useState(false);
+
+  // Monotonic request counter. A response whose id no longer matches is
+  // discarded before it can touch state.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (searchParams.get("billing") !== "success") return;
@@ -125,6 +141,8 @@ function DashboardContent() {
     setRefreshing(true);
     setRefreshNotice("");
 
+    const reqId = ++requestIdRef.current;
+
     try {
       const headers = await getAuthHeaders();
       const res = await fetch(
@@ -132,10 +150,12 @@ function DashboardContent() {
         { headers, cache: "no-store" },
       );
 
+      if (reqId !== requestIdRef.current) return;
+
       if (res.status === 403) {
         const data = await res.json().catch(() => ({}));
         if (data.limitReached) {
-          setShowUpgradeModal(true);
+          openUpgrade();
           setSearchesLeft(0);
         }
         return;
@@ -164,7 +184,6 @@ function DashboardContent() {
         if (bData.safety) setSafety(String(bData.safety));
         if (bData.searchesLeft !== undefined) setSearchesLeft(bData.searchesLeft);
         if (bData.searchLimit !== undefined) setSearchLimit(bData.searchLimit);
-        // Refresh is always for the current city, so stamp it here as well.
         setBriefingCity(city);
 
         if (bData.refreshBlocked) {
@@ -191,14 +210,12 @@ function DashboardContent() {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    const reqId = ++requestIdRef.current;
 
     async function loadBriefing() {
-      // Reset ALL per-city state up front. Without this, the previous city's
-      // data remains visible while the new request is in flight — and forever
-      // if the new request fails, is aborted, or times out. `briefingCity` is
-      // intentionally NOT reset here: it stays as the previous city's key so
-      // the render gate below keeps the stale payload hidden until the new
-      // fetch resolves (or fails).
+      // Reset per-city state up front. `briefingCity` is intentionally NOT
+      // reset here so the render gate continues to hide the previous
+      // payload until this fetch resolves.
       setLoading(true);
       setError("");
       setRefreshNotice("");
@@ -221,21 +238,23 @@ function DashboardContent() {
           signal: controller.signal,
         });
 
+        if (cancelled) return;
+        if (reqId !== requestIdRef.current) return;
+
         if (res.status === 401) {
           router.replace("/login?city=" + encodeURIComponent(city));
           return;
         }
 
         const data = await res.json();
-        if (cancelled) return;
+
+        if (cancelled || reqId !== requestIdRef.current) return;
 
         if (res.status === 403 && data.limitReached) {
           setSearchesLeft(0);
-          setShowUpgradeModal(true);
+          openUpgrade();
           setError("");
           setNoData(true);
-          // Stamp the city so the gate releases and IntelTabs shows the
-          // empty state (instead of a spinner) underneath the upgrade modal.
           setBriefingCity(city);
           return;
         }
@@ -261,12 +280,10 @@ function DashboardContent() {
         setNoData(Boolean(data.noData));
         if (data.searchesLeft !== undefined) setSearchesLeft(data.searchesLeft);
         if (data.searchLimit !== undefined) setSearchLimit(data.searchLimit);
-        // Release the render gate for THIS city. Any earlier city's data is
-        // now superseded.
         setBriefingCity(city);
 
         if (data.limitReached) {
-          setShowUpgradeModal(true);
+          openUpgrade();
           setError("");
         } else if (data.error && !(data.alerts || []).length) {
           setError(data.error);
@@ -303,8 +320,6 @@ function DashboardContent() {
     const controller = new AbortController();
 
     async function loadCityBrief() {
-      // Reset the previous brief up front so the header never displays the
-      // previous city's weather/locale while the new request is loading.
       setBrief(null);
       setBriefCity("");
       setBriefLoading(true);
@@ -344,12 +359,8 @@ function DashboardContent() {
     plan === "free" && searchesLeft !== null && searchesLeft <= 0;
   const refreshLocked = searchLocked;
 
-  // -------------------------------------------------------------------------
-  // Render gate for the briefing payload. Same pattern as `activeBrief` for
-  // the weather/locale brief: the data is only rendered when its owning city
-  // matches the currently selected city. Until then the UI shows the loading
-  // state — never the previous city's alerts/tips under the new city name.
-  // -------------------------------------------------------------------------
+  // Render gate: the briefing payload is only shown when its owner city
+  // matches the selected city.
   const showBriefing = briefingCity === city;
   const renderAlerts = showBriefing ? alerts : [];
   const renderTips = showBriefing ? tips : [];
@@ -397,8 +408,12 @@ function DashboardContent() {
             </p>
           )}
 
-          {/* DESKTOP 3-COLUMN */}
-          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr]">
+          {/* DESKTOP (xl+). Top section is a 3-column grid whose cells are
+              flex-column wrappers, so cards within a group stack tightly with
+              no interposed grid-row height. `items-start` is retained so no
+              card is stretched beyond its own content.
+              IntelTabs is a full-width row beneath, unchanged. */}
+          <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.35fr_1fr_1fr] items-start">
             <div className="space-y-5">
               <DestinationHeader
                 city={city}
@@ -408,22 +423,7 @@ function DashboardContent() {
               />
               <TripModeCard
                 plan={plan}
-                onUpgrade={() => setShowUpgradeModal(true)}
-              />
-              <IntelTabs
-                key={city}
-                city={city}
-                alerts={renderAlerts}
-                tips={renderTips}
-                loading={renderLoading}
-                plan={plan}
-                lockedAlerts={renderLockedAlerts}
-                lockedTips={renderLockedTips}
-                noData={renderNoData}
-                onUpgrade={() => setShowUpgradeModal(true)}
-                onRefresh={handleRefresh}
-                refreshing={refreshing}
-                refreshLocked={refreshLocked}
+                onUpgrade={() => openUpgrade("trip_mode")}
               />
             </div>
 
@@ -436,10 +436,28 @@ function DashboardContent() {
               <UsdConversionCard brief={activeBrief} />
               <ExchangeRateCard brief={activeBrief} />
             </div>
+
+            <div className="xl:col-span-3">
+              <IntelTabs
+                key={city}
+                city={city}
+                alerts={renderAlerts}
+                tips={renderTips}
+                loading={renderLoading}
+                plan={plan}
+                lockedAlerts={renderLockedAlerts}
+                lockedTips={renderLockedTips}
+                noData={renderNoData}
+                onUpgrade={() => openUpgrade()}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                refreshLocked={refreshLocked}
+              />
+            </div>
           </div>
 
-          {/* TABLET 2-COLUMN */}
-          <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden">
+          {/* TABLET 2-COLUMN. Unchanged. */}
+          <div className="mt-5 hidden gap-5 md:grid md:grid-cols-2 xl:hidden items-start">
             <div className="space-y-5">
               <DestinationHeader
                 city={city}
@@ -449,7 +467,7 @@ function DashboardContent() {
               />
               <TripModeCard
                 plan={plan}
-                onUpgrade={() => setShowUpgradeModal(true)}
+                onUpgrade={() => openUpgrade("trip_mode")}
               />
               <IntelTabs
                 key={city}
@@ -461,7 +479,7 @@ function DashboardContent() {
                 lockedAlerts={renderLockedAlerts}
                 lockedTips={renderLockedTips}
                 noData={renderNoData}
-                onUpgrade={() => setShowUpgradeModal(true)}
+                onUpgrade={() => openUpgrade()}
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
                 refreshLocked={refreshLocked}
@@ -476,7 +494,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* MOBILE STACKED */}
+          {/* MOBILE STACKED. Unchanged. */}
           <div className="mt-5 space-y-5 md:hidden">
             <DestinationHeader
               city={city}
@@ -487,7 +505,7 @@ function DashboardContent() {
 
             <TripModeCard
               plan={plan}
-              onUpgrade={() => setShowUpgradeModal(true)}
+              onUpgrade={() => openUpgrade("trip_mode")}
             />
 
             <IntelTabs
@@ -500,7 +518,7 @@ function DashboardContent() {
               lockedAlerts={renderLockedAlerts}
               lockedTips={renderLockedTips}
               noData={renderNoData}
-              onUpgrade={() => setShowUpgradeModal(true)}
+              onUpgrade={() => openUpgrade()}
               onRefresh={handleRefresh}
               refreshing={refreshing}
               refreshLocked={refreshLocked}
@@ -521,6 +539,7 @@ function DashboardContent() {
           isOpen={showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}
           city={city}
+          highlight={upgradeReason}
         />
       </div>
     </RequireAuth>

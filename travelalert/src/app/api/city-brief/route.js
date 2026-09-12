@@ -1,8 +1,15 @@
 import { normalizeCity, resolveCity } from "@/lib/city";
 import { getRequestProfile } from "@/lib/auth-server";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { getFreshCache } from "@/lib/cache";
+import { FREE_SEARCH_LIMIT, computeUsedSearches } from "@/lib/quota";
 
 export const maxDuration = 15;
+
+// Minimums the reader (/api/briefing) requires before it treats a cached row
+// as usable. Must match src/app/api/briefing/route.js.
+const MIN_CACHED_ALERTS = 4;
+const MIN_CACHED_TIPS = 3;
 
 const currencyByCountry = {
   KH: ["KHR", "Cambodian Riel"],
@@ -164,6 +171,47 @@ export async function GET(request) {
       { status: 400 }
     );
   }
+
+  // ── Server-side quota + cache gate ─────────────────────────────────────
+  //
+  // The dashboard fires /api/briefing and /api/city-brief in parallel on
+  // every city change. When the user is a free-plan user who has used all
+  // FREE_SEARCH_LIMIT searches for the current month AND the destination has
+  // no usable cache row, /api/briefing returns 403 (limitReached) and the UI
+  // shows the upgrade modal — the user will never see this city's intel.
+  //
+  // Without this gate, /api/city-brief would still make three external HTTP
+  // calls (geocoding, weather, FX) for a destination whose data the user
+  // cannot view. This check runs before any fetch, so the client cannot
+  // bypass it: even a hand-crafted request from a quota-exhausted session
+  // gets { skipped: true } and zero external traffic.
+  //
+  // Paid users (plan !== "free") are never gated here.
+  const usedSearches = computeUsedSearches(profile);
+  const hasAccess = profile.plan !== "free";
+  const overQuota = !hasAccess && usedSearches >= FREE_SEARCH_LIMIT;
+
+  if (overQuota) {
+    const cached = await getFreshCache(city);
+    const cacheUsable =
+      cached &&
+      (cached.alerts || []).length >= MIN_CACHED_ALERTS &&
+      (cached.tips || []).length >= MIN_CACHED_TIPS;
+
+    if (!cacheUsable) {
+      console.info("city-brief.skipped", {
+        city,
+        reason: "quota-exhausted-uncached",
+        usedSearches,
+      });
+      return Response.json({
+        skipped: true,
+        reason: "quota-exhausted-uncached",
+        city,
+      });
+    }
+  }
+  // ───────────────────────────────────────────────────────────────────────
 
   let hit = null;
   try {

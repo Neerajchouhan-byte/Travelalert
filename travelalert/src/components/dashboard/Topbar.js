@@ -87,10 +87,15 @@ export function Topbar({ city, brief, searchLocked = false }) {
     return () => clearTimeout(timeout);
   }, [searchCity, searchLocked]);
 
-  // Uses the SAME URL contract as DestinationChips (`cached_only=1`), so the
-  // server takes the cache-only branch — identical to a chip click. Free users
-  // therefore see cached data (or the empty-browse state), never the
-  // quota/pipeline/seed path that chips already bypass.
+  // Explicit search — user typed a city name and pressed Enter. This is a
+  // deliberate action, so it must NOT carry `cached_only=1`: that flag tells
+  // /api/briefing to skip the pipeline entirely and return cache-or-empty.
+  // Without the flag, /api/briefing runs the live Reddit+Gemini pipeline for
+  // a cold city (consuming one free search credit for Explorer users), writes
+  // the result to the destinations cache, and returns real alerts/tips.
+  //
+  // Chips (DestinationChips) still pass `cached_only=1` because they are a
+  // passive browse shortcut, not an explicit search.
   function handleSearch(e) {
     e?.preventDefault();
     if (searchLocked) return;
@@ -98,20 +103,17 @@ export function Topbar({ city, brief, searchLocked = false }) {
     if (!trimmed) return;
     setShowSuggestions(false);
     setMobileSearchOpen(false);
-    router.push(
-      `/dashboard?city=${encodeURIComponent(trimmed)}&cached_only=1`
-    );
+    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
   }
 
-  // Same contract as handleSearch and as DestinationChips.
+  // Same reasoning as handleSearch: picking a specific city from the
+  // autocomplete list is an explicit search and must reach the pipeline.
   function handleCitySelect(cityItem) {
     if (searchLocked) return;
     setShowSuggestions(false);
     setSearchCity("");
     setMobileSearchOpen(false);
-    router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&cached_only=1`
-    );
+    router.push(`/dashboard?city=${encodeURIComponent(cityItem.name)}`);
   }
 
   function handleProfileClick() {

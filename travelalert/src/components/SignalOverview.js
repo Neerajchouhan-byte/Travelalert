@@ -17,9 +17,9 @@ export default function SignalOverview() {
   return (
     <section className="py-20 sm:py-28 border-b border-zinc-200/80 dark:border-white/5">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        
+
         <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
-          
+
           {/* Left copy */}
           <div className="reveal lg:col-span-6">
             <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#e5283b]">
@@ -29,8 +29,8 @@ export default function SignalOverview() {
               A clearer read on <span className="text-[#e5283b]">what is changing.</span>
             </h2>
             <p className="mt-3 text-xs leading-relaxed text-zinc-500 sm:text-sm dark:text-zinc-400">
-              We watch the conversation around each destination, then turn
-              scattered traveler reports into signals you can act on.
+              We track traveler reports across Reddit for each destination, then use AI
+              to turn scattered posts into scam alerts and tips you can actually use.
             </p>
 
             <div className="mt-8 flex items-center gap-8 border-t border-zinc-100 pt-6 dark:border-white/5">
@@ -40,10 +40,10 @@ export default function SignalOverview() {
                 viewport={{ once: true }}
               >
                 <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
-                  2,480+
+                  50+
                 </p>
                 <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
-                  patterns tracked
+                  destinations covered
                 </p>
               </motion.div>
               <motion.div
@@ -66,10 +66,10 @@ export default function SignalOverview() {
                 transition={{ delay: 0.16 }}
               >
                 <p className="font-mono text-2xl font-black text-zinc-900 sm:text-3xl dark:text-white">
-                  92%
+                  Zero
                 </p>
                 <p className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
-                  worth the brief
+                  fluff
                 </p>
               </motion.div>
             </div>
@@ -86,7 +86,7 @@ export default function SignalOverview() {
             <div className="flex items-center justify-between">
               <div>
                 <span className="font-mono text-[10px] uppercase text-zinc-400 dark:text-zinc-500">
-                  LIVE INDEX
+                  THE LATEST INSIGHTS
                 </span>
                 <p className="text-sm font-bold text-zinc-900 dark:text-white">
                   Traveler reports this week
@@ -119,7 +119,7 @@ export default function SignalOverview() {
             </div>
 
             <p className="mt-3 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
-              Aggregated from 2,400+ report sources · Updated 12 min ago
+              Aggregated from across the web · Fresh insights added regularly
             </p>
           </motion.div>
 

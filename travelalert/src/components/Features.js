@@ -11,8 +11,8 @@ const coverage = [
     icon: ShieldAlert,
     title: "See the expensive mistake before it happens.",
     body: "Fresh reports are distilled into clear warnings for taxis, tours, ATMs, tickets, and the small traps that do not make it into a guidebook.",
-    metric: "2,480+",
-    metricLabel: "PATTERNS TRACKED",
+    metric: "50+",
+    metricLabel: "destinations covered",
     note: "Reports are refreshed daily",
   },
   {

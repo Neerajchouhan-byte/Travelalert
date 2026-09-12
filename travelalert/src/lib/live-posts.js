@@ -3,11 +3,13 @@
  * Fetches genuine traveler complaints, URLs, and upvotes in ~250ms.
  */
 
+import { getSubredditForCity } from "./subreddits.js";
+
 // Helper to extract upvote counts often found in Google's Reddit snippets (e.g. "140 votes", "85 upvotes")
 function extractUpvotes(text) {
   const match = String(text || "").match(/(\d+[\d,]*)\s*(?:votes|upvotes|points)/i);
   if (match) return parseInt(match[1].replace(/,/g, ""), 10);
-  return null; 
+  return null;
 }
 
 export async function fetchLivePosts(city) {
@@ -20,8 +22,64 @@ export async function fetchLivePosts(city) {
 
   // Exact targeted Google query for Reddit traveler discussions
   const citySubreddit = getSubredditForCity(city); // e.g. "Thailand", "london", "IndiaTravel"
-const query = `site:reddit.com/r/travel OR site:reddit.com/r/solotravel OR site:reddit.com/r/backpacking OR site:reddit.com/r/shoestring OR site:reddit.com/r/scams OR site:reddit.com/r/${citySubreddit} "${city}" (scam OR "tourist trap" OR pickpocket OR overcharged OR taxi OR "ripped off" OR "fake" OR "avoid" OR warning)`;
+  // Expanded keyword set — catches posts that don't literally say "scam"
+  const SCAM_KEYWORDS = [
+    'scam', '"tourist trap"', 'pickpocket', 'overcharged', 'taxi',
+    '"ripped off"', 'fake', 'avoid', 'warning', 'fraud', 'swindle',
+    'cheated', '"con artist"', '"be careful"', 'sketchy', '"watch out"',
+    'dodgy', '"common scam"'
+  ];
 
+  // Expanded subreddit set — more ground-level scam reports than r/travel
+  const GENERAL_SUBS = [
+    'travel', 'solotravel', 'backpacking', 'shoestring', 'scams',
+    'IsItBullshit', 'digitalnomad', 'onebag'
+  ];
+
+  function buildSubredditQuery(citySubreddit) {
+    const subs = citySubreddit ? [...GENERAL_SUBS, citySubreddit] : GENERAL_SUBS;
+    return subs.map(s => `site:reddit.com/r/${s}`).join(' OR ');
+  }
+
+  function buildKeywordQuery() {
+    return `(${SCAM_KEYWORDS.join(' OR ')})`;
+  }
+
+  function buildScamQuery(city, citySubreddit) {
+    return `${buildSubredditQuery(citySubreddit)} "${city}" ${buildKeywordQuery()}`;
+  }
+
+  function dedupeByUrl(results) {
+    const seen = new Set();
+    return results.filter(r => {
+      if (seen.has(r.link)) return false;
+      seen.add(r.link);
+      return true;
+    });
+  }
+
+  // Widens the search automatically if the first pass comes back thin
+  async function searchCityScams(city, citySubreddit, serperSearchFn, minResults = 3) {
+    let results = await serperSearchFn(buildScamQuery(city, citySubreddit));
+
+    if (results.length < minResults) {
+      // Pass 2: drop the subreddit whitelist, keep keywords, search all of reddit.com
+      const broadQuery = `site:reddit.com "${city}" ${buildKeywordQuery()}`;
+      const broad = await serperSearchFn(broadQuery);
+      results = dedupeByUrl([...results, ...broad]);
+    }
+
+    if (results.length < minResults) {
+      // Pass 3: last resort — loosest possible query, still on-topic
+      const fallbackQuery = `site:reddit.com "${city}" travel (scam OR warning OR tip)`;
+      const fallback = await serperSearchFn(fallbackQuery);
+      results = dedupeByUrl([...results, ...fallback]);
+    }
+
+    return results;
+  }
+
+  module.exports = { buildScamQuery, searchCityScams };
   console.info(`[LiveReddit] Querying real Reddit threads for ${city}...`);
   const t0 = Date.now();
 

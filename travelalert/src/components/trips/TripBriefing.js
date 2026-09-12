@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ScamDataDisclaimer } from "@/components/ScamDataDisclaimer";
 
 // Combined view: each destination is a section with its alerts/tips.
-// Data already sliced per plan by /briefing route via sliceForPlan.
+// Data already sliced per plan by the trip briefing route via sliceForPlan.
 export function TripBriefing({ sections = [], plan = "free", loading = false, onUpgrade }) {
   const [open, setOpen] = useState(0);
   const paid = plan !== "free";
@@ -12,6 +13,11 @@ export function TripBriefing({ sections = [], plan = "free", loading = false, on
   if (!sections.length) return <p className="py-10 text-center text-xs text-zinc-400">No destinations yet.</p>;
   return (
     <div className="space-y-4">
+      {/* Inline disclaimer — visible above the first section so it appears
+          alongside the combined scam/tip content, matching the dashboard
+          IntelTabs placement and the /disclaimer boxed paragraph. */}
+      <ScamDataDisclaimer className="px-1" />
+
       {sections.map((s, i) => {
         const isOpen = open === i;
         const locked = (s.lockedAlerts || 0) + (s.lockedTips || 0);

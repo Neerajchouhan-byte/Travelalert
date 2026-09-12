@@ -96,6 +96,13 @@ const targets = SPECIFIC.length
 // 3s gives them room to breathe without dragging the run out.
 const DELAY_MS = 3000;
 
+// Minimum counts the READER requires before it treats a cached row as
+// usable. These MUST match src/app/api/briefing/route.js (isLiveResult and
+// cacheUsable) — a lower write-side threshold causes the dashboard to keep
+// showing "no cached intel" for cities the script reports as successful.
+const MIN_ALERTS = 4;
+const MIN_TIPS = 3;
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -115,7 +122,7 @@ async function runOne(rawCity) {
 
   if (SKIP_EXISTING) {
     const existing = await getFreshCache(city);
-    if (existing && (existing.alerts || []).length >= 4) {
+    if (existing && (existing.alerts || []).length >= MIN_ALERTS) {
       return {
         city,
         status: "skipped",
@@ -137,33 +144,41 @@ async function runOne(rawCity) {
     };
   }
 
-  if (!org || (org.alerts || []).length === 0) {
-    return {
-      city,
-      status: "failed",
-      reason:
-        org?.error ||
-        `no alerts returned (source=${org?.source || "unknown"})`,
-      ms: Date.now() - t0,
-    };
-  }
+  // Single unified gate — must be IDENTICAL to isLiveResult() in
+  // src/app/api/briefing/route.js. Any result that the reader would reject
+  // is treated as a failed pre-cache run, not written to the table.
+  //
+  // Reasons this rejects:
+  //   1. source !== "reddit+gemini"  → pipeline fell back to seed template
+  //   2. alerts.length < 4           → reader would treat cache as unusable
+  //   3. tips.length   < 3           → same
+  const alertCount = (org?.alerts || []).length;
+  const tipCount = (org?.tips || []).length;
+  const hasLiveData =
+    org?.source === "reddit+gemini" &&
+    alertCount >= MIN_ALERTS &&
+    tipCount >= MIN_TIPS;
 
-  if (org.source === "seed") {
-    // organizeCity falls back to seed when Serper or Gemini returns nothing
-    // usable. The briefing route refuses to cache seed responses for the same
-    // reason — writing them would poison the cache for every future user.
-    return {
-      city,
-      status: "failed",
-      reason: "pipeline fell back to seed (no live Serper/Gemini output)",
-      ms: Date.now() - t0,
-    };
+  if (!hasLiveData) {
+    let reason;
+    if (!org) {
+      reason = "organizeCity returned no result";
+    } else if (org.source === "seed") {
+      reason = "pipeline fell back to seed (no live Serper/Gemini output)";
+    } else if (org.source !== "reddit+gemini") {
+      reason = `unexpected pipeline source "${org.source}"`;
+    } else {
+      reason =
+        `insufficient items (${alertCount} alerts, ${tipCount} tips) — ` +
+        `reader requires ${MIN_ALERTS}+ alerts and ${MIN_TIPS}+ tips`;
+    }
+    return { city, status: "failed", reason, ms: Date.now() - t0 };
   }
 
   const payload = {
     city,
     alerts: org.alerts,
-    tips: org.tips || [],
+    tips: org.tips,
     source: org.source,
     fetchedAt: new Date().toISOString(),
     error: null,

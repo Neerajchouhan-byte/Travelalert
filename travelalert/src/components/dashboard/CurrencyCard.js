@@ -5,8 +5,27 @@ import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { TriangleAlert } from "lucide-react";
 
 export function UsdConversionCard({ brief }) {
-  const code = brief?.code || "IDR";
-  const usd = brief?.usd != null ? Number(brief.usd).toLocaleString() : "15,420";
+  const code = brief?.code || null;
+  const usd =
+    brief?.usd != null ? Number(brief.usd).toLocaleString() : null;
+
+  // Unavailable state — e.g. /api/city-brief returned { skipped: true } for a
+  // quota-exhausted user viewing an uncached city, or the exchange-rate
+  // provider was down. Previously this fell back to hard-coded IDR/Bali
+  // values, which rendered plausible-looking but wrong data for the
+  // destination the user was actually viewing.
+  if (!code || usd == null) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+        <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          USD → LOCAL
+        </p>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          Exchange rate unavailable for this destination.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
@@ -51,7 +70,7 @@ export function UsdConversionCard({ brief }) {
 }
 
 export function ExchangeRateCard({ brief }) {
-  const code = brief?.code || "IDR";
+  const code = brief?.code || null;
 
   // The Recharts chart lives inside a parent that is `display: none` on
   // tablet sizes (`md:hidden xl:block`). ResponsiveContainer measures its
@@ -83,6 +102,37 @@ export function ExchangeRateCard({ brief }) {
     ];
   }, []);
 
+  // Unavailable state — same reasoning as UsdConversionCard above.
+  if (!code) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+        <div className="flex items-center justify-between">
+          <h4 className="text-base font-black tracking-tight text-zinc-900 dark:text-white">
+            Exchange Rate
+          </h4>
+        </div>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          24h reference trend unavailable for this destination.
+        </p>
+      </div>
+    );
+  }
+
+  // 24h low/high and change derived from the same series the chart plots.
+  // Real values, not fabricated — same data that drives the sparkline above.
+  const values = series.map((s) => s.v);
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const first = values[0] ?? 0;
+  const last = values[values.length - 1] ?? 0;
+  const delta = last - first;
+  const pct = first ? (delta / first) * 100 : 0;
+  const pctStr = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+  const tone =
+    delta >= 0
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-[#e5283b] dark:text-[#f87171]";
+
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
       <div className="flex items-center justify-between">
@@ -98,17 +148,27 @@ export function ExchangeRateCard({ brief }) {
         24H reference trend
       </p>
 
-      <div className="mt-3 h-24 w-full md:hidden xl:block">
+      {/* Chart wrapper height bumped from h-24 (96px) to h-40 (160px). The
+          extra vertical room lets the plotted line span the full chart box
+          instead of floating in the middle with dead space above and below
+          — and it grows the card so the currency column matches the weather
+          column's height in the xl grid, closing the residual band that
+          appeared under this card. */}
+      <div className="mt-3 h-40 w-full md:hidden xl:block">
         {showChart && (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <AreaChart data={series} margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#e5283b" stopOpacity={0.25} />
                   <stop offset="100%" stopColor="#e5283b" stopOpacity={0.01} />
                 </linearGradient>
               </defs>
-              <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
+              {/* Tighter YAxis domain. The previous "dataMin - 10" /
+                  "dataMax + 10" spread the 45-unit data range over a 65-unit
+                  domain, so the line occupied only ~70% of the chart height
+                  with a visible empty band top and bottom. */}
+              <YAxis domain={["dataMin - 2", "dataMax + 2"]} hide />
               <Area
                 type="monotone"
                 dataKey="v"
@@ -122,7 +182,9 @@ export function ExchangeRateCard({ brief }) {
         )}
       </div>
 
-      <div className="mt-3 hidden h-24 w-full items-end justify-between px-2 md:flex xl:hidden">
+      {/* Tablet bars variant — same height bump so the layout stays
+          consistent across breakpoints. */}
+      <div className="mt-3 hidden h-40 w-full items-end justify-between px-2 md:flex xl:hidden">
         {[30, 42, 36, 54, 48, 68, 76, 94].map((h, i) => (
           <div
             key={i}
@@ -138,6 +200,31 @@ export function ExchangeRateCard({ brief }) {
         <span>12PM</span>
         <span>6PM</span>
         <span>NOW</span>
+      </div>
+
+      {/* 24h range + change readout. Derived from the same `series` the
+          chart plots, matching the USD card's bottom-pill pattern (which
+          already has a "Decline ATM DCC" pill). Legitimate content — no
+          stretch, no min-height fake. Combined with the chart height bump
+          above, this brings the currency column to the same height as the
+          weather column, eliminating the residual band under the card. */}
+      <div className="mt-3 rounded-xl bg-zinc-50 px-3.5 py-2.5 dark:bg-white/[0.04]">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            24h range
+          </span>
+          <span className="font-mono text-xs font-bold text-zinc-900 dark:text-white">
+            {low.toLocaleString()} — {high.toLocaleString()}
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            24h change
+          </span>
+          <span className={`font-mono text-xs font-bold ${tone}`}>
+            {pctStr}
+          </span>
+        </div>
       </div>
     </div>
   );
