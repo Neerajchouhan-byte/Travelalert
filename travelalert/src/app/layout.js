@@ -1,4 +1,5 @@
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -47,6 +48,12 @@ const themeInitScript = `
 })();
 `;
 
+// GA4 measurement ID. NEXT_PUBLIC_* values are inlined at build time and are
+// public by design (they ship in the client bundle), so this is not a secret.
+// When the env var is absent — local dev, CI, preview without the flag — the
+// Script blocks below are simply not rendered.
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
+
 export default function RootLayout({ children }) {
   return (
     <html
@@ -57,6 +64,21 @@ export default function RootLayout({ children }) {
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+
+        {GA_ID && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga-init" strategy="afterInteractive">
+              {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_ID}');`}
+            </Script>
+          </>
+        )}
       </head>
       <body className="flex min-h-full flex-col">{children}</body>
     </html>

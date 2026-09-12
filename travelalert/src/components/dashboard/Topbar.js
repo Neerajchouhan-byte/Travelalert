@@ -87,6 +87,10 @@ export function Topbar({ city, brief, searchLocked = false }) {
     return () => clearTimeout(timeout);
   }, [searchCity, searchLocked]);
 
+  // Uses the SAME URL contract as DestinationChips (`cached_only=1`), so the
+  // server takes the cache-only branch — identical to a chip click. Free users
+  // therefore see cached data (or the empty-browse state), never the
+  // quota/pipeline/seed path that chips already bypass.
   function handleSearch(e) {
     e?.preventDefault();
     if (searchLocked) return;
@@ -94,16 +98,19 @@ export function Topbar({ city, brief, searchLocked = false }) {
     if (!trimmed) return;
     setShowSuggestions(false);
     setMobileSearchOpen(false);
-    router.push(`/dashboard?city=${encodeURIComponent(trimmed)}`);
+    router.push(
+      `/dashboard?city=${encodeURIComponent(trimmed)}&cached_only=1`
+    );
   }
 
+  // Same contract as handleSearch and as DestinationChips.
   function handleCitySelect(cityItem) {
     if (searchLocked) return;
     setShowSuggestions(false);
     setSearchCity("");
     setMobileSearchOpen(false);
     router.push(
-      `/dashboard?city=${encodeURIComponent(cityItem.name)}&country=${encodeURIComponent(cityItem.country_code)}`
+      `/dashboard?city=${encodeURIComponent(cityItem.name)}&cached_only=1`
     );
   }
 

@@ -9,6 +9,7 @@
 
 import { getCachedCity, listCachedCities } from "./cache.js";
 import { normalizeCity } from "./city.js";
+import { findKnownCity } from "./dashboard-data.js";
 
 const VISIBLE_ALERT_COUNT = 5;
 
@@ -129,4 +130,52 @@ export async function listScamCities() {
       name: normalizeCity(row.city) || row.city,
       updatedAt: row.updated_at,
     }));
+}
+
+// Country extraction. Only the 12 curated cities in dashboard-data.js have a
+// known country; every other cached city returns null. That's the correct
+// behavior for this feature — same-country matching is preferred but never
+// required, and the fallback fills from any other cached destination.
+function countryOf(cityName) {
+  const known = findKnownCity(cityName);
+  if (!known) return null;
+  const parts = String(known.name || "").split(", ");
+  return parts.length > 1 ? parts.slice(1).join(", ") : null;
+}
+
+/**
+ * Returns up to `limit` related cached destinations for the given slug.
+ *
+ * Ordering:
+ *   1. Same country as the current city (only resolvable for curated cities).
+ *   2. Any other cached destination, in insertion order.
+ *
+ * Never includes the current city. Never returns more than `limit`. Returns
+ * [] when the destination table has no other cities.
+ */
+export async function getRelatedCities(currentSlug, limit = 5) {
+  const all = await listScamCities();
+  const current = all.find((c) => c.slug === currentSlug);
+  if (!current) return [];
+
+  const currentCountry = countryOf(current.name);
+  const others = all.filter((c) => c.slug !== currentSlug);
+
+  const sameCountry = [];
+  const rest = [];
+  for (const c of others) {
+    const country = countryOf(c.name);
+    if (currentCountry && country === currentCountry) sameCountry.push(c);
+    else rest.push(c);
+  }
+
+  const seen = new Set();
+  const result = [];
+  for (const c of [...sameCountry, ...rest]) {
+    if (seen.has(c.slug)) continue;
+    seen.add(c.slug);
+    result.push(c);
+    if (result.length >= limit) break;
+  }
+  return result;
 }

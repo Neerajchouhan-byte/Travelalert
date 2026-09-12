@@ -77,10 +77,22 @@ src/
         route.js
       me/
         route.js
+      trips/
+        [id]/
+          briefing/
+            route.js
+          export/
+            route.js
+          route.js
+        route.js
     auth/
       callback/
         route.js
     dashboard/
+      trips/
+        [id]/
+          page.js
+        page.js
       layout.js
       page.js
     disclaimer/
@@ -113,7 +125,13 @@ src/
       IntelTabs.js
       RequireAuth.js
       Topbar.js
+      TripModeCard.js
       WeatherCard.js
+    trips/
+      TripBriefing.js
+      TripBuilder.js
+      TripExportButtons.js
+      TripLocked.js
     ui/
       avatar.jsx
       button.jsx
@@ -150,6 +168,7 @@ src/
     seed-intel.js
     supabase-admin.js
     supabase.js
+    trips.js
     utils.js
   proxy.js
 supabase/
@@ -157,6 +176,7 @@ supabase/
     20260906113000_dodo_billing.sql
     20260906114500_trip_pass_and_destination_entitlements.sql
     20260907000000_add_avatar_url.sql
+    20260911000000_trips.sql
 .gitignore
 components.json
 eslint.config.mjs
@@ -2283,6 +2303,420 @@ export async function GET(request) {
 }
 </file>
 
+<file path="src/app/api/trips/[id]/briefing/route.js">
+import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
+import { getBillingState, hasBillingAccess } from "@/lib/billing";
+import { adminDb } from "@/lib/supabase-admin";
+import { getFreshCache } from "@/lib/cache";
+import { findKnownCity, estimateSafety } from "@/lib/dashboard-data";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+// GET /api/trips/[id]/briefing → ONE consolidated briefing across all
+// destinations in the trip. Each destination is read via getFreshCache (the
+// SAME cache-read function chips/search use) — one call per destination, no
+// new data source. Explorer users get the same capped preview per city
+// (top 2 alerts / 3 tips); Trip Pass/Annual see full data.
+export async function GET(request, { params }) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+  const { id } = await params;
+
+  let billingState = { subscription: null, tripPass: null };
+  try {
+    billingState = await getBillingState(profile.user.id);
+  } catch (err) {
+    console.error("[TripBriefing] billing state failed:", err?.message || err);
+  }
+  const hasAccess = hasBillingAccess(billingState);
+  const effectivePlan = hasAccess
+    ? billingState.subscription?.plan_key === "annual"
+      ? "annual"
+      : billingState.tripPass
+        ? "trip_pass"
+        : "free"
+    : "free";
+
+  const admin = adminDb();
+  const { data: trip } = await admin
+    .from("trips")
+    .select("id, name, created_at, updated_at")
+    .eq("id", id)
+    .eq("user_id", profile.user.id)
+    .maybeSingle();
+  if (!trip) return Response.json({ error: "Trip not found" }, { status: 404 });
+
+  const { data: destinations } = await admin
+    .from("trip_destinations")
+    .select("id, city, destination_key, order_index, visit_date")
+    .eq("trip_id", id)
+    .order("order_index", { ascending: true });
+  const stops = destinations || [];
+
+  // One cache read per destination — the existing cache-read function only.
+  const sections = [];
+  for (const stop of stops) {
+    const cached = await getFreshCache(stop.city);
+    const usable =
+      cached && (cached.alerts || []).length >= 4 && (cached.tips || []).length >= 3;
+    const alerts = usable ? cached.alerts : [];
+    const tips = usable ? cached.tips : [];
+    const sliced = sliceForPlan(effectivePlan, alerts, tips);
+    const curated = findKnownCity(stop.city);
+    sections.push({
+      city: stop.city,
+      visit_date: stop.visit_date,
+      alerts: sliced.alerts,
+      tips: sliced.tips,
+      lockedAlerts: sliced.lockedAlerts,
+      lockedTips: sliced.lockedTips,
+      source: usable ? "cache" : "empty",
+      noData: !usable,
+      safety: curated ? curated.safety : (estimateSafety(alerts) ?? "7.0"),
+    });
+  }
+
+  const totalAlerts = sections.reduce((n, s) => n + s.alerts.length, 0);
+  const totalLockedAlerts = sections.reduce((n, s) => n + (s.lockedAlerts || 0), 0);
+  const totalTips = sections.reduce((n, s) => n + s.tips.length, 0);
+  const totalLockedTips = sections.reduce((n, s) => n + (s.lockedTips || 0), 0);
+
+  return Response.json({
+    trip: { ...trip, destinations: stops },
+    sections,
+    plan: effectivePlan,
+    totals: {
+      alerts: totalAlerts,
+      lockedAlerts: totalLockedAlerts,
+      tips: totalTips,
+      lockedTips: totalLockedTips,
+    },
+  });
+}
+</file>
+
+<file path="src/app/api/trips/[id]/export/route.js">
+import { getRequestProfile, sliceForPlan } from "@/lib/auth-server";
+import { getBillingState, hasBillingAccess } from "@/lib/billing";
+import { adminDb } from "@/lib/supabase-admin";
+import { getFreshCache } from "@/lib/cache";
+import { findKnownCity } from "@/lib/dashboard-data";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+function esc(v) {
+  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// GET /api/trips/[id]/export?format=email|print|pocket
+// Export is Trip Pass / Annual only. No new dependency:
+// print = print-ready HTML (Save as PDF), email = subject + text (mailto:),
+// pocket = 1-page airport card HTML (Save as PDF).
+export async function GET(request, { params }) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+  const { id } = await params;
+  let billingState = { subscription: null, tripPass: null };
+  try {
+    billingState = await getBillingState(profile.user.id);
+  } catch (e) {
+    console.error("[TripExport] billing failed:", e?.message || e);
+  }
+  if (!hasBillingAccess(billingState)) {
+    return Response.json({ error: "Export is Trip Pass / Annual only.", upgradeRequired: true, plan: "free" }, { status: 403 });
+  }
+  const plan = billingState.subscription?.plan_key === "annual" ? "annual" : "trip_pass";
+  const format = (new URL(request.url).searchParams.get("format") || "email").toLowerCase();
+  const admin = adminDb();
+  const { data: trip } = await admin.from("trips").select("id, name").eq("id", id).eq("user_id", profile.user.id).maybeSingle();
+  if (!trip) return Response.json({ error: "Trip not found" }, { status: 404 });
+  const { data: dests } = await admin.from("trip_destinations").select("city, visit_date").eq("trip_id", id).order("order_index");
+  const sections = [];
+  for (const stop of dests || []) {
+    const cached = await getFreshCache(stop.city);
+    const ok = cached && (cached.alerts || []).length >= 4 && (cached.tips || []).length >= 3;
+    const s = sliceForPlan(plan, ok ? cached.alerts : [], ok ? cached.tips : []);
+    sections.push({ city: stop.city, visit_date: stop.visit_date, alerts: s.alerts, tips: s.tips });
+  }
+  const day = new Date().toISOString().slice(0, 10);
+  const subject = `TravelRadar Trip Briefing: ${trip.name} (${day})`;
+  if (format === "pocket") {
+    const html = buildPocketHtml(trip, day, sections, id);
+    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
+  if (format === "print") {
+    const html = buildPrintHtml(subject, day, sections);
+    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
+  return Response.json({ subject, body: buildTextBody(trip, day, sections), plan });
+}
+
+function buildTextBody(trip, day, sections) {
+  const lines = [`${trip.name} — ${sections.length} stops (${day})`, ""];
+  sections.forEach((s, i) => {
+    lines.push(`${i + 1}. ${s.city}${s.visit_date ? " — " + s.visit_date : ""}`);
+    lines.push(`   ALERTS (${s.alerts.length}):`);
+    if (!s.alerts.length) lines.push("   - No cached intel yet.");
+    for (const a of s.alerts) lines.push(`   - ${a.name} [${a.severity || "medium"}]: ${a.description || ""}`);
+    lines.push(`   TIPS (${s.tips.length}):`);
+    if (!s.tips.length) lines.push("   - No cached tips yet.");
+    for (const t of s.tips) lines.push(`   - ${t.name}: ${t.description || ""}`);
+    lines.push("");
+  });
+  lines.push("— TravelRadar. Verify locally.");
+  return lines.join("\n");
+}
+
+function buildPrintHtml(subject, day, sections) {
+  const secs = sections.map((s, i) => {
+    const a = s.alerts.length ? `<ol>${s.alerts.map((x) => `<li><b>${esc(x.name)}</b> [${esc(x.severity || "m")}]<br/>${esc(x.description || "")}</li>`).join("")}</ol>` : "<p>No cached intel yet.</p>";
+    const t = s.tips.length ? `<ol>${s.tips.map((x) => `<li><b>${esc(x.name)}</b><br/>${esc(x.description || "")}</li>`).join("")}</ol>` : "<p>No cached tips yet.</p>";
+    return `<section><h2>${i + 1}. ${esc(s.city)}</h2><h3>Alerts (${s.alerts.length})</h3>${a}<h3>Tips (${s.tips.length})</h3>${t}</section>`;
+  }).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(subject)}</title><style>body{font-family:Georgia,serif;max-width:720px;margin:32px auto;padding:0 20px}h2{border-bottom:2px solid #111}li{margin:8px 0;line-height:1.5}section{page-break-inside:avoid}</style></head><body><h1>${esc(subject)}</h1><p>${sections.length} stops · ${esc(day)}</p>${secs}<script>window.onload=function(){window.print();}</script></body></html>`;
+}
+</file>
+
+<file path="src/app/api/trips/[id]/route.js">
+import { getRequestProfile } from "@/lib/auth-server";
+import { getBillingState, hasBillingAccess } from "@/lib/billing";
+import { adminDb } from "@/lib/supabase-admin";
+import { normalizeTripDestinations, normalizeTripName } from "@/lib/trips";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function isPaidPlan(plan) {
+  return plan === "annual" || plan === "trip_pass";
+}
+
+async function ownTrip(admin, userId, id) {
+  const { data } = await admin
+    .from("trips")
+    .select("id, name, created_at, updated_at")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data;
+}
+
+// GET /api/trips/[id] → trip + ordered destinations.
+export async function GET(request, { params }) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+  const { id } = await params;
+  const admin = adminDb();
+  const trip = await ownTrip(admin, profile.user.id, id);
+  if (!trip) return Response.json({ error: "Trip not found" }, { status: 404 });
+
+  const { data: destinations } = await admin
+    .from("trip_destinations")
+    .select("id, city, destination_key, order_index, visit_date")
+    .eq("trip_id", id)
+    .order("order_index", { ascending: true });
+
+  return Response.json({ trip: { ...trip, destinations: destinations || [] }, plan: profile.plan });
+}
+
+// PATCH /api/trips/[id] { name?, destinations? } → rename and/or replace list.
+export async function PATCH(request, { params }) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+  const { id } = await params;
+
+  let billingState = { subscription: null, tripPass: null };
+  try {
+    billingState = await getBillingState(profile.user.id);
+  } catch (err) {
+    console.error("[Trips] billing state failed:", err?.message || err);
+  }
+  const plan = hasBillingAccess(billingState)
+    ? billingState.subscription?.plan_key === "annual"
+      ? "annual"
+      : "trip_pass"
+    : profile.plan;
+  if (!isPaidPlan(plan)) {
+    return Response.json(
+      { error: "Trip Mode is a Trip Pass / Annual feature.", upgradeRequired: true, plan: "free" },
+      { status: 403 },
+    );
+  }
+
+  const admin = adminDb();
+  const trip = await ownTrip(admin, profile.user.id, id);
+  if (!trip) return Response.json({ error: "Trip not found" }, { status: 404 });
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  if (body?.name !== undefined) {
+    await admin
+      .from("trips")
+      .update({ name: normalizeTripName(body.name), updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  if (body?.destinations !== undefined) {
+    const { destinations, error } = normalizeTripDestinations(body.destinations);
+    if (error) return Response.json({ error }, { status: 400 });
+    await admin.from("trip_destinations").delete().eq("trip_id", id);
+    const rows = destinations.map((d, i) => ({
+      trip_id: id,
+      city: d.city,
+      destination_key: d.destination_key,
+      order_index: i,
+      visit_date: d.visit_date,
+    }));
+    const { error: destErr } = await admin.from("trip_destinations").insert(rows);
+    if (destErr) return Response.json({ error: "Could not save destinations" }, { status: 500 });
+  }
+
+  const { data: destinations } = await admin
+    .from("trip_destinations")
+    .select("id, city, destination_key, order_index, visit_date")
+    .eq("trip_id", id)
+    .order("order_index", { ascending: true });
+  const { data: updated } = await admin
+    .from("trips")
+    .select("id, name, created_at, updated_at")
+    .eq("id", id)
+    .single();
+  return Response.json({ trip: { ...(updated || trip), destinations: destinations || [] }, plan });
+}
+
+// DELETE /api/trips/[id]
+export async function DELETE(request, { params }) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+  const { id } = await params;
+  const admin = adminDb();
+  const trip = await ownTrip(admin, profile.user.id, id);
+  if (!trip) return Response.json({ error: "Trip not found" }, { status: 404 });
+  await admin.from("trips").delete().eq("id", id);
+  return Response.json({ ok: true });
+}
+</file>
+
+<file path="src/app/api/trips/route.js">
+import { getRequestProfile } from "@/lib/auth-server";
+import { getBillingState, hasBillingAccess } from "@/lib/billing";
+import { adminDb } from "@/lib/supabase-admin";
+import { normalizeTripDestinations, normalizeTripName } from "@/lib/trips";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function isPaidPlan(plan) {
+  return plan === "annual" || plan === "trip_pass";
+}
+
+// GET /api/trips → list own trips with destination counts.
+export async function GET(request) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+
+  const admin = adminDb();
+  const { data: trips, error } = await admin
+    .from("trips")
+    .select("id, name, created_at, updated_at")
+    .eq("user_id", profile.user.id)
+    .order("created_at", { ascending: false });
+  if (error) return Response.json({ error: "Could not load trips" }, { status: 500 });
+
+  const tripIds = (trips || []).map((t) => t.id);
+  let dests = [];
+  if (tripIds.length > 0) {
+    const { data } = await admin
+      .from("trip_destinations")
+      .select("trip_id, city")
+      .in("trip_id", tripIds);
+    dests = data || [];
+  }
+  const counts = {};
+  for (const d of dests || []) counts[d.trip_id] = (counts[d.trip_id] || 0) + 1;
+
+  return Response.json({
+    trips: (trips || []).map((t) => ({ ...t, destinationCount: counts[t.id] || 0 })),
+    plan: profile.plan,
+  });
+}
+
+// POST /api/trips { name, destinations: [city | {city, visit_date}] }
+// Trip Mode (more than 1 destination, or any trip create) is Trip Pass/Annual only.
+export async function POST(request) {
+  const profile = await getRequestProfile(request);
+  if (!profile.user) return Response.json({ error: "sign in required" }, { status: 401 });
+
+  let billingState = { subscription: null, tripPass: null };
+  try {
+    billingState = await getBillingState(profile.user.id);
+  } catch (err) {
+    console.error("[Trips] billing state failed:", err?.message || err);
+  }
+  const plan = hasBillingAccess(billingState)
+    ? billingState.subscription?.plan_key === "annual"
+      ? "annual"
+      : "trip_pass"
+    : profile.plan;
+  if (!isPaidPlan(plan)) {
+    return Response.json(
+      {
+        error: "Trip Mode is a Trip Pass / Annual feature. Upgrade to build multi-city briefings.",
+        upgradeRequired: true,
+        plan: "free",
+      },
+      { status: 403 },
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { destinations, error } = normalizeTripDestinations(body?.destinations);
+  if (error) return Response.json({ error }, { status: 400 });
+  const name = normalizeTripName(body?.name);
+
+  const admin = adminDb();
+  const { data: trip, error: tripErr } = await admin
+    .from("trips")
+    .insert({ user_id: profile.user.id, name })
+    .select("id, name, created_at, updated_at")
+    .single();
+  if (tripErr || !trip) {
+    console.error("[Trips] create failed:", tripErr?.message);
+    return Response.json({ error: "Could not create trip" }, { status: 500 });
+  }
+
+  const rows = destinations.map((d, i) => ({
+    trip_id: trip.id,
+    city: d.city,
+    destination_key: d.destination_key,
+    order_index: i,
+    visit_date: d.visit_date,
+  }));
+  const { error: destErr } = await admin.from("trip_destinations").insert(rows);
+  if (destErr) {
+    console.error("[Trips] destinations insert failed:", destErr.message);
+    await admin.from("trips").delete().eq("id", trip.id);
+    return Response.json({ error: "Could not save destinations" }, { status: 500 });
+  }
+
+  return Response.json({ trip: { ...trip, destinations: rows }, plan }, { status: 201 });
+}
+</file>
+
 <file path="src/app/auth/callback/route.js">
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
@@ -2333,6 +2767,216 @@ export async function GET(request) {
 }
 </file>
 
+<file path="src/app/dashboard/trips/[id]/page.js">
+"use client";
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
+import { RequireAuth } from "@/components/dashboard/RequireAuth";
+import { TripBriefing } from "@/components/trips/TripBriefing";
+import { TripLocked } from "@/components/trips/TripLocked";
+import { TripExportButtons } from "@/components/trips/TripExportButtons";
+import { TripBuilder } from "@/components/trips/TripBuilder";
+import UpgradeModal from "@/components/UpgradeModal";
+import { supabase } from "@/lib/supabase";
+
+async function token() {
+  const { data } = await supabase?.auth.getSession();
+  return data?.session?.access_token || null;
+}
+
+function TripDetailContent() {
+  const { id } = useParams();
+  const [trip, setTrip] = useState(null);
+  const [sections, setSections] = useState([]);
+  const [plan, setPlan] = useState("free");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+
+  async function load() {
+    setLoading(true); setError("");
+    try {
+      const t = await token();
+      const h = t ? { Authorization: `Bearer ${t}` } : {};
+      const [tr, br] = await Promise.all([
+        fetch(`/api/trips/${id}`, { headers: h }).then((r) => r.json()),
+        fetch(`/api/trips/${id}/briefing`, { headers: h }).then((r) => r.json()),
+      ]);
+      if (tr.error) throw new Error(tr.error);
+      setTrip(tr.trip); setPlan(tr.plan || br.plan || "free");
+      setSections(br.sections || []);
+    } catch (e) { setError(e.message || "Could not load trip."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { if (id) load(); }, [id]);
+
+  async function saveEdit({ name, destinations }) {
+    setSaving(true); setError("");
+    try {
+      const t = await token();
+      const r = await fetch(`/api/trips/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) },
+        body: JSON.stringify({ name, destinations }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 403 && j.upgradeRequired) { setShowUpgrade(true); return; }
+      if (!r.ok) throw new Error(j.error || "Could not save trip.");
+      setEditing(false); await load();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  const paid = plan !== "free";
+  return (
+    <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
+      <div className="mx-auto max-w-3xl px-4 pt-6 sm:px-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard/trips" aria-label="Back to trips" className="flex size-9 items-center justify-center rounded-full bg-zinc-200/70 dark:bg-[#1c1c24]"><ChevronLeft className="size-4" /></Link>
+            <h1 className="text-xl font-black sm:text-2xl">{trip?.name || "Trip"}</h1>
+          </div>
+          {paid && trip && !editing && <button type="button" onClick={() => setEditing(true)} className="h-9 rounded-full border px-4 text-xs font-bold border-zinc-200 dark:border-white/10">Edit</button>}
+        </div>
+        {error && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">{error}</p>}
+        {loading ? <p className="mt-6 text-sm text-zinc-500">Loading briefing…</p> : !paid ? (
+          <div className="mt-6"><TripLocked city={trip?.destinations?.[0]?.city || ""} /></div>
+        ) : editing ? (
+          <div className="mt-6"><TripBuilder initialName={trip?.name || ""} initialDestinations={trip?.destinations || []} onSubmit={saveEdit} saving={saving} submitLabel="Save changes" /></div>
+        ) : (
+          <div className="mt-6 space-y-5">
+            <TripExportButtons tripId={id} getToken={token} onUpgrade={() => setShowUpgrade(true)} />
+            <TripBriefing sections={sections} plan={plan} onUpgrade={() => setShowUpgrade(true)} />
+          </div>
+        )}
+        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      </div>
+    </div>
+  );
+}
+
+export default function TripDetailPage() {
+  return (<Suspense fallback={<div className="p-8 text-sm text-zinc-500">Loading trip…</div>}><RequireAuth><TripDetailContent /></RequireAuth></Suspense>);
+}
+</file>
+
+<file path="src/app/dashboard/trips/page.js">
+"use client";
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { ChevronLeft, MapPin, Trash2 } from "lucide-react";
+import { RequireAuth } from "@/components/dashboard/RequireAuth";
+import { TripBuilder } from "@/components/trips/TripBuilder";
+import { TripLocked } from "@/components/trips/TripLocked";
+import UpgradeModal from "@/components/UpgradeModal";
+import { supabase } from "@/lib/supabase";
+
+async function token() {
+  const { data } = await supabase?.auth.getSession();
+  return data?.session?.access_token || null;
+}
+
+function TripsContent() {
+  const [trips, setTrips] = useState([]);
+  const [plan, setPlan] = useState("free");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [showUpgrade, setShowUpgrade] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const t = await token();
+      const r = await fetch("/api/trips", { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+      const j = await r.json();
+      if (r.ok) { setTrips(j.trips || []); setPlan(j.plan || "free"); }
+      else setError(j.error || "Could not load trips.");
+    } catch { setError("Could not load trips."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []);
+
+  const paid = plan !== "free";
+
+  async function createTrip({ name, destinations }) {
+    setSaving(true); setError("");
+    try {
+      const t = await token();
+      const r = await fetch("/api/trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) },
+        body: JSON.stringify({ name, destinations }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 403 && j.upgradeRequired) { setShowUpgrade(true); return; }
+      if (!r.ok) throw new Error(j.error || "Could not create trip.");
+      setTrips((list) => [{ ...j.trip, destinationCount: (j.trip.destinations || []).length }, ...list]);
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteTrip(id) {
+    if (!window.confirm("Delete this trip?")) return;
+    const t = await token();
+    await fetch(`/api/trips/${id}`, { method: "DELETE", headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    setTrips((list) => list.filter((x) => x.id !== id));
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
+      <div className="mx-auto max-w-3xl px-4 pt-6 sm:px-6">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" aria-label="Back to dashboard" className="flex size-9 items-center justify-center rounded-full bg-zinc-200/70 dark:bg-[#1c1c24]"><ChevronLeft className="size-4" /></Link>
+          <div><h1 className="text-xl font-black sm:text-2xl">Trip Mode</h1>
+            <p className="text-xs text-zinc-500">One briefing across 3–6 destinations.</p></div>
+        </div>
+        {error && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">{error}</p>}
+        {loading ? <p className="mt-6 text-sm text-zinc-500">Loading trips…</p> : !paid ? (
+          <div className="mt-6 space-y-4">
+            <TripLocked />
+            {trips.length > 0 && (
+              <div className="rounded-[28px] border p-5 dark:border-white/10">
+                <p className="text-sm font-bold">Your trips ({trips.length})</p>
+                <p className="text-xs text-zinc-500">Upgrade to open and export them.</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-6 space-y-6">
+            <TripBuilder onSubmit={createTrip} saving={saving} submitLabel="Create trip briefing" />
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400">Your trips</p>
+              {trips.length === 0 ? <p className="mt-2 text-sm text-zinc-500">No trips yet — build your first above.</p> : (
+                <ul className="mt-2 space-y-2">
+                  {trips.map((t) => (
+                    <li key={t.id} className="flex items-center gap-3 rounded-2xl border border-zinc-200/90 bg-white px-4 py-3 dark:border-white/10 dark:bg-[#16161b]">
+                      <MapPin className="size-4 shrink-0 text-[#e5283b]" />
+                      <Link href={`/dashboard/trips/${t.id}`} className="min-w-0 flex-1"><span className="block truncate text-sm font-bold hover:underline">{t.name}</span>
+                        <span className="text-[11px] text-zinc-400">{t.destinationCount} stops</span></Link>
+                      <button type="button" onClick={() => deleteTrip(t.id)} aria-label={`Delete ${t.name}`} className="text-zinc-400 hover:text-red-500"><Trash2 className="size-4" /></button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      </div>
+    </div>
+  );
+}
+
+export default function TripsPage() {
+  return (<Suspense fallback={<div className="p-8 text-sm text-zinc-500">Loading trips…</div>}><RequireAuth><TripsContent /></RequireAuth></Suspense>);
+}
+</file>
+
 <file path="src/app/dashboard/layout.js">
 import { MotionConfig } from "framer-motion";
 import { CommandMenu } from "@/components/ui/command-menu";
@@ -2358,6 +3002,7 @@ import { Suspense, useEffect, useState } from "react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
+import { TripModeCard } from "@/components/dashboard/TripModeCard";
 import { IntelTabs } from "@/components/dashboard/IntelTabs";
 import {
   Weather7DayCard,
@@ -2725,6 +3370,10 @@ function DashboardContent() {
                 alerts={alerts}
                 safety={safety}
               />
+              <TripModeCard
+                plan={plan}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
               <IntelTabs
                 key={city}
                 city={city}
@@ -2762,6 +3411,10 @@ function DashboardContent() {
                 alerts={alerts}
                 safety={safety}
               />
+              <TripModeCard
+                plan={plan}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
               <IntelTabs
                 key={city}
                 city={city}
@@ -2796,14 +3449,10 @@ function DashboardContent() {
               safety={safety}
             />
 
-            <Weather7DayCard brief={activeBrief} />
-
-            <div className="grid grid-cols-2 gap-3">
-              <WeatherNowCard brief={activeBrief} />
-              <UsdConversionCard brief={activeBrief} />
-            </div>
-
-            <ExchangeRateCard brief={activeBrief} />
+            <TripModeCard
+              plan={plan}
+              onUpgrade={() => setShowUpgradeModal(true)}
+            />
 
             <IntelTabs
               key={city}
@@ -2820,6 +3469,15 @@ function DashboardContent() {
               refreshing={refreshing}
               refreshLocked={refreshLocked}
             />
+
+            <Weather7DayCard brief={activeBrief} />
+
+            <div className="grid grid-cols-2 gap-3">
+              <WeatherNowCard brief={activeBrief} />
+              <UsdConversionCard brief={activeBrief} />
+            </div>
+
+            <ExchangeRateCard brief={activeBrief} />
           </div>
         </div>
 
@@ -8197,43 +8855,114 @@ export function Topbar({ city, brief, searchLocked = false }) {
 }
 </file>
 
+<file path="src/components/dashboard/TripModeCard.js">
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { ChevronDown, ChevronRight, LockKeyhole, Route } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+
+// Expandable Trip Mode entry card. Renders directly under DestinationHeader
+// in every dashboard layout branch, so on laptop (xl) it sits in the same
+// first column next to/below the header, and on tablet/mobile it stacks
+// under the header. Paid users get links to /dashboard/trips; Explorer
+// users get the locked upsell that opens the existing UpgradeModal.
+export function TripModeCard({ plan = "free", onUpgrade }) {
+  const [open, setOpen] = useState(false);
+  const paid = plan !== "free";
+  return (
+    <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 text-left">
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-50 text-[#e5283b] dark:bg-red-950/50 dark:text-[#f87171]">
+            <Route className="size-4.5" />
+          </span>
+          <span className="min-w-0">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-black text-zinc-900 dark:text-white">Trip Mode</span>
+              {!paid && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[9px] font-black uppercase text-amber-800 dark:bg-amber-950/70 dark:text-amber-400">Pro</span>
+              )}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-zinc-500 dark:text-zinc-400">One briefing across 3–6 cities</span>
+          </span>
+        </span>
+        {open ? <ChevronDown className="size-4 shrink-0 text-zinc-400" /> : <ChevronRight className="size-4 shrink-0 text-zinc-400" />}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+            <ul className="space-y-1.5 pt-4 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
+              <li>Build a trip of 3–6 destinations with optional dates.</li>
+              <li>Combined alerts + tips per stop, exportable as PDF or email.</li>
+              {!paid && <li className="flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-300"><LockKeyhole className="size-3.5" /> Trip Pass ($7/30 days) or Annual ($29/year).</li>}
+            </ul>
+            {paid ? (
+              <div className="flex flex-wrap gap-2 pt-4">
+                <Link href="/dashboard/trips" className="inline-flex h-10 items-center rounded-full bg-black px-5 text-xs font-bold text-white dark:border dark:border-white/20">Open Trip Mode</Link>
+                <Link href="/dashboard/trips" className="inline-flex h-10 items-center rounded-full border border-zinc-200/90 px-5 text-xs font-bold dark:border-white/10">My trips</Link>
+              </div>
+            ) : (
+              <button type="button" onClick={onUpgrade} className="mt-4 flex h-11 w-full items-center justify-center rounded-full bg-black text-xs font-bold text-white dark:border dark:border-white/20">Upgrade to unlock Trip Mode</button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+</file>
+
 <file path="src/components/dashboard/WeatherCard.js">
 "use client";
 
-import { Calendar, CloudRain, Sun, CloudSun, CloudLightning } from "lucide-react";
-
-const FALLBACK_FORECAST = [
-  { day: "MON", temp: 29, low: 24, type: "rain" },
-  { day: "TUE", temp: 29, low: 24, type: "rain", active: true, rain: "88% rain" },
-  { day: "WED", temp: 30, low: 24, type: "rain" },
-  { day: "THU", temp: 30, low: 24, type: "rain" },
-  { day: "FRI", temp: 29, low: 24, type: "rain" },
-  { day: "SAT", temp: 31, low: 24, type: "sun" },
-  { day: "SUN", temp: 31, low: 24, type: "sun" },
-];
+import {
+  Calendar,
+  CloudRain,
+  Sun,
+  CloudSun,
+  CloudLightning,
+} from "lucide-react";
 
 export function Weather7DayCard({ brief }) {
-  const forecast =
-    Array.isArray(brief?.forecast) && brief.forecast.length > 0
-      ? brief.forecast
-      : FALLBACK_FORECAST;
+  const forecast = Array.isArray(brief?.forecast) ? brief.forecast : [];
+
+  if (forecast.length === 0) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-black tracking-tight text-zinc-900 sm:text-lg dark:text-white">
+            7-Day Weather
+          </h3>
+          <Calendar className="size-4 text-zinc-400 dark:text-zinc-500" />
+        </div>
+        <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
+          Forecast unavailable for this destination.
+        </p>
+      </div>
+    );
+  }
 
   const renderIcon = (type, isHighlighted = false) => {
-    if (type === "sun") {
-      return <Sun className="size-4 text-amber-500" />;
-    }
-    if (type === "thunder") {
+    if (type === "sun") return <Sun className="size-4 text-amber-500" />;
+    if (type === "thunder")
       return <CloudLightning className="size-4 text-amber-500" />;
-    }
-    if (type === "partly-cloudy") {
+    if (type === "partly-cloudy")
       return <CloudSun className="size-4 text-amber-500" />;
-    }
     return (
       <CloudRain
-        className={`size-4 ${isHighlighted ? "text-white" : "text-zinc-400 dark:text-zinc-500"}`}
+        className={`size-4 ${
+          isHighlighted ? "text-white" : "text-zinc-400 dark:text-zinc-500"
+        }`}
       />
     );
   };
+
+  function tempLabel(f) {
+    if (f.temp == null) return "—";
+    return f.low != null ? `${f.temp}° / ${f.low}°` : `${f.temp}°`;
+  }
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
@@ -8246,9 +8975,9 @@ export function Weather7DayCard({ brief }) {
 
       <div className="mt-4 hidden space-y-1.5 md:block">
         {forecast.map((f, i) => {
-          const isActive = f.active || i === 1;
+          const isToday = f.day === "Today";
 
-          if (isActive) {
+          if (isToday) {
             return (
               <div
                 key={f.day + i}
@@ -8256,12 +8985,12 @@ export function Weather7DayCard({ brief }) {
               >
                 <span className="font-mono text-xs uppercase">{f.day}</span>
                 {renderIcon(f.type, true)}
-                <span className="font-mono text-xs">
-                  {f.temp}° / {f.low || f.temp - 5}°
-                </span>
-                <span className="text-[10px] font-medium text-white/90">
-                  {f.rain || "88% rain"}
-                </span>
+                <span className="font-mono text-xs">{tempLabel(f)}</span>
+                {f.rain && (
+                  <span className="text-[10px] font-medium text-white/90">
+                    {f.rain}
+                  </span>
+                )}
               </div>
             );
           }
@@ -8275,9 +9004,12 @@ export function Weather7DayCard({ brief }) {
                 {f.day}
               </span>
               {renderIcon(f.type)}
-              <span className="font-mono">
-                {f.temp}° / {f.low || f.temp - 5}°
-              </span>
+              <span className="font-mono">{tempLabel(f)}</span>
+              {f.rain && (
+                <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+                  {f.rain}
+                </span>
+              )}
             </div>
           );
         })}
@@ -8285,20 +9017,20 @@ export function Weather7DayCard({ brief }) {
 
       <div className="no-scrollbar mt-4 flex items-center gap-2.5 overflow-x-auto pb-1 md:hidden">
         {forecast.map((f, i) => {
-          const isActive = f.active || i === 1;
+          const isToday = f.day === "Today";
 
           return (
             <div
               key={f.day + i}
               className={`flex h-36 w-24 shrink-0 flex-col items-center justify-between rounded-2xl p-3 text-center transition-all ${
-                isActive
+                isToday
                   ? "border-2 border-red-300 bg-red-50/90 dark:border-red-600/50 dark:bg-red-950/40"
                   : "border border-zinc-200/90 bg-white dark:border-white/10 dark:bg-[#16161b]"
               }`}
             >
               <span
                 className={`font-mono text-xs font-black uppercase ${
-                  isActive
+                  isToday
                     ? "text-[#e5283b] dark:text-[#f87171]"
                     : "text-zinc-600 dark:text-zinc-400"
                 }`}
@@ -8306,17 +9038,15 @@ export function Weather7DayCard({ brief }) {
                 {f.day}
               </span>
 
-              <div className="my-auto">
-                {renderIcon(f.type, false)}
-              </div>
+              <div className="my-auto">{renderIcon(f.type, false)}</div>
 
               <div>
                 <p className="font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                  {f.temp}° / {f.low || f.temp - 5}°
+                  {tempLabel(f)}
                 </p>
-                {isActive && (
+                {isToday && f.rain && (
                   <p className="mt-0.5 text-[10px] font-bold text-[#e5283b] dark:text-[#f87171]">
-                    {f.rain || "88% rain"}
+                    {f.rain}
                   </p>
                 )}
               </div>
@@ -8330,13 +9060,30 @@ export function Weather7DayCard({ brief }) {
 
 export function WeatherNowCard({ brief }) {
   const w = brief?.weather;
-  const hasWeather =
-    w && typeof w.temp === "number" && !Number.isNaN(w.temp);
+  const hasTemp = w && typeof w.temp === "number" && !Number.isNaN(w.temp);
 
-  const temp = hasWeather ? w.temp : 29;
-  const rainProb = hasWeather && typeof w.rain_chance === "number" ? w.rain_chance : 88;
-  const feels = hasWeather && typeof w.feels === "number" ? w.feels : 32;
-  const humidity = hasWeather && typeof w.humidity === "number" ? w.humidity : 81;
+  if (!hasTemp) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+        <p className="font-mono text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          NOW
+        </p>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          Current conditions unavailable.
+        </p>
+      </div>
+    );
+  }
+
+  const rainProb =
+    typeof w.rain_chance === "number" ? w.rain_chance : null;
+  const feels = typeof w.feels === "number" ? w.feels : null;
+  const humidity = typeof w.humidity === "number" ? w.humidity : null;
+  const condition = w.condition || null;
+
+  const detailParts = [];
+  if (feels != null) detailParts.push(`Feels like ${feels}°C`);
+  if (humidity != null) detailParts.push(`Humidity ${humidity}%`);
 
   return (
     <div className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
@@ -8346,17 +9093,25 @@ export function WeatherNowCard({ brief }) {
 
       <div className="mt-2 flex items-center justify-between">
         <span className="font-mono text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl dark:text-white">
-          {temp}°C
+          {w.temp}°C
         </span>
         <CloudRain className="size-10 text-[#e5283b] dark:text-[#f87171]" />
       </div>
 
-      <p className="mt-3 text-xs font-bold text-[#e5283b] dark:text-[#f87171]">
-        {rainProb}% rain probability
-      </p>
+      {condition && (
+        <p className="mt-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+          {condition}
+        </p>
+      )}
+
+      {rainProb != null && (
+        <p className="mt-2 text-xs font-bold text-[#e5283b] dark:text-[#f87171]">
+          {rainProb}% rain probability
+        </p>
+      )}
 
       <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-        Feels like {feels}°C · Humidity {humidity}%
+        {detailParts.length ? detailParts.join(" · ") : "—"}
       </p>
     </div>
   );
@@ -8367,6 +9122,230 @@ export function WeatherCard({ brief }) {
     <div className="space-y-4">
       <Weather7DayCard brief={brief} />
       <WeatherNowCard brief={brief} />
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/trips/TripBriefing.js">
+"use client";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+
+// Combined view: each destination is a section with its alerts/tips.
+// Data already sliced per plan by /briefing route via sliceForPlan.
+export function TripBriefing({ sections = [], plan = "free", loading = false, onUpgrade }) {
+  const [open, setOpen] = useState(0);
+  const paid = plan !== "free";
+  if (loading) return <p className="py-10 text-center text-xs text-zinc-400">Loading trip briefing…</p>;
+  if (!sections.length) return <p className="py-10 text-center text-xs text-zinc-400">No destinations yet.</p>;
+  return (
+    <div className="space-y-4">
+      {sections.map((s, i) => {
+        const isOpen = open === i;
+        const locked = (s.lockedAlerts || 0) + (s.lockedTips || 0);
+        return (
+          <div key={`${s.city}-${i}`} className="rounded-[28px] border border-zinc-200/90 bg-white p-5 dark:border-white/10 dark:bg-[#16161b]">
+            <button type="button" onClick={() => setOpen(isOpen ? -1 : i)} className="flex w-full items-center justify-between text-left">
+              <span><span className="font-mono text-[10px] font-bold text-zinc-400">STOP {String(i + 1).padStart(2, "0")}</span>
+                <span className="block text-lg font-black">{s.city}</span>
+                <span className="text-[11px] text-zinc-400">{s.alerts.length} alerts · {s.tips.length} tips{s.visit_date ? ` · ${s.visit_date}` : ""}{s.safety ? ` · Safety ${s.safety}` : ""}{s.noData ? " · No cached intel yet" : ""}</span></span>
+              {isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            </button>
+            <AnimatePresence>
+              {isOpen && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  {s.noData ? (
+                    <p className="pt-3 text-xs text-zinc-500">No cached intel for {s.city} yet. Search it on the dashboard first.</p>
+                  ) : (
+                    <div className="grid gap-4 pt-4 md:grid-cols-2">
+                      <div><p className="text-[11px] font-bold uppercase text-red-600">Alerts</p>
+                        <ul className="mt-2 space-y-2">{s.alerts.map((a, k) => (<li key={k} className="text-xs"><b>{a.name}</b> <span className="text-zinc-400">[{a.severity || "medium"}]</span><br /><span className="text-zinc-600">{a.description}</span></li>))}</ul></div>
+                      <div><p className="text-[11px] font-bold uppercase text-amber-600">Tips</p>
+                        <ul className="mt-2 space-y-2">{s.tips.map((t, k) => (<li key={k} className="text-xs"><b>{t.name}</b><br /><span className="text-zinc-600">{t.description}</span></li>))}</ul></div>
+                    </div>
+                  )}
+                  {!paid && locked > 0 && (
+                    <button type="button" onClick={onUpgrade} className="mt-4 flex w-full items-center justify-between rounded-full bg-[#fef08a] px-5 py-3 text-xs font-bold">
+                      <span>Unlock {locked} more in {s.city}</span><LockKeyhole className="size-4" />
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/trips/TripBuilder.js">
+"use client";
+import { useEffect, useState } from "react";
+import { Plus, X, CalendarDays } from "lucide-react";
+import { cities } from "@/lib/dashboard-data";
+import { TRIP_MIN_DESTINATIONS, TRIP_MAX_DESTINATIONS } from "@/lib/trips";
+
+export function TripBuilder({ initialName = "", initialDestinations = [], onSubmit, saving = false, submitLabel = "Save trip" }) {
+  const [name, setName] = useState(initialName);
+  const [stops, setStops] = useState(() => initialDestinations.map((d) => (typeof d === "string" ? { city: d, visit_date: "" } : { city: d.city || "", visit_date: d.visit_date || "" })));
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [error, setError] = useState("");
+  useEffect(() => { setName(initialName); }, [initialName]);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setSuggestions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/city-search?q=${encodeURIComponent(q)}`);
+        const j = await r.json();
+        setSuggestions(j.cities || []);
+      } catch { setSuggestions([]); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+  function addCity(cityName) {
+    setError("");
+    const clean = String(cityName || "").trim();
+    if (!clean) return;
+    if (stops.some((s) => s.city.toLowerCase() === clean.toLowerCase())) { setError(`${clean} is already in this trip.`); return; }
+    if (stops.length >= TRIP_MAX_DESTINATIONS) { setError(`Trips support up to ${TRIP_MAX_DESTINATIONS}.`); return; }
+    setStops((s) => [...s, { city: clean, visit_date: "" }]);
+    setQuery(""); setSuggestions([]);
+  }
+  function removeAt(i) { setStops((s) => s.filter((_, x) => x !== i)); }
+  function setDate(i, v) { setStops((s) => s.map((x, xi) => (xi === i ? { ...x, visit_date: v } : x))); }
+  function handleSubmit(e) {
+    e.preventDefault(); setError("");
+    if (stops.length < TRIP_MIN_DESTINATIONS) { setError(`Add at least ${TRIP_MIN_DESTINATIONS} destinations.`); return; }
+    onSubmit?.({ name: name.trim() || "My Trip", destinations: stops.map((s) => ({ city: s.city, visit_date: s.visit_date || null })) });
+  }
+  return (
+    <form onSubmit={handleSubmit} className="rounded-[28px] border border-zinc-200/90 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#16161b]">
+      <label className="font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400">Trip name</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Southeast Asia loop"
+        className="mt-1.5 h-11 w-full rounded-full border px-4 text-sm outline-none dark:bg-[#0c0c0e] dark:text-white border-zinc-200/90 dark:border-white/10" />
+      <p className="mt-4 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400">Destinations · {stops.length}/{TRIP_MAX_DESTINATIONS}</p>
+      <div className="no-scrollbar mt-2 flex items-center gap-2 overflow-x-auto pb-1">
+        {cities.map((c) => {
+          const added = stops.some((s) => s.city.toLowerCase() === c.name.toLowerCase());
+          return (
+            <button key={c.name} type="button" disabled={added} onClick={() => addCity(c.name)}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-xs font-bold border border-zinc-200/90 dark:border-white/10">
+              <span>{c.flag}</span><span>{c.name}</span><Plus className="size-3.5" />
+            </button>
+          );
+        })}
+      </div>
+      <div className="relative mt-3">
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Or type any city…"
+          className="h-11 w-full rounded-full border px-4 text-sm outline-none dark:bg-[#0c0c0e] dark:text-white border-zinc-200/90 dark:border-white/10" />
+        {suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-52 overflow-y-auto rounded-2xl border bg-white p-1.5 shadow-xl dark:bg-[#0c0c0e]">
+            {suggestions.map((s, i) => (
+              <button key={`${s.name}-${i}`} type="button" onMouseDown={() => addCity(s.name)}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs hover:bg-zinc-100">
+                <span>{s.flag || "🌍"}</span><b>{s.name}</b><span className="text-zinc-400">· {s.country}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <ul className="mt-3 space-y-2">
+        {stops.map((s, i) => (
+          <li key={`${s.city}-${i}`} className="flex items-center gap-2 rounded-2xl border border-zinc-100 px-3 py-2 dark:border-white/5">
+            <span className="font-mono text-[11px] font-bold text-zinc-400">{String(i + 1).padStart(2, "0")}</span>
+            <span className="flex-1 text-sm font-bold">{s.city}</span>
+            <span className="flex items-center gap-1 text-zinc-400"><CalendarDays className="size-3.5" />
+              <input type="date" value={s.visit_date || ""} onChange={(e) => setDate(i, e.target.value)}
+                className="bg-transparent text-xs outline-none" aria-label={`Visit date for ${s.city}`} />
+            </span>
+            <button type="button" onClick={() => removeAt(i)} aria-label={`Remove ${s.city}`}><X className="size-4" /></button>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="mt-3 text-xs font-semibold text-red-500">{error}</p>}
+      <button type="submit" disabled={saving} className="mt-4 flex h-11 w-full items-center justify-center rounded-full bg-black text-xs font-bold text-white disabled:opacity-60">
+        {saving ? "Saving…" : submitLabel}
+      </button>
+    </form>
+  );
+}
+</file>
+
+<file path="src/components/trips/TripExportButtons.js">
+"use client";
+import { useState } from "react";
+import { Mail, Printer, LoaderCircle } from "lucide-react";
+
+// Export actions: PDF via print-ready HTML, email via mailto compose.
+// No new dependency. Gated server-side; 403 opens upgrade modal.
+export function TripExportButtons({ tripId, getToken, onUpgrade }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  async function token() { return getToken ? getToken() : null; }
+  async function doEmail() {
+    setBusy("email"); setError("");
+    try {
+      const t = await token();
+      const r = await fetch(`/api/trips/${tripId}/export?format=email`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 403 && j.upgradeRequired) { onUpgrade?.(); return; }
+      if (!r.ok) throw new Error(j.error || "Export failed.");
+      const href = `mailto:?subject=${encodeURIComponent(j.subject)}&body=${encodeURIComponent(j.body)}`;
+      window.location.assign(href);
+    } catch (e) { setError(e.message || "Export failed."); }
+    finally { setBusy(""); }
+  }
+  async function doPrint() {
+    setBusy("print"); setError("");
+    try {
+      const t = await token();
+      const r = await fetch(`/api/trips/${tripId}/export?format=print`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+      if (r.status === 403) { onUpgrade?.(); return; }
+      if (!r.ok) throw new Error("Export failed.");
+      const html = await r.text();
+      const w = window.open("", "_blank");
+      if (!w) throw new Error("Allow popups to export PDF.");
+      w.document.write(html); w.document.close();
+    } catch (e) { setError(e.message || "Export failed."); }
+    finally { setBusy(""); }
+  }
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={doPrint} disabled={!!busy} className="inline-flex h-10 items-center gap-2 rounded-full bg-black px-5 text-xs font-bold text-white disabled:opacity-60">
+          {busy === "print" ? <LoaderCircle className="size-4 animate-spin" /> : <Printer className="size-4" />} PDF (print)
+        </button>
+        <button type="button" onClick={doEmail} disabled={!!busy} className="inline-flex h-10 items-center gap-2 rounded-full border px-5 text-xs font-bold disabled:opacity-60 border-zinc-200 dark:border-white/10">
+          {busy === "email" ? <LoaderCircle className="size-4 animate-spin" /> : <Mail className="size-4" />} Email
+        </button>
+      </div>
+      {error && <p className="mt-2 text-xs font-semibold text-red-500">{error}</p>}
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/trips/TripLocked.js">
+"use client";
+import { LockKeyhole } from "lucide-react";
+import Link from "next/link";
+
+// Locked upsell for Explorer users. Trip Mode (>1 destination, export)
+// is Trip Pass / Annual only. Reuses UpgradeModal pattern via ?upgrade=true.
+export function TripLocked({ city = "" }) {
+  const href = city ? `/dashboard?city=${encodeURIComponent(city)}&upgrade=true` : "/dashboard?upgrade=true";
+  return (
+    <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/40 dark:bg-amber-950/30">
+      <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50"><LockKeyhole className="size-5 text-amber-700 dark:text-amber-300" /></span>
+      <h3 className="mt-3 text-lg font-black">Trip Mode is a Pro feature</h3>
+      <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-600 dark:text-zinc-400">Build a 3–6 city briefing and export it as PDF or email with Trip Pass ($7/30 days) or Annual ($29/year).</p>
+      <Link href={href} className="mt-4 inline-flex h-11 items-center rounded-full bg-black px-6 text-xs font-bold text-white">Upgrade to unlock Trip Mode</Link>
     </div>
   );
 }
@@ -12346,6 +13325,56 @@ export const supabase =
     : null;
 </file>
 
+<file path="src/lib/trips.js">
+import { normalizeCity, resolveCity, cityKey } from "./city.js";
+
+export const TRIP_MIN_DESTINATIONS = 3;
+export const TRIP_MAX_DESTINATIONS = 6;
+export const TRIP_NAME_MAX_LENGTH = 80;
+
+// Normalize + dedupe a raw destinations input into trip rows.
+// Reuses resolveCity/normalizeCity/cityKey — no new city logic.
+// Accepts strings ("Paris") or objects ({ city, visit_date }).
+// Returns { destinations } or { error }.
+export function normalizeTripDestinations(input) {
+  const list = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const destinations = [];
+
+  for (const entry of list) {
+    const rawCity = typeof entry === "string" ? entry : entry?.city;
+    const rawDate = typeof entry === "string" ? null : entry?.visit_date || entry?.visitDate || null;
+    const city = resolveCity(rawCity) || normalizeCity(rawCity);
+    const key = city ? cityKey(city) : "";
+    if (!city || !key || seen.has(key)) continue;
+    seen.add(key);
+
+    let visit_date = null;
+    if (rawDate) {
+      const parsed = new Date(String(rawDate));
+      if (!Number.isNaN(parsed.getTime())) {
+        visit_date = parsed.toISOString().slice(0, 10);
+      }
+    }
+
+    destinations.push({ city, destination_key: key, visit_date });
+  }
+
+  if (destinations.length < TRIP_MIN_DESTINATIONS) {
+    return { error: `Add at least ${TRIP_MIN_DESTINATIONS} destinations (up to ${TRIP_MAX_DESTINATIONS}).` };
+  }
+  if (destinations.length > TRIP_MAX_DESTINATIONS) {
+    return { error: `Trips support up to ${TRIP_MAX_DESTINATIONS} destinations.` };
+  }
+  return { destinations };
+}
+
+export function normalizeTripName(raw) {
+  const name = String(raw || "").trim().replace(/\s+/g, " ").slice(0, TRIP_NAME_MAX_LENGTH);
+  return name || "My Trip";
+}
+</file>
+
 <file path="src/lib/utils.js">
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -12525,6 +13554,72 @@ alter table if exists public.profiles
 -- Add name column for display name
 alter table if exists public.profiles
   add column if not exists display_name text;
+</file>
+
+<file path="supabase/migrations/20260911000000_trips.sql">
+-- Trip Mode: multi-city itinerary briefing (Trip Pass core feature).
+--
+-- New tables only. No changes to destinations, profiles, or billing tables.
+-- trip_destinations references the SAME destinations cache rows by key
+-- (destinations.city = lower-cased normalized city) — intel data is never
+-- duplicated here, only referenced. Briefing reads go through the existing
+-- cache-read function (getFreshCache) one call per destination.
+--
+-- Conventions follow 20260906113000_dodo_billing.sql and
+-- 20260906114500_trip_pass_and_destination_entitlements.sql:
+-- uuid PKs, timestamptz defaults, RLS enabled, owner-only SELECT policy,
+-- service-role writes from API routes (no user-facing INSERT/UPDATE policy).
+
+create table if not exists public.trips (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null default 'My Trip',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.trip_destinations (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  -- Display name, normalized via resolveCity() (e.g. "Siem Reap").
+  city text not null,
+  -- Cache key into public.destinations.city (cityKey() = lower-cased city).
+  destination_key text not null,
+  -- Position inside the trip (0-based). Client sends ordered list.
+  order_index integer not null default 0,
+  -- Optional visit date (YYYY-MM-DD). Display only, no logic depends on it.
+  visit_date date,
+  created_at timestamptz not null default now(),
+  constraint trip_destinations_order_non_negative check (order_index >= 0)
+);
+
+create index if not exists trips_user_created_idx
+  on public.trips (user_id, created_at desc);
+
+create index if not exists trip_destinations_trip_order_idx
+  on public.trip_destinations (trip_id, order_index);
+
+alter table public.trips enable row level security;
+alter table public.trip_destinations enable row level security;
+
+drop policy if exists "Users can view own trips" on public.trips;
+create policy "Users can view own trips"
+  on public.trips for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can view own trip destinations" on public.trip_destinations;
+create policy "Users can view own trip destinations"
+  on public.trip_destinations for select
+  using (
+    exists (
+      select 1 from public.trips t
+      where t.id = trip_destinations.trip_id
+        and t.user_id = auth.uid()
+    )
+  );
+
+-- Writes go through service-role API routes (same pattern as billing
+-- webhook writes); no user-facing INSERT/UPDATE/DELETE policies created.
 </file>
 
 <file path=".gitignore">

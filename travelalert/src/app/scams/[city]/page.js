@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { notFound } from "next/navigation";
-import { getScamCity, listScamCities } from "@/lib/scam-data";
+import { getScamCity, listScamCities, getRelatedCities } from "@/lib/scam-data";
 import { findKnownCity } from "@/lib/dashboard-data";
 
 const SITE_URL =
@@ -93,6 +93,10 @@ export default async function CityScamPage({ params }) {
   const country = known?.name?.split(", ").slice(1).join(", ") || "";
   const year = new Date().getFullYear();
   const signupHref = `/signup?city=${encodeURIComponent(city.name)}&redirect=/dashboard`;
+
+  // Related cities are pulled from the same destinations cache the page is
+  // already reading from — no hardcoded list, no extra data source.
+  const relatedCities = await getRelatedCities(slug, 5);
 
   const faqSchema = {
     "@context": "https://schema.org",
@@ -375,6 +379,47 @@ export default async function CityScamPage({ params }) {
                 </p>
               </div>
             </div>
+          </section>
+        )}
+
+        {relatedCities.length > 0 && (
+          <section
+            className="mt-16 border-t border-zinc-200 pt-10"
+            aria-labelledby="related-heading"
+          >
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#e5484a]">
+                  Keep checking
+                </p>
+                <h2
+                  id="related-heading"
+                  className="mt-2 text-2xl font-black tracking-tight sm:text-3xl"
+                >
+                  Related destinations
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-7 text-zinc-600">
+                  Other cities travelers are scanning before they land.
+                </p>
+              </div>
+            </div>
+            <ul className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {relatedCities.map((c) => (
+                <li key={c.slug}>
+                  <Link
+                    href={`/scams/${c.slug}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-base font-bold text-zinc-950 shadow-[0_6px_20px_rgba(24,24,27,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
+                  >
+                    <span className="min-w-0 truncate">
+                      {c.name} tourist scams
+                    </span>
+                    <span className="shrink-0 font-mono text-xs font-semibold text-[#e5484a]">
+                      View guide →
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 

@@ -60,6 +60,11 @@ function DashboardContent() {
   const [source, setSource] = useState("");
   const [brief, setBrief] = useState(null);
   const [briefCity, setBriefCity] = useState("");
+  // Which city the current `alerts`/`tips`/`source`/`safety`/`noData` payload
+  // belongs to. Mirrors `briefCity` for the weather/currency brief. Until this
+  // matches `city`, the render shows loading — never the previous city's data
+  // under the new city's name.
+  const [briefingCity, setBriefingCity] = useState("");
   const [plan, setPlan] = useState("free");
   const [lockedAlerts, setLockedAlerts] = useState(0);
   const [lockedTips, setLockedTips] = useState(0);
@@ -159,6 +164,8 @@ function DashboardContent() {
         if (bData.safety) setSafety(String(bData.safety));
         if (bData.searchesLeft !== undefined) setSearchesLeft(bData.searchesLeft);
         if (bData.searchLimit !== undefined) setSearchLimit(bData.searchLimit);
+        // Refresh is always for the current city, so stamp it here as well.
+        setBriefingCity(city);
 
         if (bData.refreshBlocked) {
           setRefreshNotice(bData.refreshBlockedReason || "Refresh blocked.");
@@ -188,7 +195,10 @@ function DashboardContent() {
     async function loadBriefing() {
       // Reset ALL per-city state up front. Without this, the previous city's
       // data remains visible while the new request is in flight — and forever
-      // if the new request fails, is aborted, or times out.
+      // if the new request fails, is aborted, or times out. `briefingCity` is
+      // intentionally NOT reset here: it stays as the previous city's key so
+      // the render gate below keeps the stale payload hidden until the new
+      // fetch resolves (or fails).
       setLoading(true);
       setError("");
       setRefreshNotice("");
@@ -223,6 +233,10 @@ function DashboardContent() {
           setSearchesLeft(0);
           setShowUpgradeModal(true);
           setError("");
+          setNoData(true);
+          // Stamp the city so the gate releases and IntelTabs shows the
+          // empty state (instead of a spinner) underneath the upgrade modal.
+          setBriefingCity(city);
           return;
         }
 
@@ -247,6 +261,9 @@ function DashboardContent() {
         setNoData(Boolean(data.noData));
         if (data.searchesLeft !== undefined) setSearchesLeft(data.searchesLeft);
         if (data.searchLimit !== undefined) setSearchLimit(data.searchLimit);
+        // Release the render gate for THIS city. Any earlier city's data is
+        // now superseded.
+        setBriefingCity(city);
 
         if (data.limitReached) {
           setShowUpgradeModal(true);
@@ -327,6 +344,22 @@ function DashboardContent() {
     plan === "free" && searchesLeft !== null && searchesLeft <= 0;
   const refreshLocked = searchLocked;
 
+  // -------------------------------------------------------------------------
+  // Render gate for the briefing payload. Same pattern as `activeBrief` for
+  // the weather/locale brief: the data is only rendered when its owning city
+  // matches the currently selected city. Until then the UI shows the loading
+  // state — never the previous city's alerts/tips under the new city name.
+  // -------------------------------------------------------------------------
+  const showBriefing = briefingCity === city;
+  const renderAlerts = showBriefing ? alerts : [];
+  const renderTips = showBriefing ? tips : [];
+  const renderSource = showBriefing ? source : "";
+  const renderSafety = showBriefing ? safety : null;
+  const renderNoData = showBriefing ? noData : false;
+  const renderLockedAlerts = showBriefing ? lockedAlerts : 0;
+  const renderLockedTips = showBriefing ? lockedTips : 0;
+  const renderLoading = !showBriefing && !error;
+
   return (
     <RequireAuth>
       <div className="min-h-screen bg-[#f7f6f2] pb-16 text-zinc-900 transition-colors duration-200 dark:bg-[#0c0c0e] dark:text-[#f3f3f2]">
@@ -340,13 +373,13 @@ function DashboardContent() {
         <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
           <DestinationChips active={city} />
 
-          {source && (
+          {renderSource && (
             <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-              {source === "cache"
+              {renderSource === "cache"
                 ? "Cached briefing"
-                : source === "empty"
+                : renderSource === "empty"
                   ? "No intel yet for this destination"
-                  : source === "seed"
+                  : renderSource === "seed"
                     ? "Pre-loaded preview"
                     : "Live intelligence"}
             </p>
@@ -370,8 +403,8 @@ function DashboardContent() {
               <DestinationHeader
                 city={city}
                 brief={activeBrief}
-                alerts={alerts}
-                safety={safety}
+                alerts={renderAlerts}
+                safety={renderSafety}
               />
               <TripModeCard
                 plan={plan}
@@ -380,13 +413,13 @@ function DashboardContent() {
               <IntelTabs
                 key={city}
                 city={city}
-                alerts={alerts}
-                tips={tips}
-                loading={loading}
+                alerts={renderAlerts}
+                tips={renderTips}
+                loading={renderLoading}
                 plan={plan}
-                lockedAlerts={lockedAlerts}
-                lockedTips={lockedTips}
-                noData={noData}
+                lockedAlerts={renderLockedAlerts}
+                lockedTips={renderLockedTips}
+                noData={renderNoData}
                 onUpgrade={() => setShowUpgradeModal(true)}
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
@@ -411,8 +444,8 @@ function DashboardContent() {
               <DestinationHeader
                 city={city}
                 brief={activeBrief}
-                alerts={alerts}
-                safety={safety}
+                alerts={renderAlerts}
+                safety={renderSafety}
               />
               <TripModeCard
                 plan={plan}
@@ -421,13 +454,13 @@ function DashboardContent() {
               <IntelTabs
                 key={city}
                 city={city}
-                alerts={alerts}
-                tips={tips}
-                loading={loading}
+                alerts={renderAlerts}
+                tips={renderTips}
+                loading={renderLoading}
                 plan={plan}
-                lockedAlerts={lockedAlerts}
-                lockedTips={lockedTips}
-                noData={noData}
+                lockedAlerts={renderLockedAlerts}
+                lockedTips={renderLockedTips}
+                noData={renderNoData}
                 onUpgrade={() => setShowUpgradeModal(true)}
                 onRefresh={handleRefresh}
                 refreshing={refreshing}
@@ -448,8 +481,8 @@ function DashboardContent() {
             <DestinationHeader
               city={city}
               brief={activeBrief}
-              alerts={alerts}
-              safety={safety}
+              alerts={renderAlerts}
+              safety={renderSafety}
             />
 
             <TripModeCard
@@ -460,13 +493,13 @@ function DashboardContent() {
             <IntelTabs
               key={city}
               city={city}
-              alerts={alerts}
-              tips={tips}
-              loading={loading}
+              alerts={renderAlerts}
+              tips={renderTips}
+              loading={renderLoading}
               plan={plan}
-              lockedAlerts={lockedAlerts}
-              lockedTips={lockedTips}
-              noData={noData}
+              lockedAlerts={renderLockedAlerts}
+              lockedTips={renderLockedTips}
+              noData={renderNoData}
               onUpgrade={() => setShowUpgradeModal(true)}
               onRefresh={handleRefresh}
               refreshing={refreshing}
