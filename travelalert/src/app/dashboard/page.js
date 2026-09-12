@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { DestinationChips } from "@/components/dashboard/DestinationChips";
 import { DestinationHeader } from "@/components/dashboard/DestinationHeader";
+import { TripModeCard } from "@/components/dashboard/TripModeCard";
 import { IntelTabs } from "@/components/dashboard/IntelTabs";
 import {
   Weather7DayCard,
@@ -372,6 +373,10 @@ function DashboardContent() {
                 alerts={alerts}
                 safety={safety}
               />
+              <TripModeCard
+                plan={plan}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
               <IntelTabs
                 key={city}
                 city={city}
@@ -409,6 +414,10 @@ function DashboardContent() {
                 alerts={alerts}
                 safety={safety}
               />
+              <TripModeCard
+                plan={plan}
+                onUpgrade={() => setShowUpgradeModal(true)}
+              />
               <IntelTabs
                 key={city}
                 city={city}
@@ -443,14 +452,10 @@ function DashboardContent() {
               safety={safety}
             />
 
-            <Weather7DayCard brief={activeBrief} />
-
-            <div className="grid grid-cols-2 gap-3">
-              <WeatherNowCard brief={activeBrief} />
-              <UsdConversionCard brief={activeBrief} />
-            </div>
-
-            <ExchangeRateCard brief={activeBrief} />
+            <TripModeCard
+              plan={plan}
+              onUpgrade={() => setShowUpgradeModal(true)}
+            />
 
             <IntelTabs
               key={city}
@@ -467,6 +472,15 @@ function DashboardContent() {
               refreshing={refreshing}
               refreshLocked={refreshLocked}
             />
+
+            <Weather7DayCard brief={activeBrief} />
+
+            <div className="grid grid-cols-2 gap-3">
+              <WeatherNowCard brief={activeBrief} />
+              <UsdConversionCard brief={activeBrief} />
+            </div>
+
+            <ExchangeRateCard brief={activeBrief} />
           </div>
         </div>
 
